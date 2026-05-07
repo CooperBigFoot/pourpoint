@@ -83,8 +83,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run tests
-        run: cargo test --workspace
+      - name: Run Rust workspace tests
+        run: cargo test --workspace --exclude pyshed
+
+      - name: Check pyshed bindings crate
+        run: cargo check -p pyshed
 
   python-wheel-smoke:
     name: Python wheel smoke

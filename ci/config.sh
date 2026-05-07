@@ -234,6 +234,21 @@ function fetch_untar() {
     fi
 }
 
+function fetch_untar_with_fallback() {
+    local primary_url="$1"
+    local fallback_url="$2"
+    local tar_file="$3"
+    local expected_hash="$4"
+
+    if fetch_untar "$primary_url" "$tar_file" "$expected_hash"; then
+        return 0
+    fi
+
+    echo "Primary download failed, retrying with fallback mirror: $fallback_url" >&2
+    rm -f "$tar_file"
+    fetch_untar "$fallback_url" "$tar_file" "$expected_hash"
+}
+
 # ---------------------------------------------------------------------------
 # Download all source tarballs upfront
 # ---------------------------------------------------------------------------
@@ -245,9 +260,10 @@ ZLIB_SHA256="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
 fetch_untar "${ZLIB_URL}" "${ZLIB_FNAME}.tar.gz" "${ZLIB_SHA256}"
 
 XZ_URL="https://tukaani.org/xz/xz-${XZ_VERSION}.tar.gz"
+XZ_FALLBACK_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VERSION}/xz-${XZ_VERSION}.tar.gz"
 XZ_FNAME="xz-${XZ_VERSION}"
 XZ_SHA256="ce09c50a5962786b83e5da389c90dd2c15ecd0980a258dd01f70f9e7ce58a8f1"
-fetch_untar "${XZ_URL}" "${XZ_FNAME}.tar.gz" "${XZ_SHA256}"
+fetch_untar_with_fallback "${XZ_URL}" "${XZ_FALLBACK_URL}" "${XZ_FNAME}.tar.gz" "${XZ_SHA256}"
 
 LIBDEFLATE_URL="https://github.com/ebiggers/libdeflate/archive/refs/tags/v${LIBDEFLATE_VERSION}.tar.gz"
 LIBDEFLATE_FNAME="libdeflate-${LIBDEFLATE_VERSION}"
