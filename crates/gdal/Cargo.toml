@@ -12,4 +12,5 @@ thiserror = "2"
 tracing = "0.1"
 
 [dev-dependencies]
+shed-core = { path = "../core", features = ["test-fixtures"] }
 tempfile = "3"

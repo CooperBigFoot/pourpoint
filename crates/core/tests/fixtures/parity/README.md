@@ -41,3 +41,31 @@ canonicalizer version and invalidates captured goldens.
 - `canonicalizer_version`: canonicalizer contract version
 - `comparison_policy`: coordinate absolute epsilon plus `area_km2`
   absolute/relative epsilon tied to canonical WKB precision
+
+## Synthetic Refined Raster Fixture
+
+`v01_synthetic_refined/` is oracle B's committed v0.1 input fixture. It mirrors
+the existing `simple_convergent_5x5` refinement geometry with real TIFF bytes.
+
+- Dimensions: 5 columns x 5 rows for both `flow_dir.tif` and `flow_acc.tif`
+- CRS: EPSG:4326
+- Transform: north-up GDAL transform `[0, 1, 0, 0, 0, -1]`
+- Origin: upper-left PixelIsArea corner `(0, 0)`
+- Pixel size: `1 x -1` degrees
+- Extent: `x=[0, 5]`, `y=[-5, 0]`
+- Pixel interpretation: GeoTIFF `GTRasterTypeGeoKey=PixelIsArea`; shed uses
+  pixel centers for raster refinement, so cell `(row=2, col=2)` is
+  `(lon=2.5, lat=-2.5)`
+- Flow direction samples: one-band unsigned 8-bit, ESRI D8 encoding, nodata
+  tag `255`
+- Flow accumulation samples: one-band 32-bit float, nodata tag `-1`, decoded
+  by readers as `NaN`
+- Carve contract: terminal catchment ID `1` is the rectangle
+  `(0, -5, 5, 0)`, outlet `(2.5, -2.5)`, snap threshold `500`, and center
+  accumulation `800`
+
+GDAL parity proof command:
+
+```bash
+cargo test -p shed-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture
+```

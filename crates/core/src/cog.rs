@@ -16,6 +16,10 @@ use tiff::encoder::{TiffEncoder, colortype};
 use tiff::tags::Tag;
 use tracing::debug;
 
+#[cfg(feature = "test-fixtures")]
+use crate::algo::coord::GeoCoord;
+#[cfg(feature = "test-fixtures")]
+use crate::algo::geo_transform::GeoTransform;
 use crate::error::CacheError;
 use crate::session::RasterKind;
 
@@ -642,6 +646,211 @@ fn tile_copy_span(
 enum WindowData {
     U8(Vec<u8>),
     F32(Vec<f32>),
+}
+
+/// Decoded local GeoTIFF window data.
+#[cfg(feature = "test-fixtures")]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LocalWindowData {
+    /// Unsigned byte samples.
+    U8(Vec<u8>),
+    /// 32-bit floating point samples, with nodata converted to NaN.
+    F32(Vec<f32>),
+}
+
+/// A decoded local GeoTIFF window plus its grid placement metadata.
+#[cfg(feature = "test-fixtures")]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LocalTiffWindow {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) geo: GeoTransform,
+    pub(crate) nodata: String,
+    pub(crate) data: LocalWindowData,
+}
+
+/// Decode a local GeoTIFF window using the same metadata interpretation as COG materialization.
+#[cfg(feature = "test-fixtures")]
+pub(crate) fn read_local_geotiff_window(
+    path: &Path,
+    kind: RasterKind,
+    bbox: &Rect<f64>,
+) -> Result<LocalTiffWindow, CacheError> {
+    let file = File::open(path).map_err(|source| CacheError::Io {
+        op: "open",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut decoder = Decoder::new(file).map_err(|source| CacheError::Tiff {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let metadata = read_local_metadata(&mut decoder, path)?;
+    let expected_sample = match kind {
+        RasterKind::FlowDir => CogSampleType::U8,
+        RasterKind::FlowAcc => CogSampleType::F32,
+    };
+    if metadata.sample_type != expected_sample {
+        return Err(CacheError::UnsupportedCog {
+            path: ObjectPath::from(path.display().to_string()),
+            reason: format!(
+                "{kind:?} expected {expected_sample:?} samples, got {:?}",
+                metadata.sample_type
+            ),
+        });
+    }
+
+    let window = RasterPixelWindow::from_bbox(&metadata, bbox).map_err(|reason| {
+        CacheError::UnsupportedCog {
+            path: ObjectPath::from(path.display().to_string()),
+            reason,
+        }
+    })?;
+    let geo = GeoTransform::new(
+        GeoCoord::new(
+            metadata.origin_x + f64::from(window.col_off) * metadata.pixel_width,
+            metadata.origin_y + f64::from(window.row_off) * metadata.pixel_height,
+        ),
+        metadata.pixel_width,
+        metadata.pixel_height,
+    );
+
+    let data = match (
+        metadata.sample_type,
+        decoder.read_image().map_err(|source| CacheError::Tiff {
+            path: path.display().to_string(),
+            source,
+        })?,
+    ) {
+        (CogSampleType::U8, DecodingResult::U8(values)) => {
+            LocalWindowData::U8(crop_window(&values, &metadata, window))
+        }
+        (CogSampleType::F32, DecodingResult::F32(values)) => {
+            let nodata = metadata.nodata.parse::<f32>().ok();
+            let values = replace_nodata_with_nan(values, nodata);
+            LocalWindowData::F32(crop_window(&values, &metadata, window))
+        }
+        (CogSampleType::U8, other) => {
+            return Err(CacheError::UnsupportedCog {
+                path: ObjectPath::from(path.display().to_string()),
+                reason: format!("decoded flow_dir image was not u8: {other:?}"),
+            });
+        }
+        (CogSampleType::F32, other) => {
+            return Err(CacheError::UnsupportedCog {
+                path: ObjectPath::from(path.display().to_string()),
+                reason: format!("decoded flow_acc image was not f32: {other:?}"),
+            });
+        }
+    };
+
+    Ok(LocalTiffWindow {
+        width: window.width,
+        height: window.height,
+        geo,
+        nodata: metadata.nodata,
+        data,
+    })
+}
+
+#[cfg(feature = "test-fixtures")]
+fn read_local_metadata(
+    decoder: &mut Decoder<File>,
+    path: &Path,
+) -> Result<CogMetadata, CacheError> {
+    let (width, height) = decoder.dimensions().map_err(|source| CacheError::Tiff {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let color_type = decoder.colortype().map_err(|source| CacheError::Tiff {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let sample_formats = decoder
+        .find_tag_unsigned_vec::<u16>(Tag::SampleFormat)
+        .map_err(|source| CacheError::Tiff {
+            path: path.display().to_string(),
+            source,
+        })?
+        .unwrap_or_else(|| vec![1]);
+    let sample_type = match (color_type, sample_formats.as_slice()) {
+        (tiff::ColorType::Gray(8), [1]) => CogSampleType::U8,
+        (tiff::ColorType::Gray(32), [3]) => CogSampleType::F32,
+        (other, formats) => {
+            return Err(CacheError::UnsupportedCog {
+                path: ObjectPath::from(path.display().to_string()),
+                reason: format!("unsupported sample layout: {other:?} sample_format={formats:?}"),
+            });
+        }
+    };
+    let scale = decoder
+        .get_tag_f64_vec(MODEL_PIXEL_SCALE_TAG)
+        .map_err(|source| CacheError::Tiff {
+            path: path.display().to_string(),
+            source,
+        })?;
+    let tiepoint = decoder
+        .get_tag_f64_vec(MODEL_TIEPOINT_TAG)
+        .map_err(|source| CacheError::Tiff {
+            path: path.display().to_string(),
+            source,
+        })?;
+    if scale.len() < 2 || tiepoint.len() < 6 {
+        return Err(CacheError::UnsupportedCog {
+            path: ObjectPath::from(path.display().to_string()),
+            reason: "missing GeoTIFF model scale or tiepoint values".to_string(),
+        });
+    }
+    let nodata = decoder
+        .get_tag_ascii_string(GDAL_NODATA_TAG)
+        .unwrap_or_else(|_| match sample_type {
+            CogSampleType::U8 => "255".to_string(),
+            CogSampleType::F32 => "-1".to_string(),
+        });
+    let (tile_width, tile_height) = decoder.chunk_dimensions();
+    let origin_x = tiepoint[3] - tiepoint[0] * scale[0];
+    let origin_y = tiepoint[4] + tiepoint[1] * scale[1];
+
+    Ok(CogMetadata {
+        width,
+        height,
+        tile_width,
+        tile_height,
+        origin_x,
+        origin_y,
+        pixel_width: scale[0],
+        pixel_height: -scale[1],
+        nodata,
+        sample_type,
+        compression: 1,
+        predictor: 1,
+        tile_offsets: Vec::new(),
+        tile_byte_counts: Vec::new(),
+    })
+}
+
+#[cfg(feature = "test-fixtures")]
+fn crop_window<T: Copy>(values: &[T], metadata: &CogMetadata, window: RasterPixelWindow) -> Vec<T> {
+    let mut out = Vec::with_capacity(window.width as usize * window.height as usize);
+    for row in window.row_off..window.row_off + window.height {
+        let start = (row * metadata.width + window.col_off) as usize;
+        out.extend_from_slice(&values[start..start + window.width as usize]);
+    }
+    out
+}
+
+#[cfg(feature = "test-fixtures")]
+fn replace_nodata_with_nan(mut data: Vec<f32>, nodata: Option<f32>) -> Vec<f32> {
+    if let Some(nodata) = nodata {
+        if !nodata.is_nan() {
+            for value in &mut data {
+                if *value == nodata {
+                    *value = f32::NAN;
+                }
+            }
+        }
+    }
+    data
 }
 
 fn write_window_geotiff(

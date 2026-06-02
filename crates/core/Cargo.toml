@@ -34,6 +34,7 @@ test-fixtures = []
 
 [dev-dependencies]
 criterion = "0.5"
+shed-core = { path = ".", features = ["test-fixtures"] }
 tempfile = "3"
 tracing-core = "0.1"
 

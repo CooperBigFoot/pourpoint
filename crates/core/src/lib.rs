@@ -19,6 +19,9 @@ pub mod source;
 pub mod source_telemetry;
 pub mod telemetry;
 
+#[cfg(feature = "test-fixtures")]
+pub mod test_raster_source;
+
 #[cfg(any(test, feature = "test-fixtures"))]
 #[allow(deprecated)]
 pub mod testutil;
