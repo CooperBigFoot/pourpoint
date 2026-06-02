@@ -1,7 +1,7 @@
 //! Component 6 orchestration: fetch catchment geometries and assemble the final watershed.
 
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 
 use geo::{MultiPolygon, Polygon};
 use hfx_core::AtomId;
@@ -194,20 +194,13 @@ pub(crate) fn assemble_watershed(
 
     let mut geometries = Vec::with_capacity(upstream.len());
 
-    for atom_id in upstream.atom_ids() {
-        let geometry =
-            atom_map
-                .remove(atom_id)
-                .ok_or_else(|| AssemblyError::MissingCatchments {
-                    missing_ids: vec![*atom_id],
-                })?;
-
-        if *atom_id == terminal && refined_terminal_geometry.is_some() {
+    for (atom_id, geometry) in atom_map {
+        if atom_id == terminal && refined_terminal_geometry.is_some() {
             if geometry.0.is_empty() {
                 return Err(AssemblyError::EmptyRefinedTerminalGeometry { atom_id: terminal });
             }
         } else if geometry.0.is_empty() {
-            return Err(AssemblyError::EmptyCatchmentGeometry { atom_id: *atom_id });
+            return Err(AssemblyError::EmptyCatchmentGeometry { atom_id });
         }
         geometries.push(geometry);
     }
@@ -221,8 +214,8 @@ pub(crate) fn assemble_watershed(
 
 fn index_catchments_by_id(
     fetched: Vec<DecodedCatchmentGeometryRow>,
-) -> Result<HashMap<AtomId, MultiPolygon<f64>>, AssemblyError> {
-    let mut atom_map = HashMap::with_capacity(fetched.len());
+) -> Result<BTreeMap<AtomId, MultiPolygon<f64>>, AssemblyError> {
+    let mut atom_map = BTreeMap::new();
     for atom in fetched {
         let (atom_id, geometry) = atom.into_parts();
         match atom_map.entry(atom_id) {

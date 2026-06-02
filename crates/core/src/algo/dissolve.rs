@@ -5,8 +5,7 @@
 //! `MultiPolygon` is not a viable replacement in `geo` 0.29 because overlapping
 //! members are not dissolved; the raw comparison is kept for benchmarks only.
 
-use geo::{BooleanOps, BoundingRect, MultiPolygon, Polygon};
-use rayon::prelude::*;
+use geo::{Area, BooleanOps, BoundingRect, MultiPolygon, Polygon};
 use tracing::{debug, instrument};
 
 /// Errors from polygon dissolve operations.
@@ -36,7 +35,7 @@ pub fn dissolve(polygons: Vec<Polygon<f64>>) -> Result<MultiPolygon<f64>, Dissol
 
     debug!(count = polygons.len(), "dissolving polygons");
 
-    let result = dissolve_reduce_strategy(polygons);
+    let result = dissolve_spatial_reduce_strategy(polygons);
 
     debug!(polygon_count = result.0.len(), "dissolve complete");
 
@@ -45,13 +44,14 @@ pub fn dissolve(polygons: Vec<Polygon<f64>>) -> Result<MultiPolygon<f64>, Dissol
 
 #[doc(hidden)]
 pub fn dissolve_reduce_strategy(polygons: Vec<Polygon<f64>>) -> MultiPolygon<f64> {
-    polygons
-        .into_par_iter()
-        .map(|p| MultiPolygon::new(vec![p]))
-        .reduce(|| MultiPolygon::new(vec![]), |a, b| a.union(&b))
+    deterministic_reduce(
+        polygons
+            .into_iter()
+            .map(|p| MultiPolygon::new(vec![p]))
+            .collect(),
+    )
 }
 
-#[allow(dead_code)]
 #[doc(hidden)]
 pub fn dissolve_spatial_reduce_strategy(mut polygons: Vec<Polygon<f64>>) -> MultiPolygon<f64> {
     polygons.sort_by_key(spatial_key);
@@ -70,25 +70,83 @@ pub fn dissolve_raw_unary_union_comparison(polygons: Vec<Polygon<f64>>) -> Multi
     MultiPolygon::new(polygons).union(&MultiPolygon::new(vec![]))
 }
 
-#[allow(dead_code)]
-fn spatial_key(polygon: &Polygon<f64>) -> u64 {
+fn deterministic_reduce(mut polygons: Vec<MultiPolygon<f64>>) -> MultiPolygon<f64> {
+    match polygons.len() {
+        0 => MultiPolygon::new(vec![]),
+        1 => MultiPolygon::new(vec![]).union(&polygons.remove(0)),
+        len => {
+            let right = polygons.split_off(len / 2);
+            let (left, right) = rayon::join(
+                || deterministic_reduce(polygons),
+                || deterministic_reduce(right),
+            );
+            left.union(&right)
+        }
+    }
+}
+
+fn spatial_key(polygon: &Polygon<f64>) -> SpatialKey {
     let Some(bounds) = polygon.bounding_rect() else {
-        return 0;
+        return SpatialKey::empty();
     };
 
     let center_x = (bounds.min().x + bounds.max().x) * 0.5;
     let center_y = (bounds.min().y + bounds.max().y) * 0.5;
-    morton_key(center_x, center_y)
+    let first_vertex = polygon.exterior().0.first();
+    SpatialKey {
+        morton: morton_key(center_x, center_y),
+        min_x: OrderedFloat::new(bounds.min().x),
+        min_y: OrderedFloat::new(bounds.min().y),
+        unsigned_area: OrderedFloat::new(polygon.unsigned_area()),
+        first_x: OrderedFloat::new(first_vertex.map_or(0.0, |coord| coord.x)),
+        first_y: OrderedFloat::new(first_vertex.map_or(0.0, |coord| coord.y)),
+    }
 }
 
-#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SpatialKey {
+    morton: u64,
+    min_x: OrderedFloat,
+    min_y: OrderedFloat,
+    unsigned_area: OrderedFloat,
+    first_x: OrderedFloat,
+    first_y: OrderedFloat,
+}
+
+impl SpatialKey {
+    fn empty() -> Self {
+        Self {
+            morton: 0,
+            min_x: OrderedFloat::new(0.0),
+            min_y: OrderedFloat::new(0.0),
+            unsigned_area: OrderedFloat::new(0.0),
+            first_x: OrderedFloat::new(0.0),
+            first_y: OrderedFloat::new(0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct OrderedFloat(u64);
+
+impl OrderedFloat {
+    fn new(value: f64) -> Self {
+        let bits = value.to_bits();
+        let key = if bits & (1_u64 << 63) == 0 {
+            bits | (1_u64 << 63)
+        } else {
+            !bits
+        };
+        Self(key)
+    }
+}
+
 fn morton_key(x: f64, y: f64) -> u64 {
     let xi = quantize_for_morton(x);
     let yi = quantize_for_morton(y);
     interleave_bits(xi) | (interleave_bits(yi) << 1)
 }
 
-#[allow(dead_code)]
 fn quantize_for_morton(value: f64) -> u32 {
     let normalized = if value.is_finite() {
         ((value + 180.0) / 360.0).clamp(0.0, 1.0)
@@ -99,7 +157,6 @@ fn quantize_for_morton(value: f64) -> u32 {
     (normalized * f64::from(u16::MAX)).round() as u32
 }
 
-#[allow(dead_code)]
 fn interleave_bits(mut value: u32) -> u64 {
     value &= 0x0000_ffff;
     let mut spread = u64::from(value);
@@ -113,8 +170,9 @@ fn interleave_bits(mut value: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::Area;
+    use crate::algo::canonical_wkb_multi_polygon;
     use geo::LineString;
+    use rayon::ThreadPoolBuilder;
 
     fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Polygon<f64> {
         Polygon::new(
@@ -167,6 +225,24 @@ mod tests {
             rect(4.0, 5.0, 5.0, 6.0),
             rect(5.0, 5.0, 6.0, 6.0),
         ]
+    }
+
+    fn skewed_overlapping_chain_fixture() -> Vec<Polygon<f64>> {
+        (0..24)
+            .map(|i| {
+                let x = f64::from(i) * 0.41;
+                Polygon::new(
+                    LineString::from(vec![
+                        (x, 0.07),
+                        (x + 1.17, 0.29),
+                        (x + 1.01, 1.31),
+                        (x - 0.19, 1.03),
+                        (x, 0.07),
+                    ]),
+                    vec![],
+                )
+            })
+            .collect()
     }
 
     fn assert_same_invariants(left: &MultiPolygon<f64>, right: &MultiPolygon<f64>) {
@@ -243,5 +319,32 @@ mod tests {
     #[test]
     fn strategies_match_for_refinement_like_fixture() {
         assert_strategies_match(refinement_like_fixture());
+    }
+
+    #[test]
+    fn overlapping_dissolve_is_byte_identical_across_parallel_runs() {
+        let polygons = skewed_overlapping_chain_fixture();
+        let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+
+        pool.install(|| {
+            assert!(rayon::current_num_threads() > 1);
+
+            let first = canonical_wkb_multi_polygon(&dissolve(polygons.clone()).unwrap()).unwrap();
+            for run_index in 1..20 {
+                let mut run_polygons = polygons.clone();
+                if run_index % 2 == 1 {
+                    run_polygons.reverse();
+                } else {
+                    let shift = run_index % run_polygons.len();
+                    run_polygons.rotate_left(shift);
+                }
+                let current =
+                    canonical_wkb_multi_polygon(&dissolve(run_polygons).unwrap()).unwrap();
+                assert_eq!(
+                    first, current,
+                    "canonical WKB changed on dissolve run {run_index}"
+                );
+            }
+        });
     }
 }
