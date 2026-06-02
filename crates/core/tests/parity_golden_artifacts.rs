@@ -27,6 +27,12 @@ struct GoldenRecord {
     refinement_outcome: RefinementOutcome,
     canonicalizer_version: String,
     comparison_policy: ComparisonPolicy,
+    #[serde(default)]
+    raster_interpretation: Option<RasterInterpretation>,
+    #[serde(default)]
+    fixture_provenance: Option<FixtureProvenance>,
+    #[serde(default)]
+    attestation: Option<Attestation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +59,65 @@ struct ComparisonPolicy {
     area_km2_rel_epsilon: f64,
 }
 
+#[derive(Debug, Deserialize)]
+struct RasterInterpretation {
+    dimensions: RasterDimensions,
+    crs: String,
+    transform: [f64; 6],
+    origin: String,
+    pixel_size_degrees: PixelSize,
+    extent: RasterExtent,
+    pixel_interpretation: String,
+    flow_direction: RasterBandInterpretation,
+    flow_accumulation: RasterBandInterpretation,
+}
+
+#[derive(Debug, Deserialize)]
+struct RasterDimensions {
+    columns: usize,
+    rows: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct PixelSize {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RasterExtent {
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RasterBandInterpretation {
+    sample_type: String,
+    encoding: String,
+    nodata: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FixtureProvenance {
+    content_hash_algorithm: String,
+    files: Vec<FileProvenance>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FileProvenance {
+    path: String,
+    size_bytes: u64,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Attestation {
+    local_tiff_raster_source_gdal_tile_parity: String,
+    proof_command: String,
+}
+
 #[test]
 fn committed_seed_golden_validates_schema_and_canonical_wkb() {
     let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -72,6 +137,21 @@ fn committed_seed_golden_validates_schema_and_canonical_wkb() {
 
     assert_eq!(actual_wkb, expected_wkb);
     assert_canonical_wkb_idempotent(&actual_wkb);
+}
+
+#[test]
+fn committed_synthetic_refined_b_golden_validates_schema_and_canonical_wkb() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(FIXTURE_DIR)
+        .join("goldens/v01_synthetic_refined/oracle_b_synthetic_refined.json");
+    let record: GoldenRecord = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("B golden fixture should be readable"),
+    )
+    .expect("B golden should match the golden schema");
+
+    assert_record_contract(&record);
+    assert_synthetic_refined_b_contract(&record);
+    assert_canonical_wkb_idempotent(&decode_hex(&record.canonical_wkb_hex));
 }
 
 #[test]
@@ -122,6 +202,68 @@ fn assert_record_contract(record: &GoldenRecord) {
     assert_eq!(record.comparison_policy.coordinate_abs_epsilon, 0.000001);
     assert!(record.comparison_policy.area_km2_abs_epsilon > 0.0);
     assert!(record.comparison_policy.area_km2_rel_epsilon > 0.0);
+}
+
+fn assert_synthetic_refined_b_contract(record: &GoldenRecord) {
+    let raster = record
+        .raster_interpretation
+        .as_ref()
+        .expect("B golden should record raster interpretation metadata");
+    assert_eq!(raster.dimensions.columns, 5);
+    assert_eq!(raster.dimensions.rows, 5);
+    assert_eq!(raster.crs, "EPSG:4326");
+    assert_eq!(raster.transform, [0.0, 1.0, 0.0, 0.0, 0.0, -1.0]);
+    assert!(!raster.origin.is_empty());
+    assert_eq!(raster.pixel_size_degrees.x, 1.0);
+    assert_eq!(raster.pixel_size_degrees.y, -1.0);
+    assert_eq!(raster.extent.x_min, 0.0);
+    assert_eq!(raster.extent.x_max, 5.0);
+    assert_eq!(raster.extent.y_min, -5.0);
+    assert_eq!(raster.extent.y_max, 0.0);
+    assert!(raster.pixel_interpretation.contains("PixelIsArea"));
+    assert_eq!(raster.flow_direction.sample_type, "uint8");
+    assert_eq!(raster.flow_direction.encoding, "ESRI D8");
+    assert_eq!(raster.flow_direction.nodata, "255");
+    assert_eq!(raster.flow_accumulation.sample_type, "float32");
+    assert_eq!(raster.flow_accumulation.encoding, "accumulation");
+    assert!(raster.flow_accumulation.nodata.contains("NaN"));
+
+    let provenance = record
+        .fixture_provenance
+        .as_ref()
+        .expect("B golden should record inert fixture provenance");
+    assert_eq!(provenance.content_hash_algorithm, "sha256");
+    let paths = provenance
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            "manifest.json",
+            "catchments.parquet",
+            "graph.arrow",
+            "flow_dir.tif",
+            "flow_acc.tif"
+        ]
+    );
+    for file in &provenance.files {
+        assert!(file.size_bytes > 0);
+        assert_eq!(file.sha256.len(), 64);
+        assert!(file.sha256.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    let attestation = record
+        .attestation
+        .as_ref()
+        .expect("B golden should record raster decode parity attestation");
+    assert!(
+        attestation
+            .local_tiff_raster_source_gdal_tile_parity
+            .contains("tile-identical")
+    );
+    assert!(attestation.proof_command.contains("shed-gdal"));
 }
 
 fn assert_canonical_wkb_idempotent(canonical: &[u8]) {

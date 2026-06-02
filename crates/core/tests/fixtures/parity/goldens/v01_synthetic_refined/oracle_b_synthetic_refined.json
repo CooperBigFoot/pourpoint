@@ -1,0 +1,105 @@
+{
+  "canonical_wkb_hex": "01060000000100000001030000000100000005000000000000000000000000000000000008c0000000000000144000000000000008c00000000000001440000000000000000000000000000000000000000000000000000000000000000000000000000008c0",
+  "area_km2": 184671.66225785605,
+  "input_outlet": {
+    "lon": 2.5,
+    "lat": -2.5
+  },
+  "resolved_outlet": {
+    "lon": 2.5,
+    "lat": -2.5
+  },
+  "refined_outlet": {
+    "lon": 2.5,
+    "lat": -2.5
+  },
+  "terminal_id": 1,
+  "upstream_ids": [
+    1
+  ],
+  "resolution_method": "point-in-polygon(candidates_considered=1,tie_break=none)",
+  "resolver_config": {
+    "search_radius_m": 1000.0
+  },
+  "refinement_outcome": {
+    "status": "Applied",
+    "reason": null
+  },
+  "canonicalizer_version": "shed-canonical-wkb-v1",
+  "comparison_policy": {
+    "coordinate_abs_epsilon": 1e-6,
+    "area_km2_abs_epsilon": 1e-6,
+    "area_km2_rel_epsilon": 1e-6
+  },
+  "raster_interpretation": {
+    "dimensions": {
+      "columns": 5,
+      "rows": 5
+    },
+    "crs": "EPSG:4326",
+    "transform": [
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      -1.0
+    ],
+    "origin": "upper-left PixelIsArea corner (0, 0)",
+    "pixel_size_degrees": {
+      "x": 1.0,
+      "y": -1.0
+    },
+    "extent": {
+      "x_min": 0.0,
+      "x_max": 5.0,
+      "y_min": -5.0,
+      "y_max": 0.0
+    },
+    "pixel_interpretation": "GeoTIFF GTRasterTypeGeoKey=PixelIsArea; refinement uses pixel centers",
+    "flow_direction": {
+      "sample_type": "uint8",
+      "encoding": "ESRI D8",
+      "nodata": "255"
+    },
+    "flow_accumulation": {
+      "sample_type": "float32",
+      "encoding": "accumulation",
+      "nodata": "-1 decoded as NaN"
+    }
+  },
+  "fixture_provenance": {
+    "content_hash_algorithm": "sha256",
+    "files": [
+      {
+        "path": "manifest.json",
+        "size_bytes": 266,
+        "sha256": "6028765b5486542c4575955893ac0c376712a5d0d66eb946d883539468cab979"
+      },
+      {
+        "path": "catchments.parquet",
+        "size_bytes": 2288,
+        "sha256": "1138ae6ed70310f8c3c61350cf5ae185e6da8f9640804cc03f2d6f4b51e069d7"
+      },
+      {
+        "path": "graph.arrow",
+        "size_bytes": 1138,
+        "sha256": "b88890371353c9baee6cf6df6c5db5d4ece3ddacb566887a67564143c8546248"
+      },
+      {
+        "path": "flow_dir.tif",
+        "size_bytes": 371,
+        "sha256": "aa32af8e07dfdb80213da84f141e62dc73eeffb37425998b4128f7725ce9b868"
+      },
+      {
+        "path": "flow_acc.tif",
+        "size_bytes": 446,
+        "sha256": "00388f12baed9b050f8fe491abafc422e184a0d916dad8351caf53dd7c569f67"
+      }
+    ]
+  },
+  "attestation": {
+    "local_tiff_raster_source_gdal_tile_parity": "Step 2 proved LocalTiffRasterSource tile-identical to GdalRasterSource for the B fixture window before this golden was blessed",
+    "proof_command": "cargo test -p shed-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture"
+  }
+}
