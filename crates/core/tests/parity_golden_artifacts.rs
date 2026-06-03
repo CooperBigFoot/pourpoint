@@ -1,9 +1,8 @@
 //! Loader-independent validation for committed parity golden artifacts.
 //!
-//! This test intentionally imports no `DatasetBuilder`, `DatasetSession`,
-//! `Engine`, `AtomId`, `hfx_core`, or other v0.1-loader-only type. That
-//! invariant is load-bearing: this artifact harness must keep passing after M2
-//! deletes the v0.1 loader and leaves the committed M1 goldens as inert bytes.
+//! This test intentionally stays independent from runtime session, engine, and
+//! graph domain types. That invariant is load-bearing: this artifact harness
+//! must keep passing while the committed M1 goldens remain inert bytes.
 
 use std::fs;
 use std::path::Path;
@@ -296,7 +295,7 @@ fn committed_merit_refined_c_goldens_validate_schema_and_metadata_offline() {
 }
 
 #[test]
-fn in_test_geometry_canonical_wkb_is_idempotent_without_loader_dependencies() {
+fn in_test_geometry_canonical_wkb_is_idempotent_without_runtime_dependencies() {
     let geometry = MultiPolygon::new(vec![
         polygon![
             (x: 2.0, y: 0.0),

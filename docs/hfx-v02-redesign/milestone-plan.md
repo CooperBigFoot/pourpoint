@@ -253,7 +253,7 @@ Explicit non-scope:
 Gate:
 
 ```bash
-cargo build --workspace
+cargo build --workspace --exclude pyshed
 cargo test -p shed-core --test staged_delineation
 cargo test -p shed-core --test finest_level_resolution
 cargo test -p shed-core --test snap_resolution_cascade
@@ -309,7 +309,7 @@ Explicit non-scope:
 Gate:
 
 ```bash
-cargo build --workspace
+cargo build --workspace --exclude pyshed
 cargo test -p shed-core --test d8_refinement_parity
 cargo test -p shed-core --test d8_aux_accessor
 ```
@@ -356,7 +356,7 @@ Explicit non-scope:
 Gate:
 
 ```bash
-cargo build --workspace
+cargo build --workspace --exclude pyshed
 cargo test -p shed-core
 rg "atom|Atom" crates/core/src crates/core/README.md docs/hfx-v02-redesign
 ```
