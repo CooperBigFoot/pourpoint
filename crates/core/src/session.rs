@@ -633,7 +633,14 @@ impl DatasetSession {
 }
 
 fn remote_artifact_path(root: &ObjectPath, artifact: &str) -> ObjectPath {
-    root.clone().join(artifact)
+    if root.as_ref().is_empty() {
+        ObjectPath::from(artifact)
+    } else {
+        ObjectPath::from(format!(
+            "{}/{artifact}",
+            root.as_ref().trim_end_matches('/')
+        ))
+    }
 }
 
 fn raster_uri_string(path: &Path) -> String {
@@ -985,7 +992,9 @@ mod tests {
     use tracing_core::span::Current;
     use url::Url;
 
-    use super::{DatasetSession, read_remote_artifact, remote_artifact_ranges};
+    use super::{
+        DatasetSession, read_remote_artifact, remote_artifact_path, remote_artifact_ranges,
+    };
     use crate::error::SessionError;
     use crate::parquet_cache::{ParquetFooterCache, ParquetRowGroupCache};
     use crate::runtime::RT;
@@ -1573,6 +1582,15 @@ mod tests {
         for pair in ranges.windows(2) {
             assert_eq!(pair[0].end, pair[1].start);
         }
+    }
+
+    #[test]
+    fn remote_artifact_path_preserves_nested_relative_paths() {
+        let root = ObjectPath::from("grit/2.0.0");
+
+        let path = remote_artifact_path(&root, "aux/snap_segments.parquet");
+
+        assert_eq!(path.as_ref(), "grit/2.0.0/aux/snap_segments.parquet");
     }
 
     fn put_remote_manifest_and_graph(store: &Arc<InMemory>, root: &ObjectPath, snap: bool) {

@@ -1,7 +1,28 @@
-use serde_json::{json, Value};
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
+use arrow::array::{
+    Array, BinaryArray, Int16Array, Int64Array, LargeBinaryArray, LargeListArray, ListArray,
+};
+use arrow::datatypes::DataType;
+use geo::Geometry;
+use geozero::ToGeo;
+use geozero::wkb::Wkb;
+use hfx_core::{Topology, WkbGeometry};
+use object_store::path::Path as ObjectPath;
+use object_store::{ObjectStore, ObjectStoreExt};
+use parquet::arrow::ProjectionMask;
+use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStreamBuilder};
+use parquet::file::statistics::Statistics;
+use serde_json::{Value, json};
 use shed_core::error::SessionError;
+use shed_core::reader::manifest::read_manifest_from_bytes;
 use shed_core::session::DatasetSession;
+use shed_core::source::DatasetSource;
 use shed_core::testutil::DatasetBuilder;
+
+const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
+const REAL_GRIT_QUERY_BBOX: (f32, f32, f32, f32) = (-123.30, 48.30, -123.20, 48.40);
 
 fn read_manifest(root: &std::path::Path) -> Value {
     serde_json::from_slice(&std::fs::read(root.join("manifest.json")).unwrap()).unwrap()
@@ -382,4 +403,439 @@ fn auxiliary_generic_path_escape_is_typed() {
             ..
         } if schema == "org.example.custom.v1" && artifact == "data"
     ));
+}
+
+#[test]
+#[ignore = "network-gated GRIT v2.0.0 public R2 loader proof; set SHED_HFX_V02_REAL_R2_LOAD=1"]
+fn grit_v200_public_r2_loads_real_v021_multilevel_dag() {
+    if std::env::var("SHED_HFX_V02_REAL_R2_LOAD").as_deref() != Ok("1") {
+        println!(
+            "skipping real GRIT v2.0.0 bounded readiness proof; set SHED_HFX_V02_REAL_R2_LOAD=1 to enable"
+        );
+        return;
+    }
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should start");
+    runtime.block_on(async {
+        let RemoteDataset { store, root } = open_real_grit_source();
+
+        let manifest_path = remote_artifact_path(&root, "manifest.json");
+        let manifest_bytes = store
+            .get(&manifest_path)
+            .await
+            .expect("real GRIT manifest should be reachable")
+            .bytes()
+            .await
+            .expect("real GRIT manifest bytes should read");
+        let parsed =
+            read_manifest_from_bytes(&manifest_bytes).expect("real GRIT manifest should parse");
+        let manifest = parsed.manifest;
+        let aux = parsed.aux;
+
+        assert_eq!(manifest.format_version().to_string(), "0.2.1");
+        assert_eq!(manifest.crs().to_string(), "EPSG:4326");
+        assert_eq!(manifest.unit_count().get(), 22_337_300);
+        assert_eq!(manifest.topology(), Topology::Dag);
+        assert_eq!(aux.snaps.len(), 2);
+        assert!(aux.d8_rasters.is_empty());
+        assert!(
+            aux.snaps
+                .iter()
+                .all(|decl| decl.snap.starts_with("aux/") && decl.snap.ends_with(".parquet")),
+            "real snap aux declarations should point at nested aux parquet artifacts"
+        );
+
+        let graph_path = remote_artifact_path(&root, "graph.parquet");
+        let graph_proof = bounded_graph_proof(Arc::clone(&store), graph_path).await;
+        for column in ["bbox_minx", "bbox_miny", "bbox_maxx", "bbox_maxy"] {
+            assert!(
+                graph_proof.schema_columns.contains(column),
+                "real graph.parquet missing {column}"
+            );
+        }
+        assert!(
+            graph_proof.levels_from_row_group_stats.contains(&0),
+            "real graph.parquet row-group level statistics must include L0"
+        );
+        assert!(
+            graph_proof.levels_from_row_group_stats.contains(&1),
+            "real graph.parquet row-group level statistics must include L1"
+        );
+        assert!(graph_proof.sample_rows > 0);
+        assert!(
+            graph_proof.sample_rows <= graph_proof.first_row_group_rows,
+            "bounded graph sample should not read past the first row group"
+        );
+        assert!(
+            graph_proof.sample_non_empty_upstream_lists > 0,
+            "bounded graph sample should decode at least one non-empty list<int64>"
+        );
+
+        let snap_decl = aux
+            .snaps
+            .iter()
+            .find(|decl| decl.references_levels.contains(&1))
+            .or_else(|| aux.snaps.first())
+            .expect("manifest asserted two snap declarations");
+        let snap_path = remote_artifact_path(&root, &snap_decl.snap);
+        let snap_proof = bounded_snap_proof(Arc::clone(&store), snap_path).await;
+        assert!(snap_proof.sample_rows > 0);
+        assert!(
+            snap_proof.sample_rows <= snap_proof.first_matching_row_group_rows,
+            "bounded snap sample should not read past one matching row group"
+        );
+        assert!(snap_proof.decoded_wkb_rows > 0);
+        assert!(
+            snap_proof
+                .decoded_geometry_types
+                .iter()
+                .all(|kind| *kind == "Point" || *kind == "LineString"),
+            "snap geometries should decode as Point or LineString"
+        );
+
+        println!("format_version={}", manifest.format_version());
+        println!("crs={}", manifest.crs());
+        println!("unit_count={}", manifest.unit_count().get());
+        println!("topology={}", manifest.topology());
+        println!("snap_aux_count={}", aux.snaps.len());
+        println!("d8_aux_count={}", aux.d8_rasters.len());
+        println!("graph_bbox_columns={:?}", graph_proof.schema_columns);
+        println!(
+            "levels_from=graph.parquet row-group level statistics; levels={:?}",
+            graph_proof.levels_from_row_group_stats
+        );
+        println!(
+            "bounded_graph_decode=first_row_group rows_sampled={} non_empty_upstream_lists={}",
+            graph_proof.sample_rows, graph_proof.sample_non_empty_upstream_lists
+        );
+        println!(
+            "bounded_snap_decode=one_bbox_matching_row_group artifact={} rows_sampled={} decoded_wkb_rows={} geometry_types={:?}",
+            snap_decl.snap,
+            snap_proof.sample_rows,
+            snap_proof.decoded_wkb_rows,
+            snap_proof.decoded_geometry_types
+        );
+        println!("full_dataset_session_open=false");
+    });
+}
+
+struct RemoteDataset {
+    store: Arc<dyn ObjectStore>,
+    root: ObjectPath,
+}
+
+struct GraphProof {
+    schema_columns: BTreeSet<String>,
+    levels_from_row_group_stats: BTreeSet<i16>,
+    first_row_group_rows: usize,
+    sample_rows: usize,
+    sample_non_empty_upstream_lists: usize,
+}
+
+struct SnapProof {
+    first_matching_row_group_rows: usize,
+    sample_rows: usize,
+    decoded_wkb_rows: usize,
+    decoded_geometry_types: BTreeSet<&'static str>,
+}
+
+fn open_real_grit_source() -> RemoteDataset {
+    match DatasetSource::parse(REAL_GRIT_V200_URL).expect("public R2 source should parse") {
+        DatasetSource::Remote { store, root, .. } => RemoteDataset { store, root },
+        DatasetSource::Local(_) => panic!("real GRIT URL should parse as a remote source"),
+    }
+}
+
+fn remote_artifact_path(root: &ObjectPath, artifact: &str) -> ObjectPath {
+    if root.as_ref().is_empty() {
+        ObjectPath::from(artifact)
+    } else {
+        ObjectPath::from(format!(
+            "{}/{artifact}",
+            root.as_ref().trim_end_matches('/')
+        ))
+    }
+}
+
+async fn bounded_graph_proof(store: Arc<dyn ObjectStore>, path: ObjectPath) -> GraphProof {
+    let builder = ParquetRecordBatchStreamBuilder::new(ParquetObjectReader::new(store, path))
+        .await
+        .expect("real GRIT graph.parquet footer should load");
+    let schema = builder.schema();
+    let schema_columns = schema
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .collect::<BTreeSet<_>>();
+    let level_col = schema
+        .fields()
+        .iter()
+        .position(|field| field.name() == "level")
+        .expect("graph level column should exist");
+    let levels_from_row_group_stats = builder
+        .metadata()
+        .row_groups()
+        .iter()
+        .flat_map(|row_group| {
+            let stats = row_group.column(level_col).statistics();
+            [int16_stat_min(stats), int16_stat_max(stats)]
+        })
+        .flatten()
+        .collect::<BTreeSet<_>>();
+    let first_row_group_rows = usize::try_from(builder.metadata().row_group(0).num_rows())
+        .expect("row group size should fit usize");
+
+    let mut stream = builder
+        .with_row_groups(vec![0])
+        .with_batch_size(1024)
+        .build()
+        .expect("real GRIT graph first row group should stream");
+
+    let mut sample_rows = 0usize;
+    let mut sample_non_empty_upstream_lists = 0usize;
+    while let Some(reader) = stream
+        .next_row_group()
+        .await
+        .expect("real GRIT graph first row group should read")
+    {
+        for batch in reader {
+            let batch = batch.expect("real GRIT graph batch should decode");
+            let ids = batch
+                .column_by_name("id")
+                .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+                .expect("graph id should decode as Int64");
+            let levels = batch
+                .column_by_name("level")
+                .and_then(|column| column.as_any().downcast_ref::<Int16Array>())
+                .expect("graph level should decode as Int16");
+            let upstream = batch
+                .column_by_name("upstream_ids")
+                .expect("graph upstream_ids should decode");
+
+            for row in 0..batch.num_rows() {
+                assert!(!ids.is_null(row), "graph sample id should be non-null");
+                assert!(
+                    !levels.is_null(row),
+                    "graph sample level should be non-null"
+                );
+                let upstream_len = upstream_list_len(upstream.as_ref(), row);
+                if upstream_len > 0 {
+                    sample_non_empty_upstream_lists += 1;
+                }
+            }
+            sample_rows += batch.num_rows();
+            break;
+        }
+        break;
+    }
+
+    GraphProof {
+        schema_columns,
+        levels_from_row_group_stats,
+        first_row_group_rows,
+        sample_rows,
+        sample_non_empty_upstream_lists,
+    }
+}
+
+async fn bounded_snap_proof(store: Arc<dyn ObjectStore>, path: ObjectPath) -> SnapProof {
+    let builder = ParquetRecordBatchStreamBuilder::new(ParquetObjectReader::new(store, path))
+        .await
+        .expect("real GRIT snap aux footer should load");
+    let schema = builder.schema();
+    for (name, expected) in [
+        ("id", DataType::Int64),
+        ("unit_id", DataType::Int64),
+        ("weight", DataType::Float32),
+        ("geometry", DataType::Binary),
+        ("bbox_minx", DataType::Float32),
+        ("bbox_miny", DataType::Float32),
+        ("bbox_maxx", DataType::Float32),
+        ("bbox_maxy", DataType::Float32),
+    ] {
+        let field = schema
+            .field_with_name(name)
+            .unwrap_or_else(|_| panic!("real GRIT snap aux missing {name}"));
+        assert!(
+            field.data_type() == &expected
+                || (name == "geometry" && field.data_type() == &DataType::LargeBinary),
+            "real GRIT snap aux {name} type mismatch"
+        );
+    }
+
+    let parquet_schema = builder.parquet_schema();
+    let bbox_indices = [
+        column_index(parquet_schema, "bbox_minx"),
+        column_index(parquet_schema, "bbox_miny"),
+        column_index(parquet_schema, "bbox_maxx"),
+        column_index(parquet_schema, "bbox_maxy"),
+    ];
+    let matching_row_group = builder
+        .metadata()
+        .row_groups()
+        .iter()
+        .enumerate()
+        .find_map(|(index, row_group)| {
+            let minx = f32_stat_min(row_group.column(bbox_indices[0]).statistics())?;
+            let miny = f32_stat_min(row_group.column(bbox_indices[1]).statistics())?;
+            let maxx = f32_stat_max(row_group.column(bbox_indices[2]).statistics())?;
+            let maxy = f32_stat_max(row_group.column(bbox_indices[3]).statistics())?;
+            let intersects = minx <= REAL_GRIT_QUERY_BBOX.2
+                && maxx >= REAL_GRIT_QUERY_BBOX.0
+                && miny <= REAL_GRIT_QUERY_BBOX.3
+                && maxy >= REAL_GRIT_QUERY_BBOX.1;
+            intersects.then_some(index)
+        })
+        .expect("real GRIT snap aux should have a row group intersecting the test bbox");
+    let first_matching_row_group_rows =
+        usize::try_from(builder.metadata().row_group(matching_row_group).num_rows())
+            .expect("row group size should fit usize");
+
+    let projection = ProjectionMask::roots(
+        parquet_schema,
+        [
+            "id",
+            "unit_id",
+            "weight",
+            "geometry",
+            "bbox_minx",
+            "bbox_miny",
+            "bbox_maxx",
+            "bbox_maxy",
+        ]
+        .into_iter()
+        .map(|name| column_index(parquet_schema, name))
+        .collect::<Vec<_>>(),
+    );
+    let mut stream = builder
+        .with_projection(projection)
+        .with_row_groups(vec![matching_row_group])
+        .with_batch_size(1024)
+        .build()
+        .expect("real GRIT snap matching row group should stream");
+
+    let mut sample_rows = 0usize;
+    let mut decoded_wkb_rows = 0usize;
+    let mut decoded_geometry_types = BTreeSet::new();
+    while let Some(reader) = stream
+        .next_row_group()
+        .await
+        .expect("real GRIT snap matching row group should read")
+    {
+        for batch in reader {
+            let batch = batch.expect("real GRIT snap batch should decode");
+            let ids = batch
+                .column_by_name("id")
+                .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+                .expect("snap id should decode as Int64");
+            let unit_ids = batch
+                .column_by_name("unit_id")
+                .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+                .expect("snap unit_id should decode as Int64");
+            let geometry = batch
+                .column_by_name("geometry")
+                .expect("snap geometry should be projected");
+
+            for row in 0..batch.num_rows() {
+                assert!(!ids.is_null(row), "snap sample id should be non-null");
+                assert!(
+                    !unit_ids.is_null(row),
+                    "snap sample unit_id should be non-null"
+                );
+                let wkb = wkb_geometry_from_array(geometry.as_ref(), row);
+                let decoded = WkbGeometry::new(wkb)
+                    .map_err(|error| error.to_string())
+                    .and_then(|wkb| {
+                        Wkb(wkb.as_bytes())
+                            .to_geo()
+                            .map_err(|error| error.to_string())
+                    })
+                    .expect("snap sample geometry WKB should decode");
+                decoded_wkb_rows += 1;
+                decoded_geometry_types.insert(match decoded {
+                    Geometry::Point(_) => "Point",
+                    Geometry::LineString(_) => "LineString",
+                    _ => "Other",
+                });
+            }
+            sample_rows += batch.num_rows();
+            break;
+        }
+        break;
+    }
+
+    SnapProof {
+        first_matching_row_group_rows,
+        sample_rows,
+        decoded_wkb_rows,
+        decoded_geometry_types,
+    }
+}
+
+fn column_index(schema: &parquet::schema::types::SchemaDescriptor, name: &str) -> usize {
+    schema
+        .columns()
+        .iter()
+        .position(|column| column.name() == name)
+        .unwrap_or_else(|| panic!("missing parquet column {name}"))
+}
+
+fn upstream_list_len(column: &dyn Array, row: usize) -> usize {
+    if let Some(list) = column.as_any().downcast_ref::<ListArray>() {
+        let values = list.value(row);
+        return values
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("graph upstream_ids values should decode as Int64")
+            .len();
+    }
+    if let Some(list) = column.as_any().downcast_ref::<LargeListArray>() {
+        let values = list.value(row);
+        return values
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("graph upstream_ids values should decode as Int64")
+            .len();
+    }
+    panic!("graph upstream_ids should decode as List<Int64> or LargeList<Int64>");
+}
+
+fn int16_stat_min(stats: Option<&Statistics>) -> Option<i16> {
+    match stats? {
+        Statistics::Int32(typed) => typed.min_opt().and_then(|value| i16::try_from(*value).ok()),
+        _ => None,
+    }
+}
+
+fn int16_stat_max(stats: Option<&Statistics>) -> Option<i16> {
+    match stats? {
+        Statistics::Int32(typed) => typed.max_opt().and_then(|value| i16::try_from(*value).ok()),
+        _ => None,
+    }
+}
+
+fn f32_stat_min(stats: Option<&Statistics>) -> Option<f32> {
+    match stats? {
+        Statistics::Float(typed) => typed.min_opt().copied(),
+        _ => None,
+    }
+}
+
+fn f32_stat_max(stats: Option<&Statistics>) -> Option<f32> {
+    match stats? {
+        Statistics::Float(typed) => typed.max_opt().copied(),
+        _ => None,
+    }
+}
+
+fn wkb_geometry_from_array(column: &dyn Array, row: usize) -> Vec<u8> {
+    if let Some(binary) = column.as_any().downcast_ref::<BinaryArray>() {
+        assert!(!binary.is_null(row), "snap geometry should be non-null");
+        return binary.value(row).to_vec();
+    }
+    if let Some(binary) = column.as_any().downcast_ref::<LargeBinaryArray>() {
+        assert!(!binary.is_null(row), "snap geometry should be non-null");
+        return binary.value(row).to_vec();
+    }
+    panic!("snap geometry should decode as Binary or LargeBinary");
 }
