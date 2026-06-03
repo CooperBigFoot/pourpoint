@@ -14,17 +14,18 @@ use crate::algo::{
     RefinementError, SnapThreshold, TraversalError, WkbDecodeError, WkbEncodeError,
     collect_upstream, encode_wkb_multi_polygon, refine_terminal_from_source,
 };
-use crate::assembly::{AssemblyOptions, assemble_watershed};
+use crate::assembly::{AssemblyOptions, assemble_from_geometries};
 use crate::error::SessionError;
 use crate::reader::catchment_store::CatchmentGeometryQueryError;
 use crate::resolver::{
-    OutletResolutionError, ResolutionMethod, ResolvedOutlet, ResolverConfig,
+    OutletResolutionError, ResolutionMethod, ResolverConfig,
     resolve_outlet_at_level as resolve_outlet_in_resolver_at_level,
 };
 use crate::session::{DatasetSession, RasterKind};
 use crate::staged::{
-    LevelResolvedOutlet, LevelSelection, PreMergeDrainageUnit, PreMergeDrainageUnits,
-    RefinementMode, SameLevelUpstreamUnits, SelectedLevel,
+    DissolvedWatershed, LevelResolvedOutlet, LevelSelection, PreMergeDrainageUnit,
+    PreMergeDrainageUnits, RefinementMode, SameLevelUpstreamUnits, SelectedLevel,
+    TerminalRefinement,
 };
 use crate::telemetry::{
     Stage, StageGuard, record_bytes, record_cache_status, record_path, record_requests,
@@ -618,6 +619,195 @@ impl Engine {
         ))
     }
 
+    /// Attempt terminal refinement using the pre-merge terminal geometry.
+    ///
+    /// This stage preserves the current best-effort raster refinement behavior
+    /// while avoiding a second terminal catchment geometry query after
+    /// [`Engine::produce_pre_merge_units`] has already decoded it.
+    ///
+    /// # Errors
+    ///
+    /// | Variant | When |
+    /// |---|---|
+    /// | [`EngineError::PreMergeCatchmentFetch`] | The pre-merge collection does not contain its terminal record |
+    /// | [`EngineError::RasterLocalize`] | Remote rasters cannot be materialized locally |
+    /// | [`EngineError::Refinement`] | Raster snap fails or the terminal geometry is degenerate |
+    pub fn refine_terminal_placeholder(
+        &self,
+        resolved: &LevelResolvedOutlet,
+        units: &PreMergeDrainageUnits,
+        options: &DelineationOptions,
+    ) -> Result<TerminalRefinement, EngineError> {
+        let terminal = units.terminal();
+        if options.refinement_mode == RefinementMode::Disabled {
+            return Ok(TerminalRefinement::Disabled);
+        }
+        if self.session.raster_paths().is_none() {
+            return Ok(TerminalRefinement::NoRastersAvailable);
+        }
+        let raster_source = match self.raster_source.as_deref() {
+            Some(s) => s,
+            None => return Ok(TerminalRefinement::NoRasterSourceProvided),
+        };
+
+        let terminal_polygon = units
+            .terminal_unit()
+            .filter(|unit| unit.id() == terminal)
+            .ok_or_else(|| EngineError::PreMergeCatchmentFetch {
+                unit_count: units.units().len(),
+                source: SessionError::integrity(format!(
+                    "terminal unit {} not in pre-merge units",
+                    terminal.get()
+                )),
+            })?
+            .geometry();
+        let terminal_bbox =
+            terminal_polygon
+                .bounding_rect()
+                .ok_or_else(|| EngineError::Refinement {
+                    unit_id: terminal.get(),
+                    source: RefinementError::DegenerateTerminalPolygon,
+                })?;
+
+        let flow_dir = {
+            let _guard = StageGuard::enter(Stage::RasterLocalizeFlowDir);
+            let flow_dir = self
+                .session
+                .localize_raster_window(RasterKind::FlowDir, terminal_bbox)
+                .map_err(|source| EngineError::RasterLocalize {
+                    unit_id: terminal.get(),
+                    source,
+                })?;
+            let bytes = flow_dir.header_bytes() + flow_dir.tile_bytes();
+            record_bytes(bytes);
+            record_requests(flow_dir.tile_count() as u64);
+            record_cache_status(if bytes == 0 { "no_fetch" } else { "fetched" });
+            record_path(flow_dir.path());
+            flow_dir
+        };
+        let flow_acc = {
+            let _guard = StageGuard::enter(Stage::RasterLocalizeFlowAcc);
+            let flow_acc = self
+                .session
+                .localize_raster_window(RasterKind::FlowAcc, terminal_bbox)
+                .map_err(|source| EngineError::RasterLocalize {
+                    unit_id: terminal.get(),
+                    source,
+                })?;
+            let bytes = flow_acc.header_bytes() + flow_acc.tile_bytes();
+            record_bytes(bytes);
+            record_requests(flow_acc.tile_count() as u64);
+            record_cache_status(if bytes == 0 { "no_fetch" } else { "fetched" });
+            record_path(flow_acc.path());
+            flow_acc
+        };
+        tracing::debug!(
+            flow_dir_cog_header_bytes = flow_dir.header_bytes(),
+            flow_dir_cog_tile_bytes = flow_dir.tile_bytes(),
+            flow_dir_cog_tile_count = flow_dir.tile_count(),
+            flow_dir_window_pixels = flow_dir.window_pixels(),
+            flow_acc_cog_header_bytes = flow_acc.header_bytes(),
+            flow_acc_cog_tile_bytes = flow_acc.tile_bytes(),
+            flow_acc_cog_tile_count = flow_acc.tile_count(),
+            flow_acc_window_pixels = flow_acc.window_pixels(),
+            "localized raster windows for refinement"
+        );
+        let flow_dir_uri = flow_dir.path().to_string_lossy();
+        let flow_acc_uri = flow_acc.path().to_string_lossy();
+
+        let refinement_result = {
+            let _refine_guard = StageGuard::enter(Stage::TerminalRefine);
+            refine_terminal_from_source(
+                raster_source,
+                flow_dir_uri.as_ref(),
+                flow_acc_uri.as_ref(),
+                terminal_polygon,
+                resolved.resolved().resolved_coord,
+                options.snap_threshold,
+            )
+            .map_err(|source| EngineError::Refinement {
+                unit_id: terminal.get(),
+                source,
+            })?
+        };
+
+        Ok(TerminalRefinement::Applied {
+            refined_outlet: refinement_result.snapped_coord(),
+            geometry: refinement_result.into_polygon(),
+        })
+    }
+
+    /// Dissolve pre-merge drainage-unit geometries into the final watershed.
+    ///
+    /// When terminal refinement supplies an applied override, the whole
+    /// terminal polygon is excluded and replaced by the refined terminal
+    /// geometry before calling the geometry-only assembly path.
+    ///
+    /// # Errors
+    ///
+    /// | Variant | When |
+    /// |---|---|
+    /// | [`EngineError::Assembly`] | Watershed geometry assembly fails |
+    pub fn dissolve_watershed(
+        &self,
+        units: &PreMergeDrainageUnits,
+        refinement: &TerminalRefinement,
+        options: &DelineationOptions,
+    ) -> Result<DissolvedWatershed, EngineError> {
+        let terminal = units.terminal();
+        let refined_terminal_geometry = match refinement {
+            TerminalRefinement::Applied { geometry, .. } => Some(geometry),
+            TerminalRefinement::Disabled
+            | TerminalRefinement::NoRastersAvailable
+            | TerminalRefinement::NoRasterSourceProvided => None,
+        };
+
+        let mut geometries_by_id = std::collections::BTreeMap::new();
+        for unit in units.units() {
+            if unit.id() == terminal && refined_terminal_geometry.is_some() {
+                continue;
+            }
+            geometries_by_id.insert(unit.id(), unit.geometry().clone());
+        }
+        if let Some(geometry) = refined_terminal_geometry {
+            geometries_by_id.insert(terminal, geometry.clone());
+        }
+
+        let mut geometries = Vec::with_capacity(geometries_by_id.len());
+        for (unit_id, geometry) in geometries_by_id {
+            if unit_id == terminal && refined_terminal_geometry.is_some() {
+                if geometry.0.is_empty() {
+                    let error =
+                        crate::assembly::AssemblyError::EmptyRefinedTerminalGeometry { unit_id };
+                    return Err(EngineError::Assembly {
+                        unit_id: terminal.get(),
+                        message: error.to_string(),
+                        source: Box::new(error),
+                    });
+                }
+            } else if geometry.0.is_empty() {
+                let error = crate::assembly::AssemblyError::EmptyCatchmentGeometry { unit_id };
+                return Err(EngineError::Assembly {
+                    unit_id: terminal.get(),
+                    message: error.to_string(),
+                    source: Box::new(error),
+                });
+            }
+            geometries.push(geometry);
+        }
+
+        let assembly_options = self.build_assembly_options(options);
+        let result = assemble_from_geometries(geometries, assembly_options).map_err(|e| {
+            EngineError::Assembly {
+                unit_id: terminal.get(),
+                message: e.to_string(),
+                source: Box::new(e),
+            }
+        })?;
+        let (geometry, area_km2) = result.into_parts();
+        Ok(DissolvedWatershed::new(geometry, area_km2))
+    }
+
     /// Delineate the watershed upstream of `outlet`.
     ///
     /// # Errors
@@ -643,53 +833,38 @@ impl Engine {
             let selected_level = self.select_level(LevelSelection::Finest)?;
             self.resolve_outlet_at_level(outlet, selected_level, &options.resolver_config)?
         };
-        let resolved = level_resolved.resolved();
-        let terminal = resolved.unit_id;
+        let terminal = level_resolved.resolved().unit_id;
 
         // Step 2: Upstream traversal
-        let upstream = {
+        let same_level_upstream = {
             let _guard = StageGuard::enter(Stage::UpstreamTraversal);
-            collect_upstream(terminal, self.session.graph()).map_err(|source| {
-                EngineError::Traversal {
-                    unit_id: terminal.get(),
-                    source,
-                }
-            })?
+            self.traverse_upstream_at_level(&level_resolved)?
         };
+
+        let pre_merge = self.produce_pre_merge_units(&same_level_upstream)?;
 
         // Step 3: Try refinement
-        let (refinement, refined_geometry) = self.try_refine(terminal, &resolved, options)?;
+        let terminal_refinement =
+            self.refine_terminal_placeholder(&level_resolved, &pre_merge, options)?;
 
         // Step 4: Assembly
-        let assembly_options = self.build_assembly_options(options);
-        let result = {
+        let dissolved = {
             let _guard = StageGuard::enter(Stage::WatershedAssembly);
-            assemble_watershed(
-                self.session.catchments(),
-                &upstream,
-                refined_geometry.as_ref(),
-                assembly_options,
-            )
-            .map_err(|e| EngineError::Assembly {
-                unit_id: terminal.get(),
-                message: e.to_string(),
-                source: Box::new(e),
-            })?
+            self.dissolve_watershed(&pre_merge, &terminal_refinement, options)?
         };
-        let (geometry, area_km2) = result.into_parts();
 
         // Step 5: Compose result
         let result = {
             let _guard = StageGuard::enter(Stage::ResultCompose);
             DelineationResult {
                 terminal_unit_id: terminal,
-                input_outlet: resolved.input_coord,
-                resolved_outlet: resolved.resolved_coord,
-                resolution_method: resolved.method.clone(),
-                upstream_unit_ids: upstream.into_unit_ids(),
-                refinement,
-                geometry,
-                area_km2,
+                input_outlet: level_resolved.resolved().input_coord,
+                resolved_outlet: level_resolved.resolved().resolved_coord,
+                resolution_method: level_resolved.resolved().method.clone(),
+                upstream_unit_ids: same_level_upstream.upstream().unit_ids().to_vec(),
+                refinement: refinement_outcome_from_terminal(&terminal_refinement),
+                geometry: dissolved.geometry().clone(),
+                area_km2: dissolved.area_km2(),
             }
         };
         Ok(result)
@@ -752,139 +927,6 @@ impl Engine {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    /// Attempt terminal refinement, returning the outcome and an optional
-    /// refined geometry to substitute into assembly.
-    fn try_refine(
-        &self,
-        terminal: UnitId,
-        resolved: &ResolvedOutlet,
-        options: &DelineationOptions,
-    ) -> Result<(RefinementOutcome, Option<MultiPolygon<f64>>), EngineError> {
-        if options.refinement_mode == RefinementMode::Disabled {
-            return Ok((RefinementOutcome::Disabled, None));
-        }
-        if self.session.raster_paths().is_none() {
-            return Ok((RefinementOutcome::NoRastersAvailable, None));
-        }
-        let raster_source = match self.raster_source.as_deref() {
-            Some(s) => s,
-            None => return Ok((RefinementOutcome::NoRasterSourceProvided, None)),
-        };
-
-        // Fetch terminal catchment geometry
-        let (terminal_polygon, terminal_bbox) = {
-            let _guard = StageGuard::enter(Stage::TerminalCatchmentFetch);
-            let terminal_units = self
-                .session
-                .catchments()
-                .query_geometries_by_ids(&[terminal])
-                .map_err(|source| match source {
-                    CatchmentGeometryQueryError::Read { source } => {
-                        EngineError::TerminalCatchmentFetch {
-                            unit_id: terminal.get(),
-                            source,
-                        }
-                    }
-                    CatchmentGeometryQueryError::Decode { source, .. } => {
-                        EngineError::TerminalCatchmentDecode {
-                            unit_id: terminal.get(),
-                            source,
-                        }
-                    }
-                })?;
-            let terminal_unit = terminal_units.into_iter().next().ok_or_else(|| {
-                EngineError::TerminalCatchmentFetch {
-                    unit_id: terminal.get(),
-                    source: SessionError::integrity(format!(
-                        "terminal unit {} not in catchment store",
-                        terminal.get()
-                    )),
-                }
-            })?;
-            let terminal_polygon = terminal_unit.into_parts().1;
-            let terminal_bbox =
-                terminal_polygon
-                    .bounding_rect()
-                    .ok_or_else(|| EngineError::Refinement {
-                        unit_id: terminal.get(),
-                        source: RefinementError::DegenerateTerminalPolygon,
-                    })?;
-            (terminal_polygon, terminal_bbox)
-        };
-
-        let flow_dir = {
-            let _guard = StageGuard::enter(Stage::RasterLocalizeFlowDir);
-            let flow_dir = self
-                .session
-                .localize_raster_window(RasterKind::FlowDir, terminal_bbox)
-                .map_err(|source| EngineError::RasterLocalize {
-                    unit_id: terminal.get(),
-                    source,
-                })?;
-            let bytes = flow_dir.header_bytes() + flow_dir.tile_bytes();
-            record_bytes(bytes);
-            record_requests(flow_dir.tile_count() as u64);
-            record_cache_status(if bytes == 0 { "no_fetch" } else { "fetched" });
-            record_path(flow_dir.path());
-            flow_dir
-        };
-        let flow_acc = {
-            let _guard = StageGuard::enter(Stage::RasterLocalizeFlowAcc);
-            let flow_acc = self
-                .session
-                .localize_raster_window(RasterKind::FlowAcc, terminal_bbox)
-                .map_err(|source| EngineError::RasterLocalize {
-                    unit_id: terminal.get(),
-                    source,
-                })?;
-            let bytes = flow_acc.header_bytes() + flow_acc.tile_bytes();
-            record_bytes(bytes);
-            record_requests(flow_acc.tile_count() as u64);
-            record_cache_status(if bytes == 0 { "no_fetch" } else { "fetched" });
-            record_path(flow_acc.path());
-            flow_acc
-        };
-        tracing::debug!(
-            flow_dir_cog_header_bytes = flow_dir.header_bytes(),
-            flow_dir_cog_tile_bytes = flow_dir.tile_bytes(),
-            flow_dir_cog_tile_count = flow_dir.tile_count(),
-            flow_dir_window_pixels = flow_dir.window_pixels(),
-            flow_acc_cog_header_bytes = flow_acc.header_bytes(),
-            flow_acc_cog_tile_bytes = flow_acc.tile_bytes(),
-            flow_acc_cog_tile_count = flow_acc.tile_count(),
-            flow_acc_window_pixels = flow_acc.window_pixels(),
-            "localized raster windows for refinement"
-        );
-        let flow_dir_uri = flow_dir.path().to_string_lossy();
-        let flow_acc_uri = flow_acc.path().to_string_lossy();
-
-        // Refine
-        let refinement_result = {
-            let _refine_guard = StageGuard::enter(Stage::TerminalRefine);
-            refine_terminal_from_source(
-                raster_source,
-                flow_dir_uri.as_ref(),
-                flow_acc_uri.as_ref(),
-                &terminal_polygon,
-                resolved.resolved_coord,
-                options.snap_threshold,
-            )
-            .map_err(|source| EngineError::Refinement {
-                unit_id: terminal.get(),
-                source,
-            })?
-        };
-
-        let refined_coord = refinement_result.snapped_coord();
-        let refined_polygon = refinement_result.into_polygon();
-        Ok((
-            RefinementOutcome::Applied {
-                refined_outlet: refined_coord,
-            },
-            Some(refined_polygon),
-        ))
-    }
-
     /// Construct [`AssemblyOptions`] from per-call settings and the engine's
     /// optional geometry-repair backend.
     fn build_assembly_options<'a>(&'a self, options: &DelineationOptions) -> AssemblyOptions<'a> {
@@ -893,6 +935,17 @@ impl Engine {
             Some(repairer) => base.with_geometry_repair(repairer),
             None => base,
         }
+    }
+}
+
+fn refinement_outcome_from_terminal(refinement: &TerminalRefinement) -> RefinementOutcome {
+    match refinement {
+        TerminalRefinement::Applied { refined_outlet, .. } => RefinementOutcome::Applied {
+            refined_outlet: *refined_outlet,
+        },
+        TerminalRefinement::NoRastersAvailable => RefinementOutcome::NoRastersAvailable,
+        TerminalRefinement::NoRasterSourceProvided => RefinementOutcome::NoRasterSourceProvided,
+        TerminalRefinement::Disabled => RefinementOutcome::Disabled,
     }
 }
 

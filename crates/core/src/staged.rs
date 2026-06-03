@@ -93,6 +93,12 @@ impl SelectedLevel {
         Self { level }
     }
 
+    /// Construct a selected level for focused integration tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn from_proven_level_for_test(level: Level) -> Self {
+        Self::from_proven_level(level)
+    }
+
     /// Return the selected HFX level.
     pub fn level(self) -> Level {
         self.level
@@ -226,6 +232,19 @@ impl PreMergeDrainageUnit {
         }
     }
 
+    /// Construct a pre-merge record for focused integration tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn new_for_test(
+        id: UnitId,
+        level: Level,
+        area: hfx_core::AreaKm2,
+        up_area: Option<hfx_core::AreaKm2>,
+        outlet: OutletCoord,
+        geometry: MultiPolygon<f64>,
+    ) -> Self {
+        Self::new(id, level, area, up_area, outlet, geometry)
+    }
+
     /// Return the drainage unit ID.
     pub fn id(&self) -> UnitId {
         self.id
@@ -284,6 +303,16 @@ impl PreMergeDrainageUnits {
         }
     }
 
+    /// Construct a terminal-first collection for focused integration tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn new_for_test(
+        terminal: UnitId,
+        selected_level: SelectedLevel,
+        units: Vec<PreMergeDrainageUnit>,
+    ) -> Self {
+        Self::new(terminal, selected_level, units)
+    }
+
     /// Return the terminal unit ID represented by the first record.
     pub fn terminal(&self) -> UnitId {
         self.terminal
@@ -331,6 +360,11 @@ pub struct DissolvedWatershed {
 }
 
 impl DissolvedWatershed {
+    /// Construct a dissolved watershed from assembled geometry and area.
+    pub(crate) fn new(geometry: MultiPolygon<f64>, area_km2: AreaKm2) -> Self {
+        Self { geometry, area_km2 }
+    }
+
     /// Return the dissolved watershed geometry.
     pub fn geometry(&self) -> &MultiPolygon<f64> {
         &self.geometry

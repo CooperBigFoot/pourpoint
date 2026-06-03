@@ -239,7 +239,7 @@ fn map_geometry_query_error(source: CatchmentGeometryQueryError) -> AssemblyErro
     }
 }
 
-fn assemble_from_geometries(
+pub(crate) fn assemble_from_geometries(
     geometries: Vec<MultiPolygon<f64>>,
     options: AssemblyOptions<'_>,
 ) -> Result<AssemblyResult, AssemblyError> {
