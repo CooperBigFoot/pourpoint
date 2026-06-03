@@ -18,6 +18,8 @@ use shed_core::algo::{
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/parity";
+const M1_SYNTHETIC_REFINED_DIR: &str = "v01_synthetic_refined";
+const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";
 
 #[derive(Debug, Deserialize)]
 struct GoldenRecord {
@@ -208,6 +210,23 @@ fn committed_synthetic_refined_b_golden_validates_schema_and_canonical_wkb() {
     assert_synthetic_refined_b_contract(&record);
     assert_b_raster_fixture_bytes_match_recorded_hashes(&record);
     assert_canonical_wkb_idempotent(&decode_hex(&record.canonical_wkb_hex));
+}
+
+#[test]
+fn converted_v021_synthetic_refined_tiffs_match_m1_b_bytes() {
+    for raster_path in ["flow_dir.tif", "flow_acc.tif"] {
+        let m1_path = parity_fixture_path(M1_SYNTHETIC_REFINED_DIR).join(raster_path);
+        let v021_path = parity_fixture_path(V021_SYNTHETIC_REFINED_DIR).join(raster_path);
+        assert!(
+            v021_path.is_file(),
+            "converted v0.2.1 parity raster should exist at {v021_path:?}"
+        );
+        assert_eq!(
+            sha256_file(&v021_path),
+            sha256_file(&m1_path),
+            "converted v0.2.1 {raster_path} must remain byte-identical to M1 B"
+        );
+    }
 }
 
 #[test]
@@ -519,7 +538,7 @@ fn assert_b_raster_fixture_bytes_match_recorded_hashes(record: &GoldenRecord) {
         let recorded = find_fixture_file(record, raster_path);
         let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(FIXTURE_DIR)
-            .join("v01_synthetic_refined")
+            .join(M1_SYNTHETIC_REFINED_DIR)
             .join(raster_path);
         let metadata = fs::metadata(&fixture_path).unwrap_or_else(|error| {
             panic!("B raster fixture should exist at {fixture_path:?}: {error}")
@@ -527,6 +546,12 @@ fn assert_b_raster_fixture_bytes_match_recorded_hashes(record: &GoldenRecord) {
         assert_eq!(metadata.len(), recorded.size_bytes);
         assert_eq!(sha256_file(&fixture_path), recorded.sha256);
     }
+}
+
+fn parity_fixture_path(relative: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(FIXTURE_DIR)
+        .join(relative)
 }
 
 fn find_fixture_file<'a>(record: &'a GoldenRecord, path: &str) -> &'a FileProvenance {

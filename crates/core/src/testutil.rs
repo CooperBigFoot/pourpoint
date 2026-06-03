@@ -8,6 +8,7 @@ use arrow::array::{
     ListBuilder, RecordBatch, StringBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
+use hfx_core::{Level, UnitId};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use serde_json::json;
@@ -41,6 +42,60 @@ pub enum TestSnapGeometry {
     LineString(f64, f64, f64, f64),
 }
 
+/// Typed catchment row used by builder-only fixture shapes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FixtureUnit {
+    id: UnitId,
+    level: Level,
+    parent_id: Option<UnitId>,
+    area_km2: f32,
+    up_area_km2: Option<f32>,
+    polygon: (f64, f64, f64, f64),
+}
+
+impl FixtureUnit {
+    /// Parse a fixture unit from boundary literals.
+    pub fn new(
+        id: i64,
+        level: i16,
+        parent_id: Option<i64>,
+        area_km2: f32,
+        up_area_km2: Option<f32>,
+        polygon: (f64, f64, f64, f64),
+    ) -> Self {
+        Self {
+            id: UnitId::new(id).unwrap(),
+            level: Level::new(level).unwrap(),
+            parent_id: parent_id.map(|id| UnitId::new(id).unwrap()),
+            area_km2,
+            up_area_km2,
+            polygon,
+        }
+    }
+}
+
+/// Typed graph row used by builder-only fixture shapes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FixtureGraphRow {
+    id: UnitId,
+    level: Level,
+    upstream_ids: Vec<UnitId>,
+}
+
+impl FixtureGraphRow {
+    /// Parse a fixture graph row from boundary literals.
+    pub fn new(id: i64, level: i16, upstream_ids: Vec<i64>) -> Self {
+        Self {
+            id: UnitId::new(id).unwrap(),
+            level: Level::new(level).unwrap(),
+            upstream_ids: upstream_ids
+                .into_iter()
+                .map(|id| UnitId::new(id).unwrap())
+                .collect(),
+        }
+    }
+}
+
 /// Builder for synthetic HFX dataset fixtures used in integration tests.
 pub struct DatasetBuilder {
     dir: TempDir,
@@ -52,6 +107,7 @@ pub struct DatasetBuilder {
     polygon_complexity: usize,
     generated_longitude_span: Option<(f64, f64)>,
     dag_diamond: bool,
+    multilevel_nested: bool,
     custom_catchments: Option<Vec<TestCatchment>>,
     custom_snap_targets: Option<Vec<TestSnapTarget>>,
 }
@@ -69,6 +125,7 @@ impl DatasetBuilder {
             polygon_complexity: 5,
             generated_longitude_span: None,
             dag_diamond: false,
+            multilevel_nested: false,
             custom_catchments: None,
             custom_snap_targets: None,
         }
@@ -136,6 +193,16 @@ impl DatasetBuilder {
     pub fn with_dag(mut self) -> Self {
         self.topology = "dag";
         self.dag_diamond = true;
+        self.multilevel_nested = false;
+        self
+    }
+
+    /// Emit a nested L0/L1 fixture with same-level graph edges.
+    pub fn with_multilevel_nested(mut self) -> Self {
+        self.topology = "tree";
+        self.unit_count = nested_fixture_units().len();
+        self.dag_diamond = false;
+        self.multilevel_nested = true;
         self
     }
 
@@ -231,25 +298,47 @@ impl DatasetBuilder {
 
         let (ids, upstream_ids) = self.build_graph_data();
 
-        let id_arr = Int64Array::from(ids);
+        let graph_rows = self.fixture_graph_rows();
+        let id_arr = if let Some(rows) = &graph_rows {
+            Int64Array::from(rows.iter().map(|row| row.id.get()).collect::<Vec<_>>())
+        } else {
+            Int64Array::from(ids)
+        };
         let mut level_b = Int16Builder::new();
         let mut list_builder = ListBuilder::new(Int64Builder::new());
         let mut minx_b = Float32Builder::new();
         let mut miny_b = Float32Builder::new();
         let mut maxx_b = Float32Builder::new();
         let mut maxy_b = Float32Builder::new();
-        let generated_unit_count = upstream_ids.len();
-        for (idx, ups) in upstream_ids.iter().enumerate() {
-            let (minx, miny, maxx, maxy) = self.generated_unit_bbox(idx, generated_unit_count);
-            level_b.append_value(0);
-            for &u in ups {
-                list_builder.values().append_value(u);
+        if let Some(rows) = &graph_rows {
+            let units = self.fixture_units().unwrap();
+            for row in rows {
+                let unit = units.iter().find(|unit| unit.id == row.id).unwrap();
+                let (minx, miny, maxx, maxy) = unit.polygon;
+                level_b.append_value(row.level.get());
+                for upstream_id in &row.upstream_ids {
+                    list_builder.values().append_value(upstream_id.get());
+                }
+                list_builder.append(true);
+                minx_b.append_value(minx as f32);
+                miny_b.append_value(miny as f32);
+                maxx_b.append_value(maxx as f32);
+                maxy_b.append_value(maxy as f32);
             }
-            list_builder.append(true);
-            minx_b.append_value(minx);
-            miny_b.append_value(miny);
-            maxx_b.append_value(maxx);
-            maxy_b.append_value(maxy);
+        } else {
+            let generated_unit_count = upstream_ids.len();
+            for (idx, ups) in upstream_ids.iter().enumerate() {
+                let (minx, miny, maxx, maxy) = self.generated_unit_bbox(idx, generated_unit_count);
+                level_b.append_value(0);
+                for &u in ups {
+                    list_builder.values().append_value(u);
+                }
+                list_builder.append(true);
+                minx_b.append_value(minx);
+                miny_b.append_value(miny);
+                maxx_b.append_value(maxx);
+                maxy_b.append_value(maxy);
+            }
         }
         let upstream_arr = list_builder.finish();
 
@@ -313,7 +402,30 @@ impl DatasetBuilder {
         let mut maxy_b = Float32Builder::new();
         let mut geom_b = BinaryBuilder::new();
 
-        if let Some(customs) = &self.custom_catchments {
+        if let Some(units) = self.fixture_units() {
+            for unit in &units {
+                let (poly_minx, poly_miny, poly_maxx, poly_maxy) = unit.polygon;
+                id_b.append_value(unit.id.get());
+                level_b.append_value(unit.level.get());
+                match unit.parent_id {
+                    Some(parent_id) => parent_id_b.append_value(parent_id.get()),
+                    None => parent_id_b.append_null(),
+                }
+                area_b.append_value(unit.area_km2);
+                match unit.up_area_km2 {
+                    Some(v) => up_area_b.append_value(v),
+                    None => up_area_b.append_null(),
+                }
+                minx_b.append_value(poly_minx as f32);
+                miny_b.append_value(poly_miny as f32);
+                maxx_b.append_value(poly_maxx as f32);
+                maxy_b.append_value(poly_maxy as f32);
+                outlet_lon_b.append_value((poly_minx + poly_maxx) / 2.0);
+                outlet_lat_b.append_value((poly_miny + poly_maxy) / 2.0);
+                let wkb = minimal_wkb_polygon(poly_minx, poly_miny, poly_maxx, poly_maxy);
+                geom_b.append_value(&wkb);
+            }
+        } else if let Some(customs) = &self.custom_catchments {
             for c in customs {
                 let (poly_minx, poly_miny, poly_maxx, poly_maxy) = c.polygon;
                 id_b.append_value(c.id);
@@ -421,7 +533,11 @@ impl DatasetBuilder {
                 id_b.append_value(t.id);
                 unit_id_b.append_value(t.catchment_id);
                 weight_b.append_value(t.weight);
-                stem_role_b.append_value(if t.is_mainstem { "mainstem" } else { "tributary" });
+                stem_role_b.append_value(if t.is_mainstem {
+                    "mainstem"
+                } else {
+                    "tributary"
+                });
                 match &t.geometry {
                     TestSnapGeometry::Point(x, y) => {
                         // Point bbox needs non-zero extent.
@@ -558,6 +674,8 @@ impl DatasetBuilder {
     fn generated_unit_count(&self) -> usize {
         if self.dag_diamond {
             self.unit_count + 4
+        } else if self.multilevel_nested {
+            nested_fixture_units().len()
         } else {
             self.unit_count
         }
@@ -579,6 +697,32 @@ impl DatasetBuilder {
         let maxx = (i as f32) * 0.5 + 0.4;
         (minx, miny, maxx, maxy)
     }
+
+    fn fixture_units(&self) -> Option<Vec<FixtureUnit>> {
+        self.multilevel_nested.then(nested_fixture_units)
+    }
+
+    fn fixture_graph_rows(&self) -> Option<Vec<FixtureGraphRow>> {
+        self.multilevel_nested.then(nested_fixture_graph_rows)
+    }
+}
+
+fn nested_fixture_units() -> Vec<FixtureUnit> {
+    vec![
+        FixtureUnit::new(1, 0, None, 30.0, Some(60.0), (0.0, -2.0, 4.0, 0.0)),
+        FixtureUnit::new(10, 1, Some(1), 10.0, None, (0.0, -1.0, 1.0, 0.0)),
+        FixtureUnit::new(20, 1, Some(1), 10.0, None, (1.0, -1.0, 2.0, 0.0)),
+        FixtureUnit::new(30, 1, Some(1), 10.0, None, (2.0, -1.0, 3.0, 0.0)),
+    ]
+}
+
+fn nested_fixture_graph_rows() -> Vec<FixtureGraphRow> {
+    vec![
+        FixtureGraphRow::new(1, 0, vec![]),
+        FixtureGraphRow::new(10, 1, vec![]),
+        FixtureGraphRow::new(20, 1, vec![10]),
+        FixtureGraphRow::new(30, 1, vec![20]),
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +865,16 @@ mod tests {
         // DAG mode adds 4 extra units
         assert_eq!(session.manifest().unit_count().get(), 7);
         assert_eq!(session.topology(), hfx_core::Topology::Dag);
+    }
+
+    #[test]
+    fn test_multilevel_nested_dataset_opens() {
+        let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+        let session =
+            DatasetSession::open_path(&root).expect("multi-level nested dataset should open");
+        assert_eq!(session.manifest().unit_count().get(), 4);
+        assert_eq!(session.topology(), hfx_core::Topology::Tree);
+        assert_eq!(session.graph().len(), 4);
     }
 
     #[test]

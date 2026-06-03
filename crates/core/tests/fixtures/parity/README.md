@@ -84,9 +84,10 @@ the existing `simple_convergent_5x5` refinement geometry with real TIFF bytes.
   accumulation `800`
 
 M2 must not mutate or move this M1 B fixture in place. The v0.2.1 work creates a
-separate fixture copy and reuses the exact same `flow_dir.tif` and
-`flow_acc.tif` bytes. The durable artifact test re-hashes only those two TIFFs
-at this committed M1 path so accidental byte drift fails offline after M2.
+separate `v021_synthetic_refined/` fixture copy and reuses the exact same
+`flow_dir.tif` and `flow_acc.tif` bytes. The durable artifact test re-hashes the
+committed M1 TIFFs and the converted v0.2.1 TIFF copy so accidental byte drift
+in either path fails offline after M2.
 
 The B TIFFs are the deterministic, byte-identical M1-to-M4 parity path. For M4
 real-data D8 parity, use `merit/0.2.0`; `merit-basins/0.1.0` is the M1
