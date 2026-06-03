@@ -26,6 +26,7 @@ pub struct TestCatchment {
 }
 
 /// Custom snap target specification for outlet resolution tests.
+#[derive(Clone)]
 pub struct TestSnapTarget {
     pub id: i64,
     pub catchment_id: i64,
@@ -35,11 +36,20 @@ pub struct TestSnapTarget {
 }
 
 /// Geometry for a test snap target.
+#[derive(Clone)]
 pub enum TestSnapGeometry {
     /// A WKB Point at (lon, lat).
     Point(f64, f64),
     /// A WKB LineString from (x1, y1) to (x2, y2).
     LineString(f64, f64, f64, f64),
+}
+
+/// Custom snap declaration specification for tests that need multiple snap artifacts.
+pub struct TestSnapDeclaration {
+    pub name: String,
+    pub path: String,
+    pub references_levels: Vec<i16>,
+    pub targets: Vec<TestSnapTarget>,
 }
 
 /// Typed catchment row used by builder-only fixture shapes.
@@ -110,6 +120,7 @@ pub struct DatasetBuilder {
     multilevel_nested: bool,
     custom_catchments: Option<Vec<TestCatchment>>,
     custom_snap_targets: Option<Vec<TestSnapTarget>>,
+    custom_snap_declarations: Option<Vec<TestSnapDeclaration>>,
 }
 
 impl DatasetBuilder {
@@ -128,6 +139,7 @@ impl DatasetBuilder {
             multilevel_nested: false,
             custom_catchments: None,
             custom_snap_targets: None,
+            custom_snap_declarations: None,
         }
     }
 
@@ -225,6 +237,16 @@ impl DatasetBuilder {
         self
     }
 
+    /// Override snap auxiliary declarations and write one snap artifact per declaration.
+    ///
+    /// This is intentionally narrow test support for HFX v0.2 multi-declaration
+    /// snap fixtures; production selection remains in `DatasetSession`.
+    pub fn with_custom_snap_declarations(mut self, declarations: Vec<TestSnapDeclaration>) -> Self {
+        self.include_snap = true;
+        self.custom_snap_declarations = Some(declarations);
+        self
+    }
+
     /// Write all artifacts and return `(TempDir, path_to_dataset_root)`.
     ///
     /// The [`TempDir`] must be kept alive by the caller to prevent cleanup.
@@ -234,7 +256,7 @@ impl DatasetBuilder {
         self.write_graph(&root);
         self.write_catchments(&root);
         if self.include_snap {
-            self.write_snap(&root);
+            self.write_snaps(&root);
         }
         if self.include_rasters {
             self.write_raster_stubs(&root);
@@ -260,16 +282,32 @@ impl DatasetBuilder {
             "auxiliary": []
         });
         if self.include_snap {
-            manifest["auxiliary"].as_array_mut().unwrap().push(json!({
-                "schema": "hfx.aux.snap.v1",
-                "artifacts": { "snap": "snap.parquet" },
-                "metadata": {
-                    "name": "test-snap",
-                    "description": "Synthetic snap targets.",
-                    "references_levels": [0],
-                    "weight_semantics": "higher is preferred"
+            let auxiliary = manifest["auxiliary"].as_array_mut().unwrap();
+            if let Some(declarations) = &self.custom_snap_declarations {
+                for declaration in declarations {
+                    auxiliary.push(json!({
+                        "schema": "hfx.aux.snap.v1",
+                        "artifacts": { "snap": declaration.path },
+                        "metadata": {
+                            "name": declaration.name,
+                            "description": "Synthetic snap targets.",
+                            "references_levels": declaration.references_levels,
+                            "weight_semantics": "higher is preferred"
+                        }
+                    }));
                 }
-            }));
+            } else {
+                auxiliary.push(json!({
+                    "schema": "hfx.aux.snap.v1",
+                    "artifacts": { "snap": "snap.parquet" },
+                    "metadata": {
+                        "name": "test-snap",
+                        "description": "Synthetic snap targets.",
+                        "references_levels": [0],
+                        "weight_semantics": "higher is preferred"
+                    }
+                }));
+            }
         }
         if self.include_rasters {
             manifest["auxiliary"].as_array_mut().unwrap().push(json!({
@@ -497,7 +535,22 @@ impl DatasetBuilder {
         writer.close().unwrap();
     }
 
-    fn write_snap(&self, root: &Path) {
+    fn write_snaps(&self, root: &Path) {
+        if let Some(declarations) = &self.custom_snap_declarations {
+            for declaration in declarations {
+                self.write_snap_artifact(root, &declaration.path, Some(&declaration.targets));
+            }
+        } else {
+            self.write_snap_artifact(root, "snap.parquet", self.custom_snap_targets.as_ref());
+        }
+    }
+
+    fn write_snap_artifact(
+        &self,
+        root: &Path,
+        path: &str,
+        custom_targets: Option<&Vec<TestSnapTarget>>,
+    ) {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -515,7 +568,7 @@ impl DatasetBuilder {
             .set_statistics_enabled(EnabledStatistics::Chunk)
             .build();
 
-        let file = std::fs::File::create(root.join("snap.parquet")).unwrap();
+        let file = std::fs::File::create(root.join(path)).unwrap();
         let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
         let mut id_b = Int64Builder::new();
@@ -528,7 +581,7 @@ impl DatasetBuilder {
         let mut maxy_b = Float32Builder::new();
         let mut geom_b = BinaryBuilder::new();
 
-        if let Some(customs) = &self.custom_snap_targets {
+        if let Some(customs) = custom_targets {
             for t in customs {
                 id_b.append_value(t.id);
                 unit_id_b.append_value(t.catchment_id);

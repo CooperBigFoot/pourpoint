@@ -99,7 +99,7 @@ pub struct DatasetSession {
     graph: hfx_core::DrainageGraph,
     catchment_levels: HashMap<UnitId, Level>,
     catchments: CatchmentStore,
-    snap: Option<SnapStore>,
+    snap_stores: Vec<DeclaredSnapStore>,
     raster_paths: Option<RasterPaths>,
     raster_cache: Option<Arc<RemoteRasterCache>>,
     remote_store: Option<Arc<dyn ObjectStore>>,
@@ -113,6 +113,12 @@ pub struct DatasetSession {
     /// Optional Parquet footer cache shared across catchment and snap readers.
     #[allow(dead_code)]
     footer_cache: Option<Arc<ParquetFooterCache>>,
+}
+
+#[derive(Debug)]
+struct DeclaredSnapStore {
+    decl: SnapDecl,
+    store: SnapStore,
 }
 
 impl DatasetSession {
@@ -250,17 +256,21 @@ impl DatasetSession {
             validate_graph_catchments(&manifest, &graph, &catchments)?
         };
 
-        let snap = aux_declarations
+        let snap_stores = aux_declarations
             .snaps
-            .first()
-            .map(|decl| SnapStore::open(&root.join(&decl.snap)))
-            .transpose()?;
+            .iter()
+            .map(|decl| {
+                Ok(DeclaredSnapStore {
+                    decl: decl.clone(),
+                    store: SnapStore::open(&root.join(&decl.snap))?,
+                })
+            })
+            .collect::<Result<Vec<_>, SessionError>>()?;
 
-        // If snap is present, verify all snap catchment_id references exist
-        if let (Some(decl), Some(ref snap_store)) = (aux_declarations.snaps.first(), snap.as_ref())
-        {
+        // If snap is present, verify all snap catchment_id references exist.
+        for declared_snap in &snap_stores {
             let _guard = StageGuard::enter(Stage::ValidateSnapRefs);
-            validate_snap_refs(snap_store, decl, &catchment_levels)?;
+            validate_snap_refs(&declared_snap.store, &declared_snap.decl, &catchment_levels)?;
         }
 
         let raster_paths = aux_declarations.d8_rasters.first().map(|decl| RasterPaths {
@@ -286,7 +296,7 @@ impl DatasetSession {
             graph,
             catchment_levels,
             catchments,
-            snap,
+            snap_stores,
             raster_paths,
             raster_cache: None,
             remote_store: None,
@@ -397,14 +407,6 @@ impl DatasetSession {
         let adapter_version = manifest.adapter_version().to_string();
         let catchments_id_index_path =
             cache.id_index_path(&fabric_name, &adapter_version, "catchments.parquet");
-        let snap_artifact_key = aux_declarations
-            .snaps
-            .first()
-            .map(|decl| decl.snap.as_str())
-            .unwrap_or("snap.parquet");
-        let snap_id_index_path =
-            cache.id_index_path(&fabric_name, &adapter_version, snap_artifact_key);
-
         let catchments_path = remote_artifact_path(root, "catchments.parquet");
         let catchments = CatchmentStore::open_remote_with_caches(
             store.clone(),
@@ -417,31 +419,41 @@ impl DatasetSession {
             Some(catchments_id_index_path),
         )?;
 
-        let snap = if let Some(decl) = aux_declarations.snaps.first() {
-            let snap_path = remote_artifact_path(root, &decl.snap);
-            Some(SnapStore::open_remote_with_caches(
-                store.clone(),
-                snap_path.clone(),
-                snap_path.as_ref().to_string(),
-                fabric_name.clone(),
-                adapter_version.clone(),
-                parquet_cache.clone(),
-                footer_cache.clone(),
-                Some(snap_id_index_path),
-            )?)
-        } else {
-            None
-        };
+        let snap_stores = aux_declarations
+            .snaps
+            .iter()
+            .map(|decl| {
+                let snap_path = remote_artifact_path(root, &decl.snap);
+                let snap_id_index_path =
+                    cache.id_index_path(&fabric_name, &adapter_version, &decl.snap);
+                Ok(DeclaredSnapStore {
+                    decl: decl.clone(),
+                    store: SnapStore::open_remote_with_caches(
+                        store.clone(),
+                        snap_path.clone(),
+                        snap_path.as_ref().to_string(),
+                        fabric_name.clone(),
+                        adapter_version.clone(),
+                        parquet_cache.clone(),
+                        footer_cache.clone(),
+                        Some(snap_id_index_path),
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>, SessionError>>()?;
 
         let catchments_meta = catchments.artifact_meta();
-        let snap_meta = snap.as_ref().and_then(SnapStore::artifact_meta);
-        let validation_hit = validation_sidecar_matches(
-            &cache,
-            &fabric_name,
-            &adapter_version,
-            &catchments_meta,
-            snap_meta.as_ref(),
-        );
+        let snap_meta = snap_stores
+            .first()
+            .and_then(|declared_snap| declared_snap.store.artifact_meta());
+        let validation_hit = snap_stores.len() <= 1
+            && validation_sidecar_matches(
+                &cache,
+                &fabric_name,
+                &adapter_version,
+                &catchments_meta,
+                snap_meta.as_ref(),
+            );
 
         let catchment_levels = if validation_hit {
             // Phase-B/Wave-2: keep validation stages free of nested ID-index spans.
@@ -468,11 +480,9 @@ impl DatasetSession {
                 duration_ms = t.elapsed().as_millis(),
                 "indexed catchments"
             );
-            if let (Some(decl), Some(ref snap_store)) =
-                (aux_declarations.snaps.first(), snap.as_ref())
-            {
+            for declared_snap in &snap_stores {
                 let _guard = StageGuard::enter(Stage::ValidateSnapRefs);
-                validate_snap_refs(snap_store, decl, &catchment_levels)?;
+                validate_snap_refs(&declared_snap.store, &declared_snap.decl, &catchment_levels)?;
             }
             if let Some(sidecar) =
                 validation_sidecar_for_current_metadata(catchments_meta.clone(), snap_meta.clone())
@@ -520,7 +530,7 @@ impl DatasetSession {
             graph,
             catchment_levels,
             catchments,
-            snap,
+            snap_stores,
             raster_paths,
             raster_cache: Some(raster_cache),
             remote_store: Some(store),
@@ -588,7 +598,28 @@ impl DatasetSession {
 
     /// Return a reference to the snap store, if present.
     pub fn snap(&self) -> Option<&SnapStore> {
-        self.snap.as_ref()
+        self.snap_stores
+            .first()
+            .map(|declared_snap| &declared_snap.store)
+    }
+
+    /// Return the snap store whose declaration is selected for `level`.
+    ///
+    /// M3 deliberately uses a narrow deterministic rule instead of a general
+    /// strategy binding: among `hfx.aux.snap.v1` declarations whose
+    /// `references_levels` contains `level`, sort by metadata `name` ascending,
+    /// then artifact `snap` path ascending, and use the first declaration.
+    pub(crate) fn snap_for_level(&self, level: Level) -> Option<&SnapStore> {
+        self.snap_stores
+            .iter()
+            .filter(|declared_snap| declared_snap.decl.references_levels.contains(&level.get()))
+            .min_by(|a, b| {
+                a.decl
+                    .name
+                    .cmp(&b.decl.name)
+                    .then_with(|| a.decl.snap.cmp(&b.decl.snap))
+            })
+            .map(|declared_snap| &declared_snap.store)
     }
 
     /// Return the validated raster paths, if rasters are present.

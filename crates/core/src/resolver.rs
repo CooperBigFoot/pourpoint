@@ -328,16 +328,28 @@ fn resolve_via_snap(
     outlet: GeoCoord,
     config: &ResolverConfig,
 ) -> Result<ResolvedOutlet, OutletResolutionError> {
+    let snap_store = session.snap().ok_or_else(|| {
+        internal_resolver_inconsistency("resolve_via_snap called without snap store")
+    })?;
+    resolve_via_snap_store(session, snap_store, outlet, None, config)
+}
+
+/// Resolve via the selected snap store, optionally constrained to an HFX level.
+///
+/// When `selected_level` is present, target `unit_id` values are filtered by
+/// `DatasetSession::level_of` before radius filtering and ranking.
+fn resolve_via_snap_store(
+    session: &DatasetSession,
+    snap_store: &crate::reader::snap_store::SnapStore,
+    outlet: GeoCoord,
+    selected_level: Option<SelectedLevel>,
+    config: &ResolverConfig,
+) -> Result<ResolvedOutlet, OutletResolutionError> {
     // 1. Build search bbox.
     let bbox = search_bbox(outlet, config.search_radius().as_f64())?;
 
     // 2. Query snap store.
-    let candidates = session
-        .snap()
-        .ok_or_else(|| {
-            internal_resolver_inconsistency("resolve_via_snap called without snap store")
-        })?
-        .query_by_bbox(&bbox)?;
+    let candidates = snap_store.query_by_bbox(&bbox)?;
     let total_candidates = candidates.len();
     debug!(
         candidate_count = total_candidates,
@@ -357,6 +369,12 @@ fn resolve_via_snap(
     let mut scored: Vec<ScoredCandidate> = Vec::with_capacity(candidates.len());
     let mut decode_failures: usize = 0;
     for target in candidates {
+        if let Some(selected_level) = selected_level
+            && session.level_of(target.unit_id()) != Some(selected_level.level())
+        {
+            continue;
+        }
+
         let geom = match decode_wkb(target.geometry()) {
             Ok(g) => g,
             Err(e) => {
@@ -710,8 +728,10 @@ pub fn resolve_outlet(
 ///
 /// Uses the same snap-vs-PiP dispatch as [`resolve_outlet`]. The PiP branch
 /// filters decoded catchment candidates to `selected_level` before containment
-/// testing and tie-breaking. The snap branch is intentionally unchanged in
-/// this step.
+/// testing and tie-breaking. The snap branch selects the `hfx.aux.snap.v1`
+/// declaration whose `references_levels` contains `selected_level`, then
+/// filters snap targets by their referenced unit level before radius filtering
+/// and ranking.
 ///
 /// # Errors
 ///
@@ -728,11 +748,17 @@ pub fn resolve_outlet_at_level(
     selected_level: SelectedLevel,
     config: &ResolverConfig,
 ) -> Result<ResolvedOutlet, OutletResolutionError> {
-    if session.snap().is_some() {
-        debug!("snap.parquet present, using snap resolution path");
-        resolve_via_snap(session, outlet, config)
+    if let Some(snap_store) = session.snap_for_level(selected_level.level()) {
+        debug!(
+            selected_level = selected_level.level().get(),
+            "selected-level snap declaration present, using snap resolution path"
+        );
+        resolve_via_snap_store(session, snap_store, outlet, Some(selected_level), config)
     } else {
-        debug!("no snap.parquet, using selected-level point-in-polygon resolution path");
+        debug!(
+            selected_level = selected_level.level().get(),
+            "no selected-level snap declaration, using selected-level point-in-polygon resolution path"
+        );
         resolve_via_pip(session, outlet, Some(selected_level))
     }
 }
