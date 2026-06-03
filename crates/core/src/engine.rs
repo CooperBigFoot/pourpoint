@@ -246,6 +246,11 @@ impl DelineationOptions {
         self.refinement_mode
     }
 
+    /// Return the configured outlet resolver settings.
+    pub fn resolver_config(&self) -> &ResolverConfig {
+        &self.resolver_config
+    }
+
     /// Enable or disable the terminal-refinement step.
     #[deprecated(
         since = "0.1.123",
@@ -808,6 +813,26 @@ impl Engine {
         Ok(DissolvedWatershed::new(geometry, area_km2))
     }
 
+    /// Compose the public delineation result from completed staged outputs.
+    pub fn compose_result(
+        &self,
+        resolved: LevelResolvedOutlet,
+        upstream: SameLevelUpstreamUnits,
+        refinement: TerminalRefinement,
+        dissolved: DissolvedWatershed,
+    ) -> DelineationResult {
+        DelineationResult {
+            terminal_unit_id: resolved.resolved().unit_id,
+            input_outlet: resolved.resolved().input_coord,
+            resolved_outlet: resolved.resolved().resolved_coord,
+            resolution_method: resolved.resolved().method.clone(),
+            upstream_unit_ids: upstream.upstream().unit_ids().to_vec(),
+            refinement: refinement_outcome_from_terminal(&refinement),
+            geometry: dissolved.geometry().clone(),
+            area_km2: dissolved.area_km2(),
+        }
+    }
+
     /// Delineate the watershed upstream of `outlet`.
     ///
     /// # Errors
@@ -833,7 +858,6 @@ impl Engine {
             let selected_level = self.select_level(LevelSelection::Finest)?;
             self.resolve_outlet_at_level(outlet, selected_level, &options.resolver_config)?
         };
-        let terminal = level_resolved.resolved().unit_id;
 
         // Step 2: Upstream traversal
         let same_level_upstream = {
@@ -856,16 +880,12 @@ impl Engine {
         // Step 5: Compose result
         let result = {
             let _guard = StageGuard::enter(Stage::ResultCompose);
-            DelineationResult {
-                terminal_unit_id: terminal,
-                input_outlet: level_resolved.resolved().input_coord,
-                resolved_outlet: level_resolved.resolved().resolved_coord,
-                resolution_method: level_resolved.resolved().method.clone(),
-                upstream_unit_ids: same_level_upstream.upstream().unit_ids().to_vec(),
-                refinement: refinement_outcome_from_terminal(&terminal_refinement),
-                geometry: dissolved.geometry().clone(),
-                area_km2: dissolved.area_km2(),
-            }
+            self.compose_result(
+                level_resolved,
+                same_level_upstream,
+                terminal_refinement,
+                dissolved,
+            )
         };
         Ok(result)
     }

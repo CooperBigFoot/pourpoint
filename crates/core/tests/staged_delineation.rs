@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
 use geo::{BoundingRect, LineString, MultiPolygon, Polygon};
 use hfx_core::{AreaKm2, Level, OutletCoord, UnitId};
 use rayon::ThreadPoolBuilder;
@@ -9,6 +12,9 @@ use shed_core::{
     DelineationOptions, Engine, EngineError, LevelSelection, PreMergeDrainageUnit,
     PreMergeDrainageUnits, RefinementMode, SelectedLevel, TerminalRefinement,
 };
+
+const PARITY_FIXTURE_DIR: &str = "tests/fixtures/parity";
+const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";
 
 #[test]
 fn staged_level_selection_parses_finest_before_resolution() {
@@ -82,6 +88,44 @@ fn staged_pre_merge_units_are_pristine_terminal_first_records() {
             "every record must include decoded whole geometry"
         );
     }
+}
+
+#[test]
+fn delineate_equals_explicit_staged_composition_refine_off_v021_fixture() {
+    let session = DatasetSession::open_path(&parity_fixture_path(V021_SYNTHETIC_REFINED_DIR))
+        .expect("v0.2.1 converted parity fixture should open");
+    let engine = Engine::builder(session).build();
+    let outlet = GeoCoord::new(2.5, -2.5);
+    let options = DelineationOptions::default().with_refinement_mode(RefinementMode::Disabled);
+
+    let direct = engine
+        .delineate(outlet, &options)
+        .expect("direct delineation should succeed");
+    let staged = explicit_staged_composition(&engine, outlet, &options)
+        .expect("explicit staged composition should succeed");
+
+    assert_delineation_results_equal(&direct, &staged);
+}
+
+#[test]
+fn delineate_equals_explicit_staged_composition_best_effort_no_rasters() {
+    let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+    let session = DatasetSession::open_path(&root).expect("nested fixture should open");
+    let engine = Engine::builder(session).build();
+    let outlet = GeoCoord::new(2.5, -0.5);
+    let options = DelineationOptions::default();
+
+    let direct = engine
+        .delineate(outlet, &options)
+        .expect("direct delineation should succeed");
+    let staged = explicit_staged_composition(&engine, outlet, &options)
+        .expect("explicit staged composition should succeed");
+
+    assert_eq!(
+        direct.refinement(),
+        &shed_core::RefinementOutcome::NoRastersAvailable
+    );
+    assert_delineation_results_equal(&direct, &staged);
 }
 
 #[test]
@@ -266,6 +310,58 @@ fn pre_merge_for_nested_fixture(
         .expect("pre-merge units should materialize");
 
     (resolved, pre_merge)
+}
+
+fn explicit_staged_composition(
+    engine: &Engine,
+    outlet: GeoCoord,
+    options: &DelineationOptions,
+) -> Result<shed_core::DelineationResult, EngineError> {
+    let selected_level = engine.select_level(LevelSelection::Finest)?;
+    let resolved =
+        engine.resolve_outlet_at_level(outlet, selected_level, options.resolver_config())?;
+    let upstream = engine.traverse_upstream_at_level(&resolved)?;
+    let pre_merge = engine.produce_pre_merge_units(&upstream)?;
+    let refinement = engine.refine_terminal_placeholder(&resolved, &pre_merge, options)?;
+    let dissolved = engine.dissolve_watershed(&pre_merge, &refinement, options)?;
+
+    Ok(engine.compose_result(resolved, upstream, refinement, dissolved))
+}
+
+fn assert_delineation_results_equal(
+    direct: &shed_core::DelineationResult,
+    staged: &shed_core::DelineationResult,
+) {
+    assert_eq!(direct.terminal_unit_id(), staged.terminal_unit_id());
+    assert_eq!(direct.input_outlet(), staged.input_outlet());
+    assert_eq!(direct.resolved_outlet(), staged.resolved_outlet());
+    assert_eq!(direct.resolution_method(), staged.resolution_method());
+    assert_eq!(
+        direct
+            .upstream_unit_ids()
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>(),
+        staged
+            .upstream_unit_ids()
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+    );
+    assert_eq!(direct.refinement(), staged.refinement());
+    assert_eq!(
+        canonical_wkb_multi_polygon(direct.geometry())
+            .expect("direct geometry should canonicalize"),
+        canonical_wkb_multi_polygon(staged.geometry())
+            .expect("staged geometry should canonicalize")
+    );
+    assert_close(direct.area_km2().as_f64(), staged.area_km2().as_f64());
+}
+
+fn parity_fixture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(PARITY_FIXTURE_DIR)
+        .join(name)
 }
 
 fn manual_pre_merge_units(
