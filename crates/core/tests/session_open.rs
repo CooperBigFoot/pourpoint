@@ -15,7 +15,7 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
-use hfx_core::{UnitId, BoundingBox, Topology};
+use hfx_core::{BoundingBox, Topology, UnitId};
 use shed_core::SessionError;
 use shed_core::session::DatasetSession;
 

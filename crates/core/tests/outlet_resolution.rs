@@ -84,16 +84,19 @@ fn write_manifest(root: &Path, unit_count: usize, has_snap: bool) {
         "auxiliary": []
     });
     if has_snap {
-        m["auxiliary"].as_array_mut().unwrap().push(serde_json::json!({
-            "schema": "hfx.aux.snap.v1",
-            "artifacts": { "snap": "snap.parquet" },
-            "metadata": {
-                "name": "test-snap",
-                "description": "Synthetic snap targets.",
-                "references_levels": [0],
-                "weight_semantics": "higher is preferred"
-            }
-        }));
+        m["auxiliary"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "schema": "hfx.aux.snap.v1",
+                "artifacts": { "snap": "snap.parquet" },
+                "metadata": {
+                    "name": "test-snap",
+                    "description": "Synthetic snap targets.",
+                    "references_levels": [0],
+                    "weight_semantics": "higher is preferred"
+                }
+            }));
     }
     std::fs::write(root.join("manifest.json"), m.to_string()).unwrap();
 }

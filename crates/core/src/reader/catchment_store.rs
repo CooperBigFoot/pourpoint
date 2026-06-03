@@ -789,13 +789,13 @@ fn extract_units_from_batch(
             .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("id: {e}")))?;
 
         let level = if let Some(level_col) = level_col {
-        if level_col.is_null(i) {
-            return Err(SessionError::invalid_row(
-                artifact,
-                global_i,
-                "null value in non-nullable column \"level\"",
-            ));
-        }
+            if level_col.is_null(i) {
+                return Err(SessionError::invalid_row(
+                    artifact,
+                    global_i,
+                    "null value in non-nullable column \"level\"",
+                ));
+            }
             Level::new(level_col.value(i))
                 .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("level: {e}")))?
         } else {
@@ -832,25 +832,25 @@ fn extract_units_from_batch(
         };
 
         let outlet_lon = if let Some(outlet_lon_col) = outlet_lon_col {
-        if outlet_lon_col.is_null(i) {
-            return Err(SessionError::invalid_row(
-                artifact,
-                global_i,
-                "null value in non-nullable column \"outlet_lon\"",
-            ));
-        }
+            if outlet_lon_col.is_null(i) {
+                return Err(SessionError::invalid_row(
+                    artifact,
+                    global_i,
+                    "null value in non-nullable column \"outlet_lon\"",
+                ));
+            }
             outlet_lon_col.value(i)
         } else {
             f64::from((minx_col.value(i) + maxx_col.value(i)) / 2.0)
         };
         let outlet_lat = if let Some(outlet_lat_col) = outlet_lat_col {
-        if outlet_lat_col.is_null(i) {
-            return Err(SessionError::invalid_row(
-                artifact,
-                global_i,
-                "null value in non-nullable column \"outlet_lat\"",
-            ));
-        }
+            if outlet_lat_col.is_null(i) {
+                return Err(SessionError::invalid_row(
+                    artifact,
+                    global_i,
+                    "null value in non-nullable column \"outlet_lat\"",
+                ));
+            }
             outlet_lat_col.value(i)
         } else {
             f64::from((miny_col.value(i) + maxy_col.value(i)) / 2.0)
@@ -1031,9 +1031,12 @@ fn optional_string_value(
         return Ok(None);
     };
     let array = batch.column(index);
-    let strings = array.as_any().downcast_ref::<StringArray>().ok_or_else(|| {
-        SessionError::parquet_schema(ARTIFACT, format!("column {column:?} is not Utf8"))
-    })?;
+    let strings = array
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .ok_or_else(|| {
+            SessionError::parquet_schema(ARTIFACT, format!("column {column:?} is not Utf8"))
+        })?;
     if strings.is_null(row) {
         Ok(None)
     } else {

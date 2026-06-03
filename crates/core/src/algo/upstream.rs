@@ -2,7 +2,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use hfx_core::{UnitId, DrainageGraph};
+use hfx_core::{DrainageGraph, UnitId};
 use tracing::{debug, instrument};
 
 // ── TraversalError ────────────────────────────────────────────────────────────

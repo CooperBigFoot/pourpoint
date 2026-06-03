@@ -12,7 +12,7 @@ use arrow::array::{BinaryBuilder, Float32Builder, Int64Builder, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema};
 use bytes::Bytes;
 use futures_util::stream::BoxStream;
-use hfx_core::{UnitId, BoundingBox};
+use hfx_core::{BoundingBox, UnitId};
 use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{

@@ -10,8 +10,8 @@ use url::Url;
 
 use crate::error::SessionError;
 use crate::reader;
-use crate::reader::manifest::AuxDeclarations;
 use crate::reader::id_index::IdIndex;
+use crate::reader::manifest::AuxDeclarations;
 
 const CACHE_ENV: &str = "HFX_CACHE_DIR";
 const CACHE_NAMESPACE: &str = "hfx";

@@ -161,7 +161,9 @@ pub enum SessionError {
 
     /// Fired when a declared auxiliary artifact path is absolute or escapes the
     /// dataset root.
-    #[error("auxiliary artifact path {path:?} for schema {schema:?} (key {artifact:?}) escapes the dataset root")]
+    #[error(
+        "auxiliary artifact path {path:?} for schema {schema:?} (key {artifact:?}) escapes the dataset root"
+    )]
     AuxiliaryPathEscape {
         /// The auxiliary schema ID the failing entry declared.
         schema: String,
@@ -243,7 +245,9 @@ pub enum SessionError {
     /// Fired when a snap `unit_id` references a unit that is absent from
     /// `catchments.parquet`, or the referenced unit's level is not listed in the
     /// declaration's `references_levels`.
-    #[error("snap referential integrity violation (snap id {snap_id}, unit_id {unit_id}): {reason}")]
+    #[error(
+        "snap referential integrity violation (snap id {snap_id}, unit_id {unit_id}): {reason}"
+    )]
     SnapReferentialIntegrity {
         /// The snap feature ID involved.
         snap_id: i64,

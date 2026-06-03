@@ -156,7 +156,13 @@ fn put_remote_fixture(store: &Arc<InMemory>, root: &ObjectPath, fixture: RemoteF
                 PutPayload::from(manifest_bytes()),
             )
             .await;
-            put_object(store, root, "graph.parquet", PutPayload::from(graph_bytes())).await;
+            put_object(
+                store,
+                root,
+                "graph.parquet",
+                PutPayload::from(graph_bytes()),
+            )
+            .await;
         }
         put_object(
             store,
