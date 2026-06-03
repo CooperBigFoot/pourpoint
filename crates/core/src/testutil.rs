@@ -267,8 +267,11 @@ impl DatasetBuilder {
         )
         .unwrap();
 
+        let props = WriterProperties::builder()
+            .set_statistics_enabled(EnabledStatistics::Chunk)
+            .build();
         let file = std::fs::File::create(root.join("graph.parquet")).unwrap();
-        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, Some(props)).unwrap();
         writer.write(&batch).unwrap();
         writer.close().unwrap();
     }

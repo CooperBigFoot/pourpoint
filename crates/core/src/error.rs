@@ -277,9 +277,8 @@ pub enum SessionError {
         reason: String,
     },
 
-    /// Fired when the Arrow record batch is valid but
-    /// `hfx_core::DrainageGraph::new` rejects the content (e.g. duplicate
-    /// atom IDs, empty graph).
+    /// Fired when the graph record batch is valid but
+    /// `hfx_core::DrainageGraph::new` rejects the content (e.g. an empty graph).
     #[error("graph domain validation failed: {source}")]
     GraphDomain {
         /// Underlying domain error from `hfx_core`.

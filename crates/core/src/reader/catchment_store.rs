@@ -1523,9 +1523,14 @@ fn id_column_index(
 
 fn full_projection_indices(
     parquet_schema: &parquet::schema::types::SchemaDescriptor,
-) -> Result<[usize; 8], SessionError> {
-    Ok([
-        id_column_index(parquet_schema)?,
+) -> Result<Vec<usize>, SessionError> {
+    let mut indices = vec![id_column_index(parquet_schema)?];
+    for optional in ["level", "parent_id", "outlet_lon", "outlet_lat"] {
+        if let Some(index) = optional_named_column_index(parquet_schema, optional) {
+            indices.push(index);
+        }
+    }
+    indices.extend([
         named_column_index(parquet_schema, "area_km2")?,
         named_column_index(parquet_schema, "up_area_km2")?,
         named_column_index(parquet_schema, "bbox_minx")?,
@@ -1533,7 +1538,8 @@ fn full_projection_indices(
         named_column_index(parquet_schema, "bbox_maxx")?,
         named_column_index(parquet_schema, "bbox_maxy")?,
         named_column_index(parquet_schema, "geometry")?,
-    ])
+    ]);
+    Ok(indices)
 }
 
 fn geometry_projection_indices(
@@ -1554,6 +1560,16 @@ fn named_column_index(
         .iter()
         .position(|c| c.name() == name)
         .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, format!("missing column \"{name}\"")))
+}
+
+fn optional_named_column_index(
+    parquet_schema: &parquet::schema::types::SchemaDescriptor,
+    name: &str,
+) -> Option<usize> {
+    parquet_schema
+        .columns()
+        .iter()
+        .position(|c| c.name() == name)
 }
 
 /// Downcast a named column in `batch` to a typed Arrow array.

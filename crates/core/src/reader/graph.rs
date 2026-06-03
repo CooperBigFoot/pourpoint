@@ -4,7 +4,7 @@ use std::path::Path;
 
 use arrow::array::{Array, Int16Array, Int64Array, LargeListArray, ListArray};
 use arrow::datatypes::DataType;
-use hfx_core::{AdjacencyRow, DrainageGraph, Level, UnitId};
+use hfx_core::{AdjacencyRow, DrainageGraph, GraphError, Level, UnitId};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tracing::{debug, info, instrument};
 
@@ -124,7 +124,14 @@ where
     }
 
     let row_count = rows.len();
-    let graph = DrainageGraph::new(rows).map_err(|source| SessionError::GraphDomain { source })?;
+    let graph = DrainageGraph::new(rows).map_err(|source| match source {
+        GraphError::DuplicateUnitId { id, first, second } => {
+            SessionError::GraphReferentialIntegrity {
+                reason: format!("duplicate graph unit {id} at rows {first} and {second}"),
+            }
+        }
+        source => SessionError::GraphDomain { source },
+    })?;
     info!(row_count, "graph.parquet loaded");
     Ok(graph)
 }

@@ -96,6 +96,20 @@ fn manifest_unit_count_mismatch_is_typed() {
 }
 
 #[test]
+fn legacy_graph_arrow_is_rejected_without_fallback() {
+    let (_dir, root) = DatasetBuilder::new(3).build();
+    std::fs::write(root.join("graph.arrow"), b"legacy arrow bytes").unwrap();
+
+    let err = DatasetSession::open_path(&root).unwrap_err();
+
+    assert!(matches!(
+        err,
+        SessionError::LegacyGraphArrowRejected { ref path }
+            if path.ends_with("graph.arrow")
+    ));
+}
+
+#[test]
 fn auxiliary_d8_missing_or_invalid_metadata_is_typed() {
     let cases = [
         (
