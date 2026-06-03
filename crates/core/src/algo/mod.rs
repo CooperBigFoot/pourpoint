@@ -66,7 +66,7 @@ pub use snap::{SnapError, SnappedPoint, snap_pour_point};
 pub use trace::trace_upstream;
 
 // ── Re-exports: graph traversal ──────────────────────────────────────────────
-pub use upstream::{TraversalError, UpstreamAtoms, collect_upstream};
+pub use upstream::{TraversalError, UpstreamUnits, collect_upstream};
 
 // ── Re-exports: geometry processing ──────────────────────────────────────────
 pub use canonical_wkb::{

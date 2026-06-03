@@ -1238,9 +1238,7 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "hfx-core"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c35322136070a735d9e3812388f03d8a788c13784ceb29c2a1ac34e29cd5ad6c"
+version = "0.2.64"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",

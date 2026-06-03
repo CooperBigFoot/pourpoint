@@ -12,7 +12,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamReader;
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
-use hfx_core::AtomId;
+use hfx_core::UnitId;
 use serde::{Deserialize, Serialize};
 
 use crate::error::SessionError;
@@ -23,8 +23,8 @@ const MARKER_LEN: usize = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdIndex {
-    pub(crate) ids: Vec<AtomId>,
-    pub(crate) id_row_groups: Option<HashMap<AtomId, usize>>,
+    pub(crate) ids: Vec<UnitId>,
+    pub(crate) id_row_groups: Option<HashMap<UnitId, usize>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -194,7 +194,7 @@ fn decode_body(body: &[u8]) -> Result<Option<IdIndex>, SessionError> {
             if id_col.is_null(row) {
                 return Ok(None);
             }
-            let id = match AtomId::new(id_col.value(row)) {
+            let id = match UnitId::new(id_col.value(row)) {
                 Ok(id) => id,
                 Err(_) => return Ok(None),
             };
@@ -286,13 +286,13 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use hfx_core::AtomId;
+    use hfx_core::UnitId;
     use tempfile::tempdir;
 
     use super::IdIndex;
 
-    fn aid(raw: i64) -> AtomId {
-        AtomId::new(raw).unwrap()
+    fn aid(raw: i64) -> UnitId {
+        UnitId::new(raw).unwrap()
     }
 
     fn write_index(path: &Path, index: &IdIndex) {

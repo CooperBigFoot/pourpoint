@@ -43,10 +43,10 @@ impl PyAreaOnlyResult {
 
 #[pymethods]
 impl PyDelineationResult {
-    /// Terminal atom ID that the outlet resolved to.
+    /// Terminal unit ID that the outlet resolved to.
     #[getter]
     fn terminal_atom_id(&self) -> i64 {
-        self.inner.terminal_atom_id().get()
+        self.inner.terminal_unit_id().get()
     }
 
     /// Input outlet coordinate as `(lon, lat)`.
@@ -76,11 +76,11 @@ impl PyDelineationResult {
         format!("{:?}", self.inner.resolution_method())
     }
 
-    /// All upstream atom IDs (including the terminal atom).
+    /// All upstream unit IDs (including the terminal unit).
     #[getter]
     fn upstream_atom_ids(&self) -> Vec<i64> {
         self.inner
-            .upstream_atom_ids()
+            .upstream_unit_ids()
             .iter()
             .map(|id| id.get())
             .collect()
@@ -134,19 +134,19 @@ impl PyDelineationResult {
     fn __repr__(&self) -> String {
         format!(
             "DelineationResult(terminal_atom_id={}, area_km2={:.2}, upstream_count={})",
-            self.inner.terminal_atom_id().get(),
+            self.inner.terminal_unit_id().get(),
             self.inner.area_km2().as_f64(),
-            self.inner.upstream_atom_ids().len(),
+            self.inner.upstream_unit_ids().len(),
         )
     }
 }
 
 #[pymethods]
 impl PyAreaOnlyResult {
-    /// Terminal atom ID that the outlet resolved to.
+    /// Terminal unit ID that the outlet resolved to.
     #[getter]
     fn terminal_atom_id(&self) -> i64 {
-        self.inner.terminal_atom_id().get()
+        self.inner.terminal_unit_id().get()
     }
 
     /// Input outlet coordinate as `(lon, lat)`.
@@ -176,11 +176,11 @@ impl PyAreaOnlyResult {
         format!("{:?}", self.inner.resolution_method())
     }
 
-    /// All upstream atom IDs (including the terminal atom).
+    /// All upstream unit IDs (including the terminal unit).
     #[getter]
     fn upstream_atom_ids(&self) -> Vec<i64> {
         self.inner
-            .upstream_atom_ids()
+            .upstream_unit_ids()
             .iter()
             .map(|id| id.get())
             .collect()
@@ -195,9 +195,9 @@ impl PyAreaOnlyResult {
     fn __repr__(&self) -> String {
         format!(
             "AreaOnlyResult(terminal_atom_id={}, area_km2={:.2}, upstream_count={})",
-            self.inner.terminal_atom_id().get(),
+            self.inner.terminal_unit_id().get(),
             self.inner.area_km2().as_f64(),
-            self.inner.upstream_atom_ids().len(),
+            self.inner.upstream_unit_ids().len(),
         )
     }
 }

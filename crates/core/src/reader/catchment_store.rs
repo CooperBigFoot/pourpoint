@@ -7,14 +7,17 @@ use std::sync::Arc;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
-use arrow::array::{Array, BinaryArray, Float32Array, Int64Array, LargeBinaryArray};
+use arrow::array::{
+    Array, BinaryArray, Float32Array, Float64Array, Int16Array, Int64Array, LargeBinaryArray,
+    StringArray,
+};
 use arrow::datatypes::{DataType, Schema};
 use chrono::{DateTime, Utc};
 use futures_util::{StreamExt, stream};
 use geo::{Geometry, MultiPolygon};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::{AreaKm2, AtomId, BoundingBox, CatchmentAtom, WkbGeometry};
+use hfx_core::{AreaKm2, BoundingBox, CatchmentUnit, Level, OutletCoord, UnitId, WkbGeometry};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
@@ -41,22 +44,22 @@ const ID_INDEX_ROW_GROUP_CONCURRENCY: usize = 16;
 const GEOMETRY_QUERY_ROW_GROUP_CONCURRENCY: usize = 16;
 
 #[cfg(test)]
-static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, AtomId), usize>>> =
+static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, UnitId), usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Decoded geometry-only catchment row used on the assembly/refinement hot path.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DecodedCatchmentGeometryRow {
-    id: AtomId,
+    id: UnitId,
     geometry: MultiPolygon<f64>,
 }
 
 impl DecodedCatchmentGeometryRow {
-    pub(crate) fn new(id: AtomId, geometry: MultiPolygon<f64>) -> Self {
+    pub(crate) fn new(id: UnitId, geometry: MultiPolygon<f64>) -> Self {
         Self { id, geometry }
     }
 
-    pub(crate) fn into_parts(self) -> (AtomId, MultiPolygon<f64>) {
+    pub(crate) fn into_parts(self) -> (UnitId, MultiPolygon<f64>) {
         (self.id, self.geometry)
     }
 }
@@ -73,10 +76,10 @@ pub(crate) enum CatchmentGeometryQueryError {
     },
 
     /// A requested catchment geometry failed WKB decode or had the wrong type.
-    #[error("failed to decode geometry for atom {atom_id:?}: {source}")]
+    #[error("failed to decode geometry for unit {unit_id:?}: {source}")]
     Decode {
-        /// Atom whose stored geometry failed decode.
-        atom_id: AtomId,
+        /// Unit whose stored geometry failed decode.
+        unit_id: UnitId,
         /// Underlying WKB decode error.
         source: WkbDecodeError,
     },
@@ -104,7 +107,7 @@ struct GeometryRowGroupReadContext {
     file_size: u64,
     reader_metadata: ArrowReaderMetadata,
     projection: ProjectionMask,
-    id_set: Arc<HashSet<AtomId>>,
+    id_set: Arc<HashSet<UnitId>>,
     parquet_cache: Option<Arc<ParquetRowGroupCache>>,
     footer_cache: Option<Arc<ParquetFooterCache>>,
     cache_ident: Option<ArtifactIdent>,
@@ -117,7 +120,7 @@ struct GeometryRowGroupReadContext {
 /// Reader for catchments.parquet with row-group bbox pruning.
 ///
 /// Holds the file path, pre-extracted row-group metadata, and an eager
-/// `AtomId -> row_group` index built at open time so repeated ID-based queries
+/// `UnitId -> row_group` index built at open time so repeated ID-based queries
 /// can project only the row groups they need. Query methods still re-open the
 /// Parquet file on demand and do not hold file handles open between calls.
 #[derive(Debug)]
@@ -131,8 +134,8 @@ pub struct CatchmentStore {
     /// Row groups that lacked bbox statistics (included conservatively in all queries).
     groups_without_stats: Vec<usize>,
     total_rows: u64,
-    all_ids: Vec<AtomId>,
-    id_row_groups: HashMap<AtomId, usize>,
+    all_ids: Vec<UnitId>,
+    id_row_groups: HashMap<UnitId, usize>,
     #[allow(dead_code)]
     bbox_col_indices: BboxColIndices,
     /// Optional column-chunk cache shared across all readers for this engine.
@@ -308,10 +311,15 @@ impl CatchmentStore {
         require_column(arrow_schema, "id", &DataType::Int64, ARTIFACT)?;
         require_column(arrow_schema, "area_km2", &DataType::Float32, ARTIFACT)?;
         require_column(arrow_schema, "up_area_km2", &DataType::Float32, ARTIFACT)?;
-        require_column(arrow_schema, "bbox_minx", &DataType::Float32, ARTIFACT)?;
-        require_column(arrow_schema, "bbox_miny", &DataType::Float32, ARTIFACT)?;
-        require_column(arrow_schema, "bbox_maxx", &DataType::Float32, ARTIFACT)?;
-        require_column(arrow_schema, "bbox_maxy", &DataType::Float32, ARTIFACT)?;
+        for column in ["bbox_minx", "bbox_miny", "bbox_maxx", "bbox_maxy"] {
+            if arrow_schema.field_with_name(column).is_err() {
+                return Err(SessionError::MissingBboxColumn {
+                    artifact: ARTIFACT,
+                    column,
+                });
+            }
+            require_column(arrow_schema, column, &DataType::Float32, ARTIFACT)?;
+        }
         require_column(arrow_schema, "geometry", &DataType::Binary, ARTIFACT)?;
 
         // --- Parquet schema column indices for bbox statistics ---
@@ -390,7 +398,7 @@ impl CatchmentStore {
         })
     }
 
-    /// Return all [`CatchmentAtom`]s whose bounding boxes intersect `query_bbox`.
+    /// Return all [`CatchmentUnit`]s whose bounding boxes intersect `query_bbox`.
     ///
     /// Row groups whose statistics do not cover the query area are skipped.
     /// Row groups without statistics are always scanned conservatively.
@@ -406,14 +414,14 @@ impl CatchmentStore {
     pub fn query_by_bbox(
         &self,
         query_bbox: &BoundingBox,
-    ) -> Result<Vec<CatchmentAtom>, SessionError> {
+    ) -> Result<Vec<CatchmentUnit>, SessionError> {
         RT.block_on(self.query_by_bbox_async(query_bbox))
     }
 
     async fn query_by_bbox_async(
         &self,
         query_bbox: &BoundingBox,
-    ) -> Result<Vec<CatchmentAtom>, SessionError> {
+    ) -> Result<Vec<CatchmentUnit>, SessionError> {
         let mut matching: Vec<usize> = self
             .row_groups
             .iter()
@@ -484,11 +492,11 @@ impl CatchmentStore {
                 })?;
 
                 let absolute_row = rg_absolute_starts[sel_idx] + offset_in_group;
-                let rows = extract_atoms_from_batch(&batch, absolute_row, ARTIFACT)?;
+                let rows = extract_units_from_batch(&batch, absolute_row, ARTIFACT)?;
 
-                for atom in rows {
-                    if atom.bbox().intersects(query_bbox) {
-                        results.push(atom);
+                for unit in rows {
+                    if unit.bbox().intersects(query_bbox) {
+                        results.push(unit);
                     }
                 }
 
@@ -501,7 +509,7 @@ impl CatchmentStore {
         Ok(results)
     }
 
-    /// Return the [`CatchmentAtom`]s whose IDs appear in `ids`.
+    /// Return the [`CatchmentUnit`]s whose IDs appear in `ids`.
     ///
     /// # Errors
     ///
@@ -511,12 +519,12 @@ impl CatchmentStore {
     /// | Parquet decode error | [`SessionError::ParquetParse`] |
     /// | Row fails domain validation | [`SessionError::InvalidRow`] |
     #[instrument(skip_all, fields(path = %self.path_display))]
-    pub fn query_by_ids(&self, ids: &[AtomId]) -> Result<Vec<CatchmentAtom>, SessionError> {
+    pub fn query_by_ids(&self, ids: &[UnitId]) -> Result<Vec<CatchmentUnit>, SessionError> {
         RT.block_on(self.query_by_ids_async(ids))
     }
 
-    async fn query_by_ids_async(&self, ids: &[AtomId]) -> Result<Vec<CatchmentAtom>, SessionError> {
-        let id_set: HashSet<AtomId> = ids.iter().copied().collect();
+    async fn query_by_ids_async(&self, ids: &[UnitId]) -> Result<Vec<CatchmentUnit>, SessionError> {
+        let id_set: HashSet<UnitId> = ids.iter().copied().collect();
         let selected_row_groups = self.selected_row_groups_for_ids(ids);
         record_row_groups(selected_row_groups.len() as u64);
         record_rows(ids.len() as u64);
@@ -576,11 +584,11 @@ impl CatchmentStore {
                     })?;
 
                     let absolute_row = rg_absolute_starts[sel_idx] + offset_in_group;
-                    let rows = extract_atoms_from_batch(&batch, absolute_row, ARTIFACT)?;
+                    let rows = extract_units_from_batch(&batch, absolute_row, ARTIFACT)?;
 
-                    for atom in rows {
-                        if id_set.contains(&atom.id()) {
-                            results.push(atom);
+                    for unit in rows {
+                        if id_set.contains(&unit.id()) {
+                            results.push(unit);
                         }
                     }
 
@@ -599,16 +607,16 @@ impl CatchmentStore {
     #[instrument(skip_all, fields(path = %self.path_display))]
     pub(crate) fn query_geometries_by_ids(
         &self,
-        ids: &[AtomId],
+        ids: &[UnitId],
     ) -> Result<Vec<DecodedCatchmentGeometryRow>, CatchmentGeometryQueryError> {
         RT.block_on(self.query_geometries_by_ids_async(ids))
     }
 
     async fn query_geometries_by_ids_async(
         &self,
-        ids: &[AtomId],
+        ids: &[UnitId],
     ) -> Result<Vec<DecodedCatchmentGeometryRow>, CatchmentGeometryQueryError> {
-        let id_set: HashSet<AtomId> = ids.iter().copied().collect();
+        let id_set: HashSet<UnitId> = ids.iter().copied().collect();
         let selected_row_groups = self.selected_row_groups_for_ids(ids);
         record_row_groups(selected_row_groups.len() as u64);
         record_rows(ids.len() as u64);
@@ -664,7 +672,7 @@ impl CatchmentStore {
         Ok(results)
     }
 
-    /// Read all atom IDs from the catchments file (projection read of the id column only).
+    /// Read all unit IDs from the catchments file (projection read of the id column only).
     ///
     /// Used at session open time for referential integrity checks against the graph.
     ///
@@ -676,12 +684,12 @@ impl CatchmentStore {
     /// | Not valid Parquet | [`SessionError::ParquetParse`] |
     /// | Missing or mis-typed id column | [`SessionError::ParquetSchema`] |
     /// | Null value in id column | [`SessionError::InvalidRow`] |
-    pub fn read_all_ids(&self) -> Result<Vec<AtomId>, SessionError> {
+    pub fn read_all_ids(&self) -> Result<Vec<UnitId>, SessionError> {
         Ok(self.all_ids.clone())
     }
 
-    /// Return whether an atom ID is present in the cached catchment index.
-    pub(crate) fn contains_id(&self, id: AtomId) -> bool {
+    /// Return whether an unit ID is present in the cached catchment index.
+    pub(crate) fn contains_id(&self, id: UnitId) -> bool {
         self.id_row_groups.contains_key(&id)
     }
 
@@ -691,7 +699,7 @@ impl CatchmentStore {
 
     /// Return the successful geometry decode count for `id` in this store.
     #[cfg(test)]
-    pub(crate) fn geometry_decode_count_for_test(&self, id: AtomId) -> usize {
+    pub(crate) fn geometry_decode_count_for_test(&self, id: UnitId) -> usize {
         let counts = GEOMETRY_DECODE_COUNTS_FOR_TEST
             .lock()
             .expect("geometry decode count mutex poisoned");
@@ -706,7 +714,7 @@ impl CatchmentStore {
         self.total_rows
     }
 
-    fn selected_row_groups_for_ids(&self, ids: &[AtomId]) -> Vec<usize> {
+    fn selected_row_groups_for_ids(&self, ids: &[UnitId]) -> Vec<usize> {
         let mut selected: Vec<usize> = ids
             .iter()
             .filter_map(|id| self.id_row_groups.get(id).copied())
@@ -732,20 +740,24 @@ impl CatchmentStore {
 // Batch extraction helper
 // ---------------------------------------------------------------------------
 
-/// Extract all [`CatchmentAtom`]s from one Arrow record batch.
+/// Extract all [`CatchmentUnit`]s from one Arrow record batch.
 ///
 /// `row_offset` is the global row index of the first row in this batch,
 /// used in error messages.
-fn extract_atoms_from_batch(
+fn extract_units_from_batch(
     batch: &arrow::record_batch::RecordBatch,
     row_offset: usize,
     artifact: &'static str,
-) -> Result<Vec<CatchmentAtom>, SessionError> {
+) -> Result<Vec<CatchmentUnit>, SessionError> {
     let schema = batch.schema();
 
     let id_col = col_as::<Int64Array>(batch, &schema, "id", artifact)?;
+    let level_col = optional_col_as::<Int16Array>(batch, &schema, "level", artifact)?;
+    let parent_id_col = optional_col_as::<Int64Array>(batch, &schema, "parent_id", artifact)?;
     let area_col = col_as::<Float32Array>(batch, &schema, "area_km2", artifact)?;
     let up_area_col = col_as::<Float32Array>(batch, &schema, "up_area_km2", artifact)?;
+    let outlet_lon_col = optional_col_as::<Float64Array>(batch, &schema, "outlet_lon", artifact)?;
+    let outlet_lat_col = optional_col_as::<Float64Array>(batch, &schema, "outlet_lat", artifact)?;
     let minx_col = col_as::<Float32Array>(batch, &schema, "bbox_minx", artifact)?;
     let miny_col = col_as::<Float32Array>(batch, &schema, "bbox_miny", artifact)?;
     let maxx_col = col_as::<Float32Array>(batch, &schema, "bbox_maxx", artifact)?;
@@ -760,7 +772,7 @@ fn extract_atoms_from_batch(
     let geom_array = batch.column(geom_idx);
 
     let n = batch.num_rows();
-    let mut atoms = Vec::with_capacity(n);
+    let mut units = Vec::with_capacity(n);
 
     for i in 0..n {
         let global_i = row_offset + i;
@@ -773,8 +785,33 @@ fn extract_atoms_from_batch(
             ));
         }
         let raw_id = id_col.value(i);
-        let atom_id = AtomId::new(raw_id)
+        let unit_id = UnitId::new(raw_id)
             .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("id: {e}")))?;
+
+        let level = if let Some(level_col) = level_col {
+        if level_col.is_null(i) {
+            return Err(SessionError::invalid_row(
+                artifact,
+                global_i,
+                "null value in non-nullable column \"level\"",
+            ));
+        }
+            Level::new(level_col.value(i))
+                .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("level: {e}")))?
+        } else {
+            Level::new(0).map_err(|e| {
+                SessionError::invalid_row(artifact, global_i, format!("level default: {e}"))
+            })?
+        };
+
+        let parent_id = if parent_id_col.is_none_or(|col| col.is_null(i)) {
+            None
+        } else {
+            let col = parent_id_col.unwrap();
+            Some(UnitId::new(col.value(i)).map_err(|e| {
+                SessionError::invalid_row(artifact, global_i, format!("parent_id: {e}"))
+            })?)
+        };
 
         if area_col.is_null(i) {
             return Err(SessionError::invalid_row(
@@ -793,6 +830,33 @@ fn extract_atoms_from_batch(
                 SessionError::invalid_row(artifact, global_i, format!("up_area_km2: {e}"))
             })?)
         };
+
+        let outlet_lon = if let Some(outlet_lon_col) = outlet_lon_col {
+        if outlet_lon_col.is_null(i) {
+            return Err(SessionError::invalid_row(
+                artifact,
+                global_i,
+                "null value in non-nullable column \"outlet_lon\"",
+            ));
+        }
+            outlet_lon_col.value(i)
+        } else {
+            f64::from((minx_col.value(i) + maxx_col.value(i)) / 2.0)
+        };
+        let outlet_lat = if let Some(outlet_lat_col) = outlet_lat_col {
+        if outlet_lat_col.is_null(i) {
+            return Err(SessionError::invalid_row(
+                artifact,
+                global_i,
+                "null value in non-nullable column \"outlet_lat\"",
+            ));
+        }
+            outlet_lat_col.value(i)
+        } else {
+            f64::from((miny_col.value(i) + maxy_col.value(i)) / 2.0)
+        };
+        let outlet = OutletCoord::new(outlet_lon, outlet_lat)
+            .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("outlet: {e}")))?;
 
         if minx_col.is_null(i) {
             return Err(SessionError::invalid_row(
@@ -864,23 +928,31 @@ fn extract_atoms_from_batch(
         let geometry = WkbGeometry::new(geom_bytes)
             .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("geometry: {e}")))?;
 
-        atoms.push(CatchmentAtom::new(
-            atom_id,
+        let source_id = optional_string_value(batch, &schema, "source_id", i)?;
+        let level_label = optional_string_value(batch, &schema, "level_label", i)?;
+
+        units.push(CatchmentUnit::new(
+            unit_id,
+            level,
+            parent_id,
             area,
             upstream_area,
+            outlet,
             bbox,
             geometry,
+            source_id,
+            level_label,
         ));
     }
 
-    Ok(atoms)
+    Ok(units)
 }
 
 fn extract_decoded_geometries_from_batch(
     batch: &arrow::record_batch::RecordBatch,
     row_offset: usize,
     artifact: &'static str,
-    requested_ids: &HashSet<AtomId>,
+    requested_ids: &HashSet<UnitId>,
 ) -> Result<Vec<DecodedCatchmentGeometryRow>, CatchmentGeometryQueryError> {
     let schema = batch.schema();
     let id_col = col_as::<Int64Array>(batch, &schema, "id", artifact)?;
@@ -905,9 +977,9 @@ fn extract_decoded_geometries_from_batch(
             )
             .into());
         }
-        let atom_id = AtomId::new(id_col.value(i))
+        let unit_id = UnitId::new(id_col.value(i))
             .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("id: {e}")))?;
-        if !requested_ids.contains(&atom_id) {
+        if !requested_ids.contains(&unit_id) {
             continue;
         }
 
@@ -942,11 +1014,31 @@ fn extract_decoded_geometries_from_batch(
             )
             .into());
         }
-        .map_err(|source| CatchmentGeometryQueryError::Decode { atom_id, source })?;
-        rows.push(DecodedCatchmentGeometryRow::new(atom_id, geometry));
+        .map_err(|source| CatchmentGeometryQueryError::Decode { unit_id, source })?;
+        rows.push(DecodedCatchmentGeometryRow::new(unit_id, geometry));
     }
 
     Ok(rows)
+}
+
+fn optional_string_value(
+    batch: &arrow::record_batch::RecordBatch,
+    schema: &Schema,
+    column: &str,
+    row: usize,
+) -> Result<Option<String>, SessionError> {
+    let Ok(index) = schema.index_of(column) else {
+        return Ok(None);
+    };
+    let array = batch.column(index);
+    let strings = array.as_any().downcast_ref::<StringArray>().ok_or_else(|| {
+        SessionError::parquet_schema(ARTIFACT, format!("column {column:?} is not Utf8"))
+    })?;
+    if strings.is_null(row) {
+        Ok(None)
+    } else {
+        Ok(Some(strings.value(row).to_string()))
+    }
 }
 
 fn decode_wkb_multi_polygon_bytes(wkb: &[u8]) -> Result<MultiPolygon<f64>, WkbDecodeError> {
@@ -1031,11 +1123,11 @@ async fn read_geometry_row_group_async(
 }
 
 #[cfg(test)]
-fn record_geometry_decode_for_test(path: &str, atom_id: AtomId) {
+fn record_geometry_decode_for_test(path: &str, unit_id: UnitId) {
     let mut counts = GEOMETRY_DECODE_COUNTS_FOR_TEST
         .lock()
         .expect("geometry decode count mutex poisoned");
-    *counts.entry((path.to_owned(), atom_id)).or_default() += 1;
+    *counts.entry((path.to_owned(), unit_id)).or_default() += 1;
 }
 
 #[cfg(test)]
@@ -1069,7 +1161,7 @@ async fn read_all_ids_with_row_groups_async(
     parquet_cache: &Option<Arc<ParquetRowGroupCache>>,
     footer_cache: &Option<Arc<ParquetFooterCache>>,
     cache_ident: &Option<ArtifactIdent>,
-) -> Result<(Vec<AtomId>, HashMap<AtomId, usize>), SessionError> {
+) -> Result<(Vec<UnitId>, HashMap<UnitId, usize>), SessionError> {
     let _guard = StageGuard::enter(Stage::CatchmentIdIndex);
     record_path(path.as_ref());
     let started = Instant::now();
@@ -1132,12 +1224,12 @@ async fn read_all_ids_with_row_groups_async(
     // DO NOT construct ParquetRecordBatchStreamBuilder::new inside this loop -- see catchment_store_perf_tests.rs.
     for row_group_result in row_group_results {
         let (row_group, row_group_ids) = row_group_result?;
-        for atom_id in row_group_ids {
-            ids.push(atom_id);
-            if let Some(previous_row_group) = id_row_groups.insert(atom_id, row_group) {
+        for unit_id in row_group_ids {
+            ids.push(unit_id);
+            if let Some(previous_row_group) = id_row_groups.insert(unit_id, row_group) {
                 return Err(SessionError::integrity(format!(
                     "duplicate catchment id {} found in row groups {} and {}",
-                    atom_id.get(),
+                    unit_id.get(),
                     previous_row_group,
                     row_group,
                 )));
@@ -1162,7 +1254,7 @@ async fn read_id_row_group_async(
     id_projection: ProjectionMask,
     row_group: usize,
     absolute_start: usize,
-) -> Result<(usize, Vec<AtomId>), SessionError> {
+) -> Result<(usize, Vec<UnitId>), SessionError> {
     let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(
         object_reader(store, path, file_size),
         reader_metadata,
@@ -1210,14 +1302,14 @@ async fn read_id_row_group_async(
                         "null id",
                     ));
                 }
-                let atom_id = AtomId::new(id_col.value(i)).map_err(|e| {
+                let unit_id = UnitId::new(id_col.value(i)).map_err(|e| {
                     SessionError::invalid_row(
                         ARTIFACT,
                         absolute_row + i,
-                        format!("invalid atom id: {e}"),
+                        format!("invalid unit id: {e}"),
                     )
                 })?;
-                ids.push(atom_id);
+                ids.push(unit_id);
             }
 
             offset_in_group += batch.num_rows();
@@ -1234,7 +1326,7 @@ fn read_all_ids_with_row_groups(
     parquet_cache: &Option<Arc<ParquetRowGroupCache>>,
     footer_cache: &Option<Arc<ParquetFooterCache>>,
     cache_ident: &Option<ArtifactIdent>,
-) -> Result<(Vec<AtomId>, HashMap<AtomId, usize>), SessionError> {
+) -> Result<(Vec<UnitId>, HashMap<UnitId, usize>), SessionError> {
     RT.block_on(read_all_ids_with_row_groups_async(
         store,
         path,
@@ -1256,7 +1348,7 @@ fn read_or_build_id_index(
     cache_ident: &Option<ArtifactIdent>,
     id_index_path: Option<&Path>,
     path_display: &str,
-) -> Result<(Vec<AtomId>, HashMap<AtomId, usize>), SessionError> {
+) -> Result<(Vec<UnitId>, HashMap<UnitId, usize>), SessionError> {
     if let (Some(index_path), Some(etag)) = (id_index_path, file_etag) {
         match IdIndex::load_from_path(index_path, file_size, Some(etag)) {
             Ok(Some(index)) => {
@@ -1490,6 +1582,28 @@ fn col_as<'a, T: 'static>(
         })
 }
 
+fn optional_col_as<'a, T: 'static>(
+    batch: &'a arrow::record_batch::RecordBatch,
+    schema: &Schema,
+    name: &str,
+    artifact: &'static str,
+) -> Result<Option<&'a T>, SessionError> {
+    let Some(idx) = schema.fields().iter().position(|f| f.name() == name) else {
+        return Ok(None);
+    };
+    batch
+        .column(idx)
+        .as_any()
+        .downcast_ref::<T>()
+        .map(Some)
+        .ok_or_else(|| {
+            SessionError::parquet_schema(
+                artifact,
+                format!("column \"{name}\" has unexpected array type"),
+            )
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1544,10 +1658,10 @@ mod tests {
         ]))
     }
 
-    /// `atoms`: (id, area_km2, up_area_km2, [minx, miny, maxx, maxy])
+    /// `units`: (id, area_km2, up_area_km2, [minx, miny, maxx, maxy])
     fn write_fixture(
         path: &std::path::Path,
-        atoms: &[(i64, f32, Option<f32>, [f32; 4])],
+        units: &[(i64, f32, Option<f32>, [f32; 4])],
         row_group_size: usize,
     ) {
         let schema = catchments_schema();
@@ -1568,7 +1682,7 @@ mod tests {
         let mut maxys = Float32Builder::new();
         let mut geoms = BinaryBuilder::new();
 
-        for &(id, area, up_area, bbox) in atoms {
+        for &(id, area, up_area, bbox) in units {
             ids.append_value(id);
             areas.append_value(area);
             match up_area {
@@ -1614,7 +1728,7 @@ mod tests {
     #[test]
     fn test_open_valid_catchments() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (
                 1i64,
                 10.0f32,
@@ -1624,7 +1738,7 @@ mod tests {
             (2, 20.0, Some(200.0), [1.0, 0.0, 2.0, 1.0]),
             (3, 30.0, None, [2.0, 0.0, 3.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1024);
+        write_fixture(tmp.path(), &units, 1024);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         assert_eq!(store.total_rows(), 3);
@@ -1633,30 +1747,30 @@ mod tests {
     #[test]
     fn test_query_by_bbox_returns_matching() {
         let tmp = NamedTempFile::new().unwrap();
-        // Three spatially separated atoms
-        let atoms = [
+        // Three spatially separated units
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [10.0, 0.0, 11.0, 1.0]),
             (3, 30.0, None, [20.0, 0.0, 21.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1024);
+        write_fixture(tmp.path(), &units, 1024);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
-        // Query for only the first atom
+        // Query for only the first unit
         let q = BoundingBox::new(0.0, 0.0, 1.5, 1.5).unwrap();
         let results = store.query_by_bbox(&q).unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].id(), AtomId::new(1).unwrap());
+        assert_eq!(results[0].id(), UnitId::new(1).unwrap());
     }
 
     #[test]
     fn test_query_by_bbox_returns_empty_for_no_overlap() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1024);
+        write_fixture(tmp.path(), &units, 1024);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         // Disjoint query — west of the data
@@ -1668,8 +1782,8 @@ mod tests {
     #[test]
     fn test_bbox_pruning_skips_row_groups() {
         let tmp = NamedTempFile::new().unwrap();
-        // 6 atoms in 3 row groups (size=2); spatially separated clusters
-        let atoms = [
+        // 6 units in 3 row groups (size=2); spatially separated clusters
+        let units = [
             (1i64, 1.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 1.0, None, [0.1, 0.1, 0.9, 0.9]),
             (3, 1.0, None, [10.0, 0.0, 11.0, 1.0]),
@@ -1677,12 +1791,12 @@ mod tests {
             (5, 1.0, None, [20.0, 0.0, 21.0, 1.0]),
             (6, 1.0, None, [20.1, 0.1, 20.9, 0.9]),
         ];
-        write_fixture(tmp.path(), &atoms, 2);
+        write_fixture(tmp.path(), &units, 2);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         assert_eq!(store.total_rows(), 6);
 
-        // Query that should only intersect the first row group (atoms 1 & 2)
+        // Query that should only intersect the first row group (units 1 & 2)
         let q = BoundingBox::new(0.0, 0.0, 2.0, 1.0).unwrap();
         let results = store.query_by_bbox(&q).unwrap();
         assert_eq!(results.len(), 2);
@@ -1694,15 +1808,15 @@ mod tests {
     #[test]
     fn test_query_by_ids() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
             (3, 30.0, None, [4.0, 0.0, 5.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1024);
+        write_fixture(tmp.path(), &units, 1024);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
-        let ids = [AtomId::new(1).unwrap(), AtomId::new(3).unwrap()];
+        let ids = [UnitId::new(1).unwrap(), UnitId::new(3).unwrap()];
         let results = store.query_by_ids(&ids).unwrap();
         assert_eq!(results.len(), 2);
         let result_ids: Vec<i64> = results.iter().map(|a| a.id().get()).collect();
@@ -1714,23 +1828,23 @@ mod tests {
     #[test]
     fn test_query_geometries_by_ids() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
             (3, 30.0, None, [4.0, 0.0, 5.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 2);
+        write_fixture(tmp.path(), &units, 2);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
-        let ids = [AtomId::new(1).unwrap(), AtomId::new(3).unwrap()];
+        let ids = [UnitId::new(1).unwrap(), UnitId::new(3).unwrap()];
         let results = store.query_geometries_by_ids(&ids).unwrap();
 
         assert_eq!(results.len(), 2);
         let expected_area = HashMap::from([(1, 1.0), (3, 1.0)]);
         for row in results {
-            let (atom_id, geometry) = row.into_parts();
+            let (unit_id, geometry) = row.into_parts();
             let area = expected_area
-                .get(&atom_id.get())
+                .get(&unit_id.get())
                 .expect("queried IDs should be present");
             assert!((geometry.unsigned_area() - *area).abs() < f64::EPSILON);
         }
@@ -1739,19 +1853,19 @@ mod tests {
     #[test]
     fn test_query_geometries_by_ids_preserves_row_group_order_under_concurrency() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms: Vec<_> = (1..=40)
+        let units: Vec<_> = (1..=40)
             .map(|id| {
                 let x = id as f32;
                 (id, 1.0f32, None, [x, 0.0f32, x + 0.5f32, 0.5f32])
             })
             .collect();
-        write_fixture(tmp.path(), &atoms, 1);
+        write_fixture(tmp.path(), &units, 1);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         let ids: Vec<_> = (1..=40)
             .rev()
             .filter(|id| id % 2 == 0)
-            .map(|id| AtomId::new(id).unwrap())
+            .map(|id| UnitId::new(id).unwrap())
             .collect();
         let result_ids: Vec<_> = store
             .query_geometries_by_ids(&ids)
@@ -1767,32 +1881,32 @@ mod tests {
     #[test]
     fn test_query_geometries_by_ids_ignores_unknown_ids() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1);
+        write_fixture(tmp.path(), &units, 1);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
-        let ids = [AtomId::new(1).unwrap(), AtomId::new(999).unwrap()];
+        let ids = [UnitId::new(1).unwrap(), UnitId::new(999).unwrap()];
         let results = store.query_geometries_by_ids(&ids).unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(
             results.into_iter().next().unwrap().into_parts().0,
-            AtomId::new(1).unwrap()
+            UnitId::new(1).unwrap()
         );
     }
 
     #[test]
     fn test_read_all_ids_uses_cached_index() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
             (3, 30.0, None, [4.0, 0.0, 5.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 2);
+        write_fixture(tmp.path(), &units, 2);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         let ids = store.read_all_ids().unwrap();
@@ -1800,9 +1914,9 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                AtomId::new(1).unwrap(),
-                AtomId::new(2).unwrap(),
-                AtomId::new(3).unwrap()
+                UnitId::new(1).unwrap(),
+                UnitId::new(2).unwrap(),
+                UnitId::new(3).unwrap()
             ]
         );
     }
@@ -1810,7 +1924,7 @@ mod tests {
     #[test]
     fn test_nullable_up_area() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (
                 1i64,
                 5.0f32,
@@ -1819,7 +1933,7 @@ mod tests {
             ),
             (2, 5.0, None, [2.0, 0.0, 3.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1024);
+        write_fixture(tmp.path(), &units, 1024);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         let q = BoundingBox::new(-1.0, -1.0, 4.0, 2.0).unwrap();
@@ -2008,12 +2122,12 @@ mod tests {
     #[test]
     fn test_read_all_ids() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (10i64, 1.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (20, 2.0, None, [1.0, 0.0, 2.0, 1.0]),
             (30, 3.0, None, [2.0, 0.0, 3.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1024);
+        write_fixture(tmp.path(), &units, 1024);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
         let ids = store.read_all_ids().unwrap();
@@ -2028,12 +2142,12 @@ mod tests {
     #[test]
     fn test_open_rejects_duplicate_ids_across_row_groups() {
         let tmp = NamedTempFile::new().unwrap();
-        let atoms = [
+        let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
             (2, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
             (1, 30.0, None, [4.0, 0.0, 5.0, 1.0]),
         ];
-        write_fixture(tmp.path(), &atoms, 1);
+        write_fixture(tmp.path(), &units, 1);
 
         let result = CatchmentStore::open(tmp.path());
         assert!(

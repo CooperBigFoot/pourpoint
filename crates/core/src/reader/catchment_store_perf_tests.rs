@@ -12,7 +12,7 @@ use arrow::array::{BinaryBuilder, Float32Builder, Int64Builder, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema};
 use bytes::Bytes;
 use futures_util::stream::BoxStream;
-use hfx_core::{AtomId, BoundingBox};
+use hfx_core::{UnitId, BoundingBox};
 use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{
@@ -192,7 +192,7 @@ fn open_remote_indexes_ids_with_one_streaming_scan() {
         counting_store.range_read_calls()
     );
 
-    let query_ids: Vec<AtomId> = (1..=8).map(|id| AtomId::new(id).unwrap()).collect();
+    let query_ids: Vec<UnitId> = (1..=8).map(|id| UnitId::new(id).unwrap()).collect();
     let mut result_ids: Vec<_> = store
         .query_geometries_by_ids(&query_ids)
         .expect("geometry query should still work")

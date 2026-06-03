@@ -4,12 +4,12 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
 use geo::{MultiPolygon, Polygon};
-use hfx_core::AtomId;
+use hfx_core::UnitId;
 use tracing::{debug, instrument};
 
 use crate::algo::{
     AreaKm2, CleanEpsilon, DissolveError, GeometryRepair, GeometryRepairError, HoleFillMode,
-    UpstreamAtoms, WatershedAreaError, WatershedGeometry, WkbDecodeError, dissolve,
+    UpstreamUnits, WatershedAreaError, WatershedGeometry, WkbDecodeError, dissolve,
 };
 use crate::error::SessionError;
 use crate::reader::catchment_store::{
@@ -77,41 +77,41 @@ pub(crate) enum AssemblyError {
         source: SessionError,
     },
 
-    /// One or more requested upstream atom IDs had no catchment row.
-    #[error("catchment rows missing for upstream atoms: {missing_ids:?}")]
+    /// One or more requested upstream unit IDs had no catchment row.
+    #[error("catchment rows missing for upstream units: {missing_ids:?}")]
     MissingCatchments {
-        /// Requested atom IDs that were absent from the catchment store query result.
-        missing_ids: Vec<AtomId>,
+        /// Requested unit IDs that were absent from the catchment store query result.
+        missing_ids: Vec<UnitId>,
     },
 
-    /// The catchment query returned the same atom ID more than once.
-    #[error("duplicate catchment row returned for atom {atom_id:?}")]
+    /// The catchment query returned the same unit ID more than once.
+    #[error("duplicate catchment row returned for unit {unit_id:?}")]
     DuplicateCatchment {
-        /// The duplicated atom ID.
-        atom_id: AtomId,
+        /// The duplicated unit ID.
+        unit_id: UnitId,
     },
 
     /// A required catchment geometry failed WKB decode or had the wrong type.
-    #[error("failed to decode geometry for atom {atom_id:?}: {source}")]
+    #[error("failed to decode geometry for unit {unit_id:?}: {source}")]
     GeometryDecode {
-        /// Atom whose stored geometry failed decode.
-        atom_id: AtomId,
+        /// Unit whose stored geometry failed decode.
+        unit_id: UnitId,
         /// Underlying WKB decode error.
         source: WkbDecodeError,
     },
 
     /// A decoded catchment geometry contained no polygons.
-    #[error("catchment geometry for atom {atom_id:?} is empty")]
+    #[error("catchment geometry for unit {unit_id:?} is empty")]
     EmptyCatchmentGeometry {
-        /// Atom whose decoded geometry was empty.
-        atom_id: AtomId,
+        /// Unit whose decoded geometry was empty.
+        unit_id: UnitId,
     },
 
     /// The supplied refined terminal override contained no polygons.
-    #[error("refined terminal geometry for atom {atom_id:?} is empty")]
+    #[error("refined terminal geometry for unit {unit_id:?} is empty")]
     EmptyRefinedTerminalGeometry {
-        /// Terminal atom whose override was empty.
-        atom_id: AtomId,
+        /// Terminal unit whose override was empty.
+        unit_id: UnitId,
     },
 
     /// Dissolving the polygon parts failed.
@@ -140,53 +140,53 @@ pub(crate) enum AssemblyError {
     },
 }
 
-/// Assemble the final watershed geometry from traversed catchment atoms.
+/// Assemble the final watershed geometry from traversed catchment units.
 ///
 /// Fetches all requested catchment rows, validates full coverage, substitutes
 /// the terminal geometry when `refined_terminal_geometry` is present, then
 /// dissolves and post-processes the result into a canonical multi-polygon.
 #[instrument(
     skip_all,
-    fields(atom_count = upstream.len(), terminal = upstream.terminal().get())
+    fields(unit_count = upstream.len(), terminal = upstream.terminal().get())
 )]
 pub(crate) fn assemble_watershed(
     catchments: &CatchmentStore,
-    upstream: &UpstreamAtoms,
+    upstream: &UpstreamUnits,
     refined_terminal_geometry: Option<&MultiPolygon<f64>>,
     options: AssemblyOptions<'_>,
 ) -> Result<AssemblyResult, AssemblyError> {
     let terminal = upstream.terminal();
-    let query_ids: Vec<AtomId> = match refined_terminal_geometry {
+    let query_ids: Vec<UnitId> = match refined_terminal_geometry {
         Some(_) => upstream
-            .atom_ids()
+            .unit_ids()
             .iter()
             .copied()
             .filter(|id| *id != terminal)
             .collect(),
-        None => upstream.atom_ids().to_vec(),
+        None => upstream.unit_ids().to_vec(),
     };
     let fetched = catchments
         .query_geometries_by_ids(&query_ids)
         .map_err(map_geometry_query_error)?;
 
-    let mut atom_map = index_catchments_by_id(fetched)?;
+    let mut unit_map = index_catchments_by_id(fetched)?;
     if let Some(override_geometry) = refined_terminal_geometry
         && catchments.contains_id(terminal)
     {
-        match atom_map.entry(terminal) {
+        match unit_map.entry(terminal) {
             Entry::Occupied(_) => {
-                return Err(AssemblyError::DuplicateCatchment { atom_id: terminal });
+                return Err(AssemblyError::DuplicateCatchment { unit_id: terminal });
             }
             Entry::Vacant(entry) => {
                 entry.insert(override_geometry.clone());
             }
         }
     }
-    let missing_ids: Vec<AtomId> = upstream
-        .atom_ids()
+    let missing_ids: Vec<UnitId> = upstream
+        .unit_ids()
         .iter()
         .copied()
-        .filter(|id| !atom_map.contains_key(id))
+        .filter(|id| !unit_map.contains_key(id))
         .collect();
     if !missing_ids.is_empty() {
         return Err(AssemblyError::MissingCatchments { missing_ids });
@@ -194,13 +194,13 @@ pub(crate) fn assemble_watershed(
 
     let mut geometries = Vec::with_capacity(upstream.len());
 
-    for (atom_id, geometry) in atom_map {
-        if atom_id == terminal && refined_terminal_geometry.is_some() {
+    for (unit_id, geometry) in unit_map {
+        if unit_id == terminal && refined_terminal_geometry.is_some() {
             if geometry.0.is_empty() {
-                return Err(AssemblyError::EmptyRefinedTerminalGeometry { atom_id: terminal });
+                return Err(AssemblyError::EmptyRefinedTerminalGeometry { unit_id: terminal });
             }
         } else if geometry.0.is_empty() {
-            return Err(AssemblyError::EmptyCatchmentGeometry { atom_id });
+            return Err(AssemblyError::EmptyCatchmentGeometry { unit_id });
         }
         geometries.push(geometry);
     }
@@ -214,27 +214,27 @@ pub(crate) fn assemble_watershed(
 
 fn index_catchments_by_id(
     fetched: Vec<DecodedCatchmentGeometryRow>,
-) -> Result<BTreeMap<AtomId, MultiPolygon<f64>>, AssemblyError> {
-    let mut atom_map = BTreeMap::new();
-    for atom in fetched {
-        let (atom_id, geometry) = atom.into_parts();
-        match atom_map.entry(atom_id) {
+) -> Result<BTreeMap<UnitId, MultiPolygon<f64>>, AssemblyError> {
+    let mut unit_map = BTreeMap::new();
+    for unit in fetched {
+        let (unit_id, geometry) = unit.into_parts();
+        match unit_map.entry(unit_id) {
             Entry::Occupied(_) => {
-                return Err(AssemblyError::DuplicateCatchment { atom_id });
+                return Err(AssemblyError::DuplicateCatchment { unit_id });
             }
             Entry::Vacant(entry) => {
                 entry.insert(geometry);
             }
         }
     }
-    Ok(atom_map)
+    Ok(unit_map)
 }
 
 fn map_geometry_query_error(source: CatchmentGeometryQueryError) -> AssemblyError {
     match source {
         CatchmentGeometryQueryError::Read { source } => AssemblyError::CatchmentQuery { source },
-        CatchmentGeometryQueryError::Decode { atom_id, source } => {
-            AssemblyError::GeometryDecode { atom_id, source }
+        CatchmentGeometryQueryError::Decode { unit_id, source } => {
+            AssemblyError::GeometryDecode { unit_id, source }
         }
     }
 }
@@ -493,7 +493,7 @@ mod tests {
 
         let err = index_catchments_by_id(fetched).unwrap_err();
 
-        assert!(matches!(err, AssemblyError::DuplicateCatchment { atom_id } if atom_id == aid(1)));
+        assert!(matches!(err, AssemblyError::DuplicateCatchment { unit_id } if unit_id == aid(1)));
     }
 
     #[test]
@@ -526,7 +526,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(err, AssemblyError::GeometryDecode { atom_id, .. } if atom_id == aid(1)));
+        assert!(matches!(err, AssemblyError::GeometryDecode { unit_id, .. } if unit_id == aid(1)));
     }
 
     #[test]
@@ -559,7 +559,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(err, AssemblyError::GeometryDecode { atom_id, .. } if atom_id == aid(1)));
+        assert!(matches!(err, AssemblyError::GeometryDecode { unit_id, .. } if unit_id == aid(1)));
     }
 
     #[test]
@@ -595,7 +595,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            AssemblyError::EmptyRefinedTerminalGeometry { atom_id } if atom_id == aid(2)
+            AssemblyError::EmptyRefinedTerminalGeometry { unit_id } if unit_id == aid(2)
         ));
     }
 
@@ -746,7 +746,7 @@ mod tests {
         writer.close().unwrap();
     }
 
-    fn linear_upstream(ids: &[i64]) -> UpstreamAtoms {
+    fn linear_upstream(ids: &[i64]) -> UpstreamUnits {
         let rows: Vec<AdjacencyRow> = ids
             .iter()
             .enumerate()
@@ -756,15 +756,15 @@ mod tests {
                 } else {
                     vec![aid(ids[idx - 1])]
                 };
-                AdjacencyRow::new(aid(*raw), upstream_ids)
+                AdjacencyRow::new(aid(*raw), hfx_core::Level::new(0).unwrap(), upstream_ids)
             })
             .collect();
         let graph = DrainageGraph::new(rows).unwrap();
         collect_upstream(aid(*ids.last().unwrap()), &graph).unwrap()
     }
 
-    fn aid(raw: i64) -> AtomId {
-        AtomId::new(raw).unwrap()
+    fn aid(raw: i64) -> UnitId {
+        UnitId::new(raw).unwrap()
     }
 
     fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Polygon<f64> {

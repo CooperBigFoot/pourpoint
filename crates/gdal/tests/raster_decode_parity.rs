@@ -3,7 +3,7 @@
 use geo::Rect;
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::AtomId;
+use hfx_core::UnitId;
 use serde::Deserialize;
 use shed_core::algo::{
     GeoCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon, refine_terminal_from_source,
@@ -187,15 +187,15 @@ fn merit_c_records() -> Vec<MeritGoldenRecord> {
 }
 
 fn terminal_polygon(session: &DatasetSession, terminal_id: i64) -> geo::MultiPolygon<f64> {
-    let atom_id = AtomId::new(terminal_id).expect("terminal id should be valid");
-    let atom = session
+    let unit_id = UnitId::new(terminal_id).expect("terminal id should be valid");
+    let unit = session
         .catchments()
-        .query_by_ids(&[atom_id])
+        .query_by_ids(&[unit_id])
         .expect("terminal catchment should query by id")
         .into_iter()
         .next()
         .expect("terminal catchment should exist");
-    match Wkb(atom.geometry().as_bytes())
+    match Wkb(unit.geometry().as_bytes())
         .to_geo()
         .expect("terminal WKB should decode")
     {

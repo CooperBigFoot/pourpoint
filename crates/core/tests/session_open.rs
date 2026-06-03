@@ -7,16 +7,15 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arrow::array::{
-    BinaryBuilder, BooleanBuilder, Float32Builder, Int64Array, Int64Builder, ListBuilder,
-    RecordBatch,
+    BinaryBuilder, Float32Array, Float32Builder, Float64Builder, Int16Array, Int16Builder,
+    Int64Array, Int64Builder, ListBuilder, RecordBatch, StringBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
-use arrow::ipc::writer::FileWriter;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
-use hfx_core::{AtomId, BoundingBox, Topology};
+use hfx_core::{UnitId, BoundingBox, Topology};
 use shed_core::SessionError;
 use shed_core::session::DatasetSession;
 
@@ -59,38 +58,54 @@ fn minimal_wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
 // Artifact writer helpers
 // ---------------------------------------------------------------------------
 
-fn write_manifest(root: &Path, atom_count: usize, snap: bool, rasters: bool, topology: &str) {
+fn write_manifest(root: &Path, unit_count: usize, snap: bool, rasters: bool, topology: &str) {
+    let mut auxiliary = Vec::new();
+    if snap {
+        auxiliary.push(serde_json::json!({
+            "schema": "hfx.aux.snap.v1",
+            "artifacts": { "snap": "snap.parquet" },
+            "metadata": {
+                "name": "test-snap",
+                "description": "Test snap targets.",
+                "references_levels": [0],
+                "weight_semantics": "higher is stronger"
+            }
+        }));
+    }
+    if rasters {
+        auxiliary.push(serde_json::json!({
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+            "metadata": { "flow_dir_encoding": "esri" }
+        }));
+    }
+
     let mut m = serde_json::json!({
-        "format_version": "0.1",
+        "format_version": "0.2.1",
         "fabric_name": "testfabric",
         "crs": "EPSG:4326",
         "topology": topology,
-        "terminal_sink_id": 0,
         "bbox": [-180.0, -90.0, 180.0, 90.0],
-        "atom_count": atom_count,
+        "unit_count": unit_count,
         "created_at": "2026-01-01T00:00:00Z",
         "adapter_version": "test-v1"
     });
-    if snap {
-        m["has_snap"] = serde_json::json!(true);
-    }
-    if rasters {
-        m["has_rasters"] = serde_json::json!(true);
-        m["flow_dir_encoding"] = serde_json::json!("esri");
+    if !auxiliary.is_empty() {
+        m["auxiliary"] = serde_json::Value::Array(auxiliary);
     }
     std::fs::write(root.join("manifest.json"), m.to_string()).unwrap();
 }
 
-/// Write a linear-chain graph: atom 1 is headwater, atom i has upstream=[i-1].
-fn write_graph(root: &Path, atom_count: usize) {
-    let ids: Vec<i64> = (1..=(atom_count as i64)).collect();
-    let upstream: Vec<Vec<i64>> = (1..=(atom_count as i64))
+/// Write a linear-chain graph: unit 1 is headwater, unit i has upstream=[i-1].
+fn write_graph(root: &Path, unit_count: usize) {
+    let ids: Vec<i64> = (1..=(unit_count as i64)).collect();
+    let upstream: Vec<Vec<i64>> = (1..=(unit_count as i64))
         .map(|i| if i == 1 { vec![] } else { vec![i - 1] })
         .collect();
     write_graph_raw(root, &ids, &upstream);
 }
 
-/// Write a graph with explicit atom IDs and upstream-ID lists.
+/// Write a graph with explicit unit IDs and upstream-ID lists.
 ///
 /// Unlike [`write_graph`], which always generates a linear chain `1..=N`,
 /// this helper lets callers specify arbitrary IDs so mismatches between graph
@@ -103,14 +118,20 @@ fn write_graph_custom(root: &Path, ids: &[i64], upstream_ids: &[Vec<i64>]) {
 fn write_graph_raw(root: &Path, ids: &[i64], upstream_ids: &[Vec<i64>]) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
+        Field::new("level", DataType::Int16, false),
         Field::new(
             "upstream_ids",
             DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
             false,
         ),
+        Field::new("bbox_minx", DataType::Float32, false),
+        Field::new("bbox_miny", DataType::Float32, false),
+        Field::new("bbox_maxx", DataType::Float32, false),
+        Field::new("bbox_maxy", DataType::Float32, false),
     ]));
 
     let id_arr = Int64Array::from(ids.to_vec());
+    let level_arr = Int16Array::from(vec![0i16; ids.len()]);
     let mut list_builder = ListBuilder::new(Int64Builder::new());
     for ups in upstream_ids {
         for &u in ups {
@@ -119,28 +140,56 @@ fn write_graph_raw(root: &Path, ids: &[i64], upstream_ids: &[Vec<i64>]) {
         list_builder.append(true);
     }
     let upstream_arr = list_builder.finish();
+    let bbox_minx = Float32Array::from(
+        ids.iter()
+            .map(|id| (*id as f32) * 0.5)
+            .collect::<Vec<f32>>(),
+    );
+    let bbox_miny = Float32Array::from(vec![0.0f32; ids.len()]);
+    let bbox_maxx = Float32Array::from(
+        ids.iter()
+            .map(|id| (*id as f32) * 0.5 + 0.4)
+            .collect::<Vec<f32>>(),
+    );
+    let bbox_maxy = Float32Array::from(vec![0.4f32; ids.len()]);
 
     let batch = RecordBatch::try_new(
         schema.clone(),
-        vec![Arc::new(id_arr), Arc::new(upstream_arr)],
+        vec![
+            Arc::new(id_arr),
+            Arc::new(level_arr),
+            Arc::new(upstream_arr),
+            Arc::new(bbox_minx),
+            Arc::new(bbox_miny),
+            Arc::new(bbox_maxx),
+            Arc::new(bbox_maxy),
+        ],
     )
     .unwrap();
 
-    let file = std::fs::File::create(root.join("graph.arrow")).unwrap();
-    let mut writer = FileWriter::try_new(file, &schema).unwrap();
+    let props = WriterProperties::builder()
+        .set_statistics_enabled(EnabledStatistics::Chunk)
+        .build();
+    let file = std::fs::File::create(root.join("graph.parquet")).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, Some(props)).unwrap();
     writer.write(&batch).unwrap();
-    writer.finish().unwrap();
+    writer.close().unwrap();
 }
 
-fn write_catchments(root: &Path, atom_count: usize, row_group_size: usize) {
+fn write_catchments(root: &Path, unit_count: usize, row_group_size: usize) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
+        Field::new("level", DataType::Int16, false),
+        Field::new("parent_id", DataType::Int64, true),
         Field::new("area_km2", DataType::Float32, false),
         Field::new("up_area_km2", DataType::Float32, true),
+        Field::new("outlet_lon", DataType::Float64, false),
+        Field::new("outlet_lat", DataType::Float64, false),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
         Field::new("bbox_maxy", DataType::Float32, false),
+        Field::new("stem_role", DataType::Utf8, false),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -153,15 +202,20 @@ fn write_catchments(root: &Path, atom_count: usize, row_group_size: usize) {
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut id_b = Int64Builder::new();
+    let mut level_b = Int16Builder::new();
+    let mut parent_b = Int64Builder::new();
     let mut area_b = Float32Builder::new();
     let mut up_area_b = Float32Builder::new();
+    let mut outlet_lon_b = Float64Builder::new();
+    let mut outlet_lat_b = Float64Builder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
     let mut maxy_b = Float32Builder::new();
+    let mut stem_role_b = StringBuilder::new();
     let mut geom_b = BinaryBuilder::new();
 
-    for i in 1..=(atom_count as i64) {
+    for i in 1..=(unit_count as i64) {
         let idx = i as f32;
         let minx = idx * 0.5;
         let miny = 0.0f32;
@@ -169,12 +223,17 @@ fn write_catchments(root: &Path, atom_count: usize, row_group_size: usize) {
         let maxy = 0.4f32;
 
         id_b.append_value(i);
+        level_b.append_value(0);
+        parent_b.append_null();
         area_b.append_value(10.0f32);
         up_area_b.append_null();
+        outlet_lon_b.append_value(((minx + maxx) / 2.0) as f64);
+        outlet_lat_b.append_value(((miny + maxy) / 2.0) as f64);
         minx_b.append_value(minx);
         miny_b.append_value(miny);
         maxx_b.append_value(maxx);
         maxy_b.append_value(maxy);
+        stem_role_b.append_value("mainstem");
         geom_b.append_value(minimal_wkb_polygon(
             minx as f64,
             miny as f64,
@@ -187,12 +246,17 @@ fn write_catchments(root: &Path, atom_count: usize, row_group_size: usize) {
         schema,
         vec![
             Arc::new(id_b.finish()),
+            Arc::new(level_b.finish()),
+            Arc::new(parent_b.finish()),
             Arc::new(area_b.finish()),
             Arc::new(up_area_b.finish()),
+            Arc::new(outlet_lon_b.finish()),
+            Arc::new(outlet_lat_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),
             Arc::new(maxy_b.finish()),
+            Arc::new(stem_role_b.finish()),
             Arc::new(geom_b.finish()),
         ],
     )
@@ -202,12 +266,12 @@ fn write_catchments(root: &Path, atom_count: usize, row_group_size: usize) {
     writer.close().unwrap();
 }
 
-fn write_snap(root: &Path, atom_count: usize) {
+fn write_snap(root: &Path, unit_count: usize) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
-        Field::new("catchment_id", DataType::Int64, false),
+        Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
-        Field::new("is_mainstem", DataType::Boolean, false),
+        Field::new("stem_role", DataType::Utf8, false),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
@@ -224,16 +288,16 @@ fn write_snap(root: &Path, atom_count: usize) {
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut id_b = Int64Builder::new();
-    let mut catchment_id_b = Int64Builder::new();
+    let mut unit_id_b = Int64Builder::new();
     let mut weight_b = Float32Builder::new();
-    let mut is_mainstem_b = BooleanBuilder::new();
+    let mut stem_role_b = StringBuilder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
     let mut maxy_b = Float32Builder::new();
     let mut geom_b = BinaryBuilder::new();
 
-    for i in 1..=(atom_count as i64) {
+    for i in 1..=(unit_count as i64) {
         let idx = i as f32;
         let minx = idx * 0.5;
         let miny = 0.0f32;
@@ -243,9 +307,9 @@ fn write_snap(root: &Path, atom_count: usize) {
         let cy = ((miny + maxy) / 2.0) as f64;
 
         id_b.append_value(i);
-        catchment_id_b.append_value(i);
+        unit_id_b.append_value(i);
         weight_b.append_value(100.0f32);
-        is_mainstem_b.append_value(true);
+        stem_role_b.append_value("mainstem");
         minx_b.append_value(minx);
         miny_b.append_value(miny);
         maxx_b.append_value(maxx);
@@ -257,9 +321,9 @@ fn write_snap(root: &Path, atom_count: usize) {
         schema,
         vec![
             Arc::new(id_b.finish()),
-            Arc::new(catchment_id_b.finish()),
+            Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
-            Arc::new(is_mainstem_b.finish()),
+            Arc::new(stem_role_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),
@@ -278,12 +342,12 @@ fn write_snap(root: &Path, atom_count: usize) {
 /// Each snap target is a point at the centre of the corresponding catchment
 /// bbox. The HFX spec permits degenerate snap bboxes; the session must open
 /// without error and return results when queried with a covering bbox.
-fn write_snap_with_degenerate_bbox(root: &Path, atom_count: usize) {
+fn write_snap_with_degenerate_bbox(root: &Path, unit_count: usize) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
-        Field::new("catchment_id", DataType::Int64, false),
+        Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
-        Field::new("is_mainstem", DataType::Boolean, false),
+        Field::new("stem_role", DataType::Utf8, false),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
@@ -300,25 +364,25 @@ fn write_snap_with_degenerate_bbox(root: &Path, atom_count: usize) {
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut id_b = Int64Builder::new();
-    let mut catchment_id_b = Int64Builder::new();
+    let mut unit_id_b = Int64Builder::new();
     let mut weight_b = Float32Builder::new();
-    let mut is_mainstem_b = BooleanBuilder::new();
+    let mut stem_role_b = StringBuilder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
     let mut maxy_b = Float32Builder::new();
     let mut geom_b = BinaryBuilder::new();
 
-    for i in 1..=(atom_count as i64) {
+    for i in 1..=(unit_count as i64) {
         let idx = i as f32;
         // Degenerate point bbox: minx == maxx, miny == maxy at catchment centre.
         let px = idx * 0.5 + 0.2;
         let py = 0.2f32;
 
         id_b.append_value(i);
-        catchment_id_b.append_value(i);
+        unit_id_b.append_value(i);
         weight_b.append_value(100.0f32);
-        is_mainstem_b.append_value(true);
+        stem_role_b.append_value("mainstem");
         minx_b.append_value(px);
         miny_b.append_value(py);
         maxx_b.append_value(px); // intentionally equal to minx
@@ -335,9 +399,9 @@ fn write_snap_with_degenerate_bbox(root: &Path, atom_count: usize) {
         schema,
         vec![
             Arc::new(id_b.finish()),
-            Arc::new(catchment_id_b.finish()),
+            Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
-            Arc::new(is_mainstem_b.finish()),
+            Arc::new(stem_role_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),
@@ -351,17 +415,17 @@ fn write_snap_with_degenerate_bbox(root: &Path, atom_count: usize) {
     writer.close().unwrap();
 }
 
-/// Write snap targets with explicit catchment IDs.
+/// Write snap targets with explicit unit IDs.
 ///
 /// The row geometry and bbox placement follow the same layout as [`write_snap`],
-/// but `catchment_id` values are supplied by the caller so integrity failures
+/// but `unit_id` values are supplied by the caller so integrity failures
 /// can be constructed.
-fn write_snap_with_custom_catchment_ids(root: &Path, catchment_ids: &[i64]) {
+fn write_snap_with_custom_unit_ids(root: &Path, unit_ids: &[i64]) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
-        Field::new("catchment_id", DataType::Int64, false),
+        Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
-        Field::new("is_mainstem", DataType::Boolean, false),
+        Field::new("stem_role", DataType::Utf8, false),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
@@ -378,16 +442,16 @@ fn write_snap_with_custom_catchment_ids(root: &Path, catchment_ids: &[i64]) {
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut id_b = Int64Builder::new();
-    let mut catchment_id_b = Int64Builder::new();
+    let mut unit_id_b = Int64Builder::new();
     let mut weight_b = Float32Builder::new();
-    let mut is_mainstem_b = BooleanBuilder::new();
+    let mut stem_role_b = StringBuilder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
     let mut maxy_b = Float32Builder::new();
     let mut geom_b = BinaryBuilder::new();
 
-    for (idx, &catchment_id) in catchment_ids.iter().enumerate() {
+    for (idx, &unit_id) in unit_ids.iter().enumerate() {
         let row_id = (idx + 1) as i64;
         let bbox_idx = row_id as f32;
         let minx = bbox_idx * 0.5;
@@ -398,9 +462,9 @@ fn write_snap_with_custom_catchment_ids(root: &Path, catchment_ids: &[i64]) {
         let cy = ((miny + maxy) / 2.0) as f64;
 
         id_b.append_value(row_id);
-        catchment_id_b.append_value(catchment_id);
+        unit_id_b.append_value(unit_id);
         weight_b.append_value(100.0f32);
-        is_mainstem_b.append_value(true);
+        stem_role_b.append_value("mainstem");
         minx_b.append_value(minx);
         miny_b.append_value(miny);
         maxx_b.append_value(maxx);
@@ -412,9 +476,9 @@ fn write_snap_with_custom_catchment_ids(root: &Path, catchment_ids: &[i64]) {
         schema,
         vec![
             Arc::new(id_b.finish()),
-            Arc::new(catchment_id_b.finish()),
+            Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
-            Arc::new(is_mainstem_b.finish()),
+            Arc::new(stem_role_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),
@@ -431,18 +495,18 @@ fn write_snap_with_custom_catchment_ids(root: &Path, catchment_ids: &[i64]) {
 /// Build a complete synthetic HFX dataset directory. Returns (TempDir, root path).
 /// The TempDir must stay alive for the duration of the test.
 fn build_dataset(
-    atom_count: usize,
+    unit_count: usize,
     snap: bool,
     rasters: bool,
     topology: &str,
 ) -> (TempDir, std::path::PathBuf) {
     let dir = TempDir::new().unwrap();
     let root = dir.path().to_path_buf();
-    write_manifest(&root, atom_count, snap, rasters, topology);
-    write_graph(&root, atom_count);
-    write_catchments(&root, atom_count, 8192);
+    write_manifest(&root, unit_count, snap, rasters, topology);
+    write_graph(&root, unit_count);
+    write_catchments(&root, unit_count, 8192);
     if snap {
-        write_snap(&root, atom_count);
+        write_snap(&root, unit_count);
     }
     if rasters {
         std::fs::write(root.join("flow_dir.tif"), b"stub").unwrap();
@@ -451,21 +515,21 @@ fn build_dataset(
     (dir, root)
 }
 
-/// Write a DAG graph for 4 atoms where atoms 3 and 4 both have atom 2 upstream
-/// (bifurcation), and atom 2 has atom 1 upstream.
+/// Write a DAG graph for 4 units where units 3 and 4 both have unit 2 upstream
+/// (bifurcation), and unit 2 has unit 1 upstream.
 ///
 /// Topology:
-///   atom 1: headwater (upstream=[])
-///   atom 2: upstream=[1]
-///   atom 3: upstream=[2]
-///   atom 4: upstream=[2]  ← bifurcation: both 3 and 4 share upstream 2
+///   unit 1: headwater (upstream=[])
+///   unit 2: upstream=[1]
+///   unit 3: upstream=[2]
+///   unit 4: upstream=[2]  ← bifurcation: both 3 and 4 share upstream 2
 fn write_dag_graph(root: &Path) {
     let ids: Vec<i64> = vec![1, 2, 3, 4];
     let upstream: Vec<Vec<i64>> = vec![
-        vec![],  // atom 1: headwater
-        vec![1], // atom 2: upstream of 1
-        vec![2], // atom 3: upstream of 2
-        vec![2], // atom 4: upstream of 2 (bifurcation)
+        vec![],  // unit 1: headwater
+        vec![1], // unit 2: upstream of 1
+        vec![2], // unit 3: upstream of 2
+        vec![2], // unit 4: upstream of 2 (bifurcation)
     ];
     write_graph_raw(root, &ids, &upstream);
 }
@@ -479,7 +543,7 @@ fn test_open_valid_minimal_dataset() {
     let (_dir, root) = build_dataset(3, false, false, "tree");
     let session = DatasetSession::open_path(&root).expect("minimal dataset should open");
 
-    assert_eq!(session.manifest().atom_count().get(), 3);
+    assert_eq!(session.manifest().unit_count().get(), 3);
     assert_eq!(session.manifest().fabric_name(), "testfabric");
     assert_eq!(session.topology(), Topology::Tree);
     assert_eq!(session.graph().len(), 3);
@@ -494,7 +558,7 @@ fn test_open_valid_full_dataset() {
     let (_dir, root) = build_dataset(5, true, true, "tree");
     let session = DatasetSession::open_path(&root).expect("full dataset should open");
 
-    assert_eq!(session.manifest().atom_count().get(), 5);
+    assert_eq!(session.manifest().unit_count().get(), 5);
     assert!(session.snap().is_some());
     assert_eq!(session.snap().unwrap().total_rows(), 5);
 
@@ -552,7 +616,7 @@ fn test_open_missing_manifest() {
 fn test_open_missing_graph() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
-    // Write manifest and catchments but not graph.arrow
+    // Write manifest and catchments but not graph.parquet
     write_manifest(root, 2, false, false, "tree");
     write_catchments(root, 2, 8192);
 
@@ -561,11 +625,11 @@ fn test_open_missing_graph() {
         matches!(
             result,
             Err(SessionError::RequiredArtifactMissing {
-                artifact: "graph.arrow",
+                artifact: "graph.parquet",
                 ..
             })
         ),
-        "expected RequiredArtifactMissing for graph.arrow, got: {result:?}"
+        "expected RequiredArtifactMissing for graph.parquet, got: {result:?}"
     );
 }
 
@@ -604,20 +668,21 @@ fn test_open_snap_declared_but_missing() {
     assert!(
         matches!(
             result,
-            Err(SessionError::OptionalArtifactMissing {
-                artifact: "snap.parquet",
+            Err(SessionError::AuxiliaryArtifactMissing {
+                ref schema,
+                ref artifact,
                 ..
-            })
+            }) if schema == "hfx.aux.snap.v1" && artifact == "snap"
         ),
-        "expected OptionalArtifactMissing for snap.parquet, got: {result:?}"
+        "expected AuxiliaryArtifactMissing for snap.parquet, got: {result:?}"
     );
 }
 
 #[test]
-fn test_open_atom_count_mismatch() {
+fn test_open_unit_count_mismatch() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
-    // Manifest says 100 atoms but we only write 3
+    // Manifest says 100 units but we only write 3
     write_manifest(root, 100, false, false, "tree");
     write_graph(root, 3);
     write_catchments(root, 3, 8192);
@@ -626,28 +691,28 @@ fn test_open_atom_count_mismatch() {
     assert!(
         matches!(
             result,
-            Err(SessionError::AtomCountMismatch {
+            Err(SessionError::UnitCountMismatch {
                 manifest_count: 100,
                 actual_count: 3
             })
         ),
-        "expected AtomCountMismatch(100, 3), got: {result:?}"
+        "expected UnitCountMismatch(100, 3), got: {result:?}"
     );
 }
 
 #[test]
 fn test_graph_traversal_from_session() {
-    // 5-atom linear chain: 1 <- 2 <- 3 <- 4 <- 5
-    // Starting at atom 5, walk upstream to the headwater.
+    // 5-unit linear chain: 1 <- 2 <- 3 <- 4 <- 5
+    // Starting at unit 5, walk upstream to the headwater.
     let (_dir, root) = build_dataset(5, false, false, "tree");
     let session = DatasetSession::open_path(&root).unwrap();
     let graph = session.graph();
 
-    let mut current_id = AtomId::new(5).unwrap();
+    let mut current_id = UnitId::new(5).unwrap();
     let mut visited: Vec<i64> = vec![current_id.get()];
 
     loop {
-        let row = graph.get(current_id).expect("atom should exist in graph");
+        let row = graph.get(current_id).expect("unit should exist in graph");
         if row.is_headwater() {
             break;
         }
@@ -664,29 +729,29 @@ fn test_graph_traversal_from_session() {
     // Should have walked 5 -> 4 -> 3 -> 2 -> 1
     assert_eq!(visited, vec![5, 4, 3, 2, 1]);
 
-    // Verify atom 1 is a headwater
-    let headwater = graph.get(AtomId::new(1).unwrap()).unwrap();
+    // Verify unit 1 is a headwater
+    let headwater = graph.get(UnitId::new(1).unwrap()).unwrap();
     assert!(headwater.is_headwater());
 
-    // Verify atom 5's direct upstream is atom 4
-    let row5 = graph.get(AtomId::new(5).unwrap()).unwrap();
-    assert_eq!(row5.upstream_ids(), &[AtomId::new(4).unwrap()]);
+    // Verify unit 5's direct upstream is unit 4
+    let row5 = graph.get(UnitId::new(5).unwrap()).unwrap();
+    assert_eq!(row5.upstream_ids(), &[UnitId::new(4).unwrap()]);
 }
 
 #[test]
 fn test_catchment_bbox_query() {
-    // 5 atoms with bboxes at:
-    //   atom i: [i*0.5, 0.0, i*0.5+0.4, 0.4]
-    //   atom 1: [0.5, 0.0, 0.9, 0.4]
-    //   atom 2: [1.0, 0.0, 1.4, 0.4]
-    //   atom 3: [1.5, 0.0, 1.9, 0.4]
-    //   atom 4: [2.0, 0.0, 2.4, 0.4]
-    //   atom 5: [2.5, 0.0, 2.9, 0.4]
+    // 5 units with bboxes at:
+    //   unit i: [i*0.5, 0.0, i*0.5+0.4, 0.4]
+    //   unit 1: [0.5, 0.0, 0.9, 0.4]
+    //   unit 2: [1.0, 0.0, 1.4, 0.4]
+    //   unit 3: [1.5, 0.0, 1.9, 0.4]
+    //   unit 4: [2.0, 0.0, 2.4, 0.4]
+    //   unit 5: [2.5, 0.0, 2.9, 0.4]
     let (_dir, root) = build_dataset(5, false, false, "tree");
     let session = DatasetSession::open_path(&root).unwrap();
 
-    // Query bbox strictly inside atom 3's region, not touching atom 2 (ends at 1.4)
-    // or atom 4 (starts at 2.0). BoundingBox uses f32 values.
+    // Query bbox strictly inside unit 3's region, not touching unit 2 (ends at 1.4)
+    // or unit 4 (starts at 2.0). BoundingBox uses f32 values.
     let query = BoundingBox::new(1.5, 0.0, 1.9, 0.4).unwrap();
     let results = session.catchments().query_by_bbox(&query).unwrap();
 
@@ -696,21 +761,21 @@ fn test_catchment_bbox_query() {
         "expected exactly 1 catchment, got: {:?}",
         results.len()
     );
-    assert_eq!(results[0].id(), AtomId::new(3).unwrap(), "expected atom 3");
+    assert_eq!(results[0].id(), UnitId::new(3).unwrap(), "expected unit 3");
 }
 
 #[test]
 fn test_snap_bbox_query() {
-    // 5 atoms + snap. Snap targets share the same bboxes as catchments:
-    //   atom 2 snap bbox: [1.0, 0.0, 1.4, 0.4]
-    //   atom 3 snap bbox: [1.5, 0.0, 1.9, 0.4]
+    // 5 units + snap. Snap targets share the same bboxes as catchments:
+    //   unit 2 snap bbox: [1.0, 0.0, 1.4, 0.4]
+    //   unit 3 snap bbox: [1.5, 0.0, 1.9, 0.4]
     let (_dir, root) = build_dataset(5, true, false, "tree");
     let session = DatasetSession::open_path(&root).unwrap();
 
     let snap = session.snap().expect("snap should be present");
 
-    // Query bbox strictly inside atom 2's region: [1.0, 0.0, 1.4, 0.4]
-    // Does not touch atom 1 (ends at 0.9) or atom 3 (starts at 1.5).
+    // Query bbox strictly inside unit 2's region: [1.0, 0.0, 1.4, 0.4]
+    // Does not touch unit 1 (ends at 0.9) or unit 3 (starts at 1.5).
     let query = BoundingBox::new(1.0, 0.0, 1.4, 0.4).unwrap();
     let results = snap.query_by_bbox(&query).unwrap();
 
@@ -721,19 +786,19 @@ fn test_snap_bbox_query() {
         results.len()
     );
     assert_eq!(
-        results[0].catchment_id(),
-        AtomId::new(2).unwrap(),
-        "expected snap target for atom 2"
+        results[0].unit_id(),
+        UnitId::new(2).unwrap(),
+        "expected snap target for unit 2"
     );
 }
 
 #[test]
 fn test_dag_topology() {
-    // 4-atom DAG:
-    //   atom 1: headwater
-    //   atom 2: upstream=[1]
-    //   atom 3: upstream=[2]
-    //   atom 4: upstream=[2]  ← both 3 and 4 share upstream atom 2
+    // 4-unit DAG:
+    //   unit 1: headwater
+    //   unit 2: upstream=[1]
+    //   unit 3: upstream=[2]
+    //   unit 4: upstream=[2]  ← both 3 and 4 share upstream unit 2
     let dir = TempDir::new().unwrap();
     let root = dir.path().to_path_buf();
     write_manifest(&root, 4, false, false, "dag");
@@ -747,18 +812,18 @@ fn test_dag_topology() {
     let graph = session.graph();
     assert_eq!(graph.len(), 4);
 
-    // Atom 3 has upstream=[2]
-    let row3 = graph.get(AtomId::new(3).unwrap()).expect("atom 3 missing");
-    assert_eq!(row3.upstream_ids(), &[AtomId::new(2).unwrap()]);
+    // Unit 3 has upstream=[2]
+    let row3 = graph.get(UnitId::new(3).unwrap()).expect("unit 3 missing");
+    assert_eq!(row3.upstream_ids(), &[UnitId::new(2).unwrap()]);
     assert!(!row3.is_headwater());
 
-    // Atom 4 also has upstream=[2] (bifurcation)
-    let row4 = graph.get(AtomId::new(4).unwrap()).expect("atom 4 missing");
-    assert_eq!(row4.upstream_ids(), &[AtomId::new(2).unwrap()]);
+    // Unit 4 also has upstream=[2] (bifurcation)
+    let row4 = graph.get(UnitId::new(4).unwrap()).expect("unit 4 missing");
+    assert_eq!(row4.upstream_ids(), &[UnitId::new(2).unwrap()]);
     assert!(!row4.is_headwater());
 
-    // Walk from atom 3 to headwater: 3 -> 2 -> 1
-    let mut current = AtomId::new(3).unwrap();
+    // Walk from unit 3 to headwater: 3 -> 2 -> 1
+    let mut current = UnitId::new(3).unwrap();
     let mut path = vec![current.get()];
     loop {
         let row = graph.get(current).unwrap();
@@ -770,8 +835,8 @@ fn test_dag_topology() {
     }
     assert_eq!(path, vec![3, 2, 1]);
 
-    // Walk from atom 4 to headwater: 4 -> 2 -> 1
-    let mut current = AtomId::new(4).unwrap();
+    // Walk from unit 4 to headwater: 4 -> 2 -> 1
+    let mut current = UnitId::new(4).unwrap();
     let mut path = vec![current.get()];
     loop {
         let row = graph.get(current).unwrap();
@@ -783,53 +848,53 @@ fn test_dag_topology() {
     }
     assert_eq!(path, vec![4, 2, 1]);
 
-    // Atom 1 is a headwater
-    let row1 = graph.get(AtomId::new(1).unwrap()).unwrap();
+    // Unit 1 is a headwater
+    let row1 = graph.get(UnitId::new(1).unwrap()).unwrap();
     assert!(row1.is_headwater());
 }
 
 #[test]
 fn test_graph_catchment_id_mismatch() {
-    // Graph contains atom 4; catchments only have atoms 1, 2, 3.
-    // The atom_count check passes (manifest=3, catchments=3, graph len=3),
-    // but the referential integrity check must fire because graph atom 4 has
+    // Graph contains unit 4; catchments only have units 1, 2, 3.
+    // The unit_count check passes (manifest=3, catchments=3, graph len=3),
+    // but the referential integrity check must fire because graph unit 4 has
     // no matching catchment row.
     let dir = TempDir::new().unwrap();
     let root = dir.path();
 
     write_manifest(root, 3, false, false, "tree");
-    // Catchments: atoms 1, 2, 3
+    // Catchments: units 1, 2, 3
     write_catchments(root, 3, 8192);
-    // Graph: atoms 1, 2, 4 — atom 4 is absent from catchments, atom 3 is absent from graph
+    // Graph: units 1, 2, 4 — unit 4 is absent from catchments, unit 3 is absent from graph
     write_graph_custom(root, &[1, 2, 4], &[vec![], vec![1], vec![2]]);
 
     let err = DatasetSession::open_path(root).unwrap_err();
     assert!(
-        matches!(err, SessionError::IntegrityViolation { .. }),
-        "expected IntegrityViolation, got: {err}"
+        matches!(err, SessionError::GraphReferentialIntegrity { .. }),
+        "expected GraphReferentialIntegrity, got: {err}"
     );
 }
 
 #[test]
 fn test_graph_upstream_id_missing_from_catchments() {
-    // Graph atoms [1, 2, 3] are all present in catchments, but atom 3's
-    // upstream list references atom 99 which does not exist in catchments.
+    // Graph units [1, 2, 3] are all present in catchments, but unit 3's
+    // upstream list references unit 99 which does not exist in catchments.
     let dir = TempDir::new().unwrap();
     let root = dir.path();
 
     write_manifest(root, 3, false, false, "tree");
     write_catchments(root, 3, 8192);
-    // Atom 3 references upstream atom 99 — not in catchments
+    // Unit 3 references upstream unit 99 — not in catchments
     write_graph_custom(root, &[1, 2, 3], &[vec![], vec![1], vec![99]]);
 
     let err = DatasetSession::open_path(root).unwrap_err();
     assert!(
-        matches!(err, SessionError::IntegrityViolation { .. }),
-        "expected IntegrityViolation, got: {err}"
+        matches!(err, SessionError::GraphReferentialIntegrity { .. }),
+        "expected GraphReferentialIntegrity, got: {err}"
     );
-    // The error message should name the missing upstream atom
+    // The error message should name the missing upstream unit
     let msg = err.to_string();
-    assert!(msg.contains("99"), "error should mention atom 99: {msg}");
+    assert!(msg.contains("99"), "error should mention unit 99: {msg}");
 }
 
 #[test]
@@ -851,7 +916,7 @@ fn test_degenerate_snap_bbox_opens_and_queries() {
     let snap = session.snap().expect("snap store should be present");
 
     // A large bbox that covers all three point locations:
-    //   atom 1 point: (0.7, 0.2), atom 2: (1.2, 0.2), atom 3: (1.7, 0.2)
+    //   unit 1 point: (0.7, 0.2), unit 2: (1.2, 0.2), unit 3: (1.7, 0.2)
     let bbox = BoundingBox::new(0.0, 0.0, 5.0, 1.0).unwrap();
     let results = snap.query_by_bbox(&bbox).unwrap();
     assert!(
@@ -861,8 +926,8 @@ fn test_degenerate_snap_bbox_opens_and_queries() {
 }
 
 #[test]
-fn test_snap_catchment_id_missing_from_catchments() {
-    // Snap row 2 points at catchment 99, which is absent from catchments.parquet.
+fn test_snap_unit_id_missing_from_catchments() {
+    // Snap row 2 points at unit 99, which is absent from catchments.parquet.
     // Session open must reject the dataset instead of deferring failure to later
     // outlet-resolution logic.
     let dir = TempDir::new().unwrap();
@@ -871,17 +936,17 @@ fn test_snap_catchment_id_missing_from_catchments() {
     write_manifest(root, 3, true, false, "tree");
     write_graph(root, 3);
     write_catchments(root, 3, 8192);
-    write_snap_with_custom_catchment_ids(root, &[1, 99, 3]);
+    write_snap_with_custom_unit_ids(root, &[1, 99, 3]);
 
     let err = DatasetSession::open_path(root).unwrap_err();
     assert!(
-        matches!(err, SessionError::IntegrityViolation { .. }),
-        "expected IntegrityViolation, got: {err}"
+        matches!(err, SessionError::SnapReferentialIntegrity { .. }),
+        "expected SnapReferentialIntegrity, got: {err}"
     );
 
     let msg = err.to_string();
     assert!(
-        msg.contains("snap") && msg.contains("catchment") && msg.contains("99"),
-        "error should mention the missing snap catchment reference: {msg}"
+        msg.contains("snap") && msg.contains("unit") && msg.contains("99"),
+        "error should mention the missing snap unit reference: {msg}"
     );
 }

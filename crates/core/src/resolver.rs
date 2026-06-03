@@ -1,4 +1,4 @@
-//! Outlet resolution — resolve a user coordinate to a terminal HFX atom ID.
+//! Outlet resolution — resolve a user coordinate to a terminal HFX unit ID.
 //!
 //! Two code paths:
 //! - **Snap path** (`snap.parquet` present): nearest-geometry search within a
@@ -9,7 +9,7 @@
 use std::fmt;
 
 use geo::{Contains, Intersects};
-use hfx_core::{AtomId, BoundingBox, CatchmentAtom, MainstemStatus, SnapId, Weight};
+use hfx_core::{UnitId, BoundingBox, CatchmentUnit, StemRole, SnapId, Weight};
 use tracing::{debug, info, instrument, warn};
 
 use crate::algo::coord::GeoCoord;
@@ -157,9 +157,9 @@ pub enum PipTieBreak {
     HighestUpstreamArea,
     /// The catchment with the highest local (self) area was chosen.
     HighestLocalArea,
-    /// All area metrics were equal; the catchment with the lowest atom ID was
+    /// All area metrics were equal; the catchment with the lowest unit ID was
     /// chosen as a deterministic fallback.
-    LowestAtomId,
+    LowestUnitId,
 }
 
 // ── ResolutionMethod ──────────────────────────────────────────────────────────
@@ -177,8 +177,8 @@ pub enum ResolutionMethod {
         distance_m: f64,
         /// Snap weight reported by the HFX dataset.
         weight: Weight,
-        /// Whether the selected snap target lies on the mainstem.
-        mainstem_status: MainstemStatus,
+        /// Optional stem role declared for the selected snap target.
+        mainstem_status: Option<StemRole>,
         /// Number of snap candidates examined inside the search bbox.
         candidates_considered: usize,
     },
@@ -197,8 +197,8 @@ pub enum ResolutionMethod {
 /// The result of a successful outlet resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedOutlet {
-    /// The HFX atom ID that the outlet resolved to.
-    pub atom_id: AtomId,
+    /// The HFX unit ID that the outlet resolved to.
+    pub unit_id: UnitId,
     /// The original coordinate supplied by the caller.
     pub input_coord: GeoCoord,
     /// The coordinate that was actually used for the resolution (may differ
@@ -440,12 +440,12 @@ fn resolve_via_snap(
                         .get()
                         .total_cmp(&a.target.weight().get())
                         .then_with(|| {
-                            let mainstem_rank = |s: MainstemStatus| match s {
-                                MainstemStatus::Mainstem => 1u8,
-                                MainstemStatus::Tributary => 0u8,
+                            let mainstem_rank = |s: Option<StemRole>| match s {
+                                Some(StemRole::Mainstem) => 1u8,
+                                _ => 0u8,
                             };
-                            mainstem_rank(b.target.mainstem_status())
-                                .cmp(&mainstem_rank(a.target.mainstem_status()))
+                            mainstem_rank(b.target.stem_role())
+                                .cmp(&mainstem_rank(a.target.stem_role()))
                         })
                         .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
                 })
@@ -463,12 +463,12 @@ fn resolve_via_snap(
                     .get()
                     .total_cmp(&a.target.weight().get())
                     .then_with(|| {
-                        let mainstem_rank = |s: MainstemStatus| match s {
-                            MainstemStatus::Mainstem => 1u8,
-                            MainstemStatus::Tributary => 0u8,
+                        let mainstem_rank = |s: Option<StemRole>| match s {
+                            Some(StemRole::Mainstem) => 1u8,
+                            _ => 0u8,
                         };
-                        mainstem_rank(b.target.mainstem_status())
-                            .cmp(&mainstem_rank(a.target.mainstem_status()))
+                        mainstem_rank(b.target.stem_role())
+                            .cmp(&mainstem_rank(a.target.stem_role()))
                     })
                     .then_with(|| a.distance_m.total_cmp(&b.distance_m))
                     .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
@@ -483,13 +483,13 @@ fn resolve_via_snap(
     // 7. Build result.
     info!(
         snap_id = winner.target.id().get(),
-        catchment_id = winner.target.catchment_id().get(),
+        unit_id = winner.target.unit_id().get(),
         distance_m = winner.distance_m,
         "snap resolved outlet"
     );
 
     Ok(ResolvedOutlet {
-        atom_id: winner.target.catchment_id(),
+        unit_id: winner.target.unit_id(),
         input_coord: outlet,
         resolved_coord: winner.nearest_coord,
         method: ResolutionMethod::Snap {
@@ -497,7 +497,7 @@ fn resolve_via_snap(
             snap_id: winner.target.id(),
             distance_m: winner.distance_m,
             weight: winner.target.weight(),
-            mainstem_status: winner.target.mainstem_status(),
+            mainstem_status: winner.target.stem_role(),
             candidates_considered: total_candidates,
         },
     })
@@ -532,13 +532,13 @@ fn resolve_via_pip(
 
     // 4. Decode geometries upfront, skipping failures.
     let mut decode_failures: usize = 0;
-    let decoded: Vec<(&CatchmentAtom, geo::MultiPolygon<f64>)> = candidates
+    let decoded: Vec<(&CatchmentUnit, geo::MultiPolygon<f64>)> = candidates
         .iter()
-        .filter_map(|atom| match decode_wkb_multi_polygon(atom.geometry()) {
-            Ok(mp) => Some((atom, mp)),
+        .filter_map(|unit| match decode_wkb_multi_polygon(unit.geometry()) {
+            Ok(mp) => Some((unit, mp)),
             Err(e) => {
                 warn!(
-                    atom_id = atom.id().get(),
+                    unit_id = unit.id().get(),
                     error = %e,
                     "failed to decode WKB geometry, skipping candidate"
                 );
@@ -552,10 +552,10 @@ fn resolve_via_pip(
     let point: geo::Point<f64> = outlet.into();
 
     // 6. Phase 1 — strict containment.
-    let mut hits: Vec<&CatchmentAtom> = decoded
+    let mut hits: Vec<&CatchmentUnit> = decoded
         .iter()
         .filter(|(_, mp)| mp.contains(&point))
-        .map(|(atom, _)| *atom)
+        .map(|(unit, _)| *unit)
         .collect();
     debug!(phase1_hits = hits.len(), "PiP phase 1 (contains) complete");
 
@@ -564,7 +564,7 @@ fn resolve_via_pip(
         hits = decoded
             .iter()
             .filter(|(_, mp)| mp.intersects(&point))
-            .map(|(atom, _)| *atom)
+            .map(|(unit, _)| *unit)
             .collect();
         debug!(
             phase2_hits = hits.len(),
@@ -590,12 +590,12 @@ fn resolve_via_pip(
     if hits.len() == 1 {
         let winner = hits[0];
         info!(
-            atom_id = winner.id().get(),
+            unit_id = winner.id().get(),
             tie_break = ?Option::<PipTieBreak>::None,
             "PiP resolved outlet"
         );
         return Ok(ResolvedOutlet {
-            atom_id: winner.id(),
+            unit_id: winner.id(),
             input_coord: outlet,
             resolved_coord: outlet,
             method: ResolutionMethod::PointInPolygon {
@@ -622,7 +622,7 @@ fn resolve_via_pip(
                 b.area().get().total_cmp(&a.area().get())
             })
             .then_with(|| {
-                // 3. atom_id ASC
+                // 3. unit_id ASC
                 a.id().cmp(&b.id())
             })
     });
@@ -636,19 +636,19 @@ fn resolve_via_pip(
         } else if a.area().get().total_cmp(&b.area().get()) != std::cmp::Ordering::Equal {
             Some(PipTieBreak::HighestLocalArea)
         } else {
-            Some(PipTieBreak::LowestAtomId)
+            Some(PipTieBreak::LowestUnitId)
         }
     };
 
     let winner = hits[0];
     info!(
-        atom_id = winner.id().get(),
+        unit_id = winner.id().get(),
         tie_break = ?tie_break,
         "PiP resolved outlet with tie-break"
     );
 
     Ok(ResolvedOutlet {
-        atom_id: winner.id(),
+        unit_id: winner.id(),
         input_coord: outlet,
         resolved_coord: outlet,
         method: ResolutionMethod::PointInPolygon {
@@ -660,7 +660,7 @@ fn resolve_via_pip(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/// Resolve a user-provided outlet coordinate to a single terminal HFX atom ID.
+/// Resolve a user-provided outlet coordinate to a single terminal HFX unit ID.
 ///
 /// Uses the snap-file path when `snap.parquet` is present in the dataset,
 /// falling back to point-in-polygon containment when it is not.
@@ -910,7 +910,7 @@ mod tests {
             PipTieBreak::HighestUpstreamArea,
             PipTieBreak::HighestLocalArea
         );
-        assert_ne!(PipTieBreak::HighestLocalArea, PipTieBreak::LowestAtomId);
+        assert_ne!(PipTieBreak::HighestLocalArea, PipTieBreak::LowestUnitId);
     }
 
     #[test]
@@ -957,7 +957,7 @@ mod tests {
             &ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst),
         )
         .unwrap();
-        assert_eq!(result.atom_id, AtomId::new(1).unwrap());
+        assert_eq!(result.unit_id, UnitId::new(1).unwrap());
         assert!(matches!(
             result.method,
             ResolutionMethod::Snap {
@@ -1008,7 +1008,7 @@ mod tests {
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
         let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.atom_id, AtomId::new(2).unwrap());
+        assert_eq!(result.unit_id, UnitId::new(2).unwrap());
         assert!(matches!(
             result.method,
             ResolutionMethod::Snap {
@@ -1059,7 +1059,7 @@ mod tests {
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
         let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.atom_id, AtomId::new(2).unwrap());
+        assert_eq!(result.unit_id, UnitId::new(2).unwrap());
     }
 
     #[test]
@@ -1105,7 +1105,7 @@ mod tests {
             .unwrap();
 
         let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.atom_id, AtomId::new(1).unwrap());
+        assert_eq!(result.unit_id, UnitId::new(1).unwrap());
         assert!(matches!(
             result.method,
             ResolutionMethod::Snap {
@@ -1165,9 +1165,9 @@ mod tests {
             resolve_outlet(&session, GeoCoord::new(10.0, 45.0), &ResolverConfig::new()).unwrap();
 
         assert_eq!(
-            result.atom_id,
-            AtomId::new(2).unwrap(),
-            "default strategy must pick the mainstem (atom 2), not the coincident tiny stub (atom 1)"
+            result.unit_id,
+            UnitId::new(2).unwrap(),
+            "default strategy must pick the mainstem (unit 2), not the coincident tiny stub (unit 1)"
         );
         assert!(matches!(
             result.method,

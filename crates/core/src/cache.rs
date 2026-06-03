@@ -10,6 +10,7 @@ use url::Url;
 
 use crate::error::SessionError;
 use crate::reader;
+use crate::reader::manifest::AuxDeclarations;
 use crate::reader::id_index::IdIndex;
 
 const CACHE_ENV: &str = "HFX_CACHE_DIR";
@@ -19,6 +20,7 @@ const CACHE_NAMESPACE: &str = "hfx";
 #[derive(Debug)]
 pub(crate) struct CachedRemoteArtifacts {
     pub(crate) manifest: Manifest,
+    pub(crate) aux: AuxDeclarations,
     pub(crate) graph: DrainageGraph,
 }
 
@@ -153,7 +155,7 @@ impl RemoteArtifactCache {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|source| SessionError::cache_io("create_dir_all", &cache_dir, source))?;
         write_cache_file(&cache_dir.join("manifest.json"), manifest_bytes)?;
-        write_cache_file(&cache_dir.join("graph.arrow"), graph_bytes.as_ref())?;
+        write_cache_file(&cache_dir.join("graph.parquet"), graph_bytes.as_ref())?;
         self.write_source_index(url, remote_root, manifest)?;
 
         debug!(
@@ -255,21 +257,25 @@ impl ValidationSidecar {
 
 fn read_entry(path: &Path) -> Option<CachedRemoteArtifacts> {
     let manifest_path = path.join("manifest.json");
-    let graph_path = path.join("graph.arrow");
+    let graph_path = path.join("graph.parquet");
     if !manifest_path.is_file() || !graph_path.is_file() {
         return None;
     }
 
     let manifest_bytes = std::fs::read(&manifest_path).ok()?;
-    let manifest = reader::manifest::read_manifest_from_bytes(&manifest_bytes).ok()?;
-    if !cache_key_matches(path, &manifest) {
+    let parsed = reader::manifest::read_manifest_from_bytes(&manifest_bytes).ok()?;
+    if !cache_key_matches(path, &parsed.manifest) {
         return None;
     }
 
     let graph_bytes = Bytes::from(std::fs::read(&graph_path).ok()?);
     let graph = reader::graph::load_graph_from_bytes(graph_bytes).ok()?;
 
-    Some(CachedRemoteArtifacts { manifest, graph })
+    Some(CachedRemoteArtifacts {
+        manifest: parsed.manifest,
+        aux: parsed.aux,
+        graph,
+    })
 }
 
 fn cache_key_matches(path: &Path, manifest: &Manifest) -> bool {

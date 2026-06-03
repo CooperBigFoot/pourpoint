@@ -2,7 +2,7 @@
 //! terminal refinement, and watershed assembly into a single `delineate()` call.
 
 use geo::{BoundingRect, MultiPolygon};
-use hfx_core::AtomId;
+use hfx_core::UnitId;
 use rayon::prelude::*;
 use tracing::instrument;
 
@@ -46,20 +46,20 @@ pub enum RefinementOutcome {
 /// The output of a successful [`Engine::delineate`] call.
 #[derive(Debug, Clone)]
 pub struct DelineationResult {
-    terminal_atom_id: AtomId,
+    terminal_unit_id: UnitId,
     input_outlet: GeoCoord,
     resolved_outlet: GeoCoord,
     resolution_method: ResolutionMethod,
-    upstream_atom_ids: Vec<AtomId>,
+    upstream_unit_ids: Vec<UnitId>,
     refinement: RefinementOutcome,
     geometry: MultiPolygon<f64>,
     area_km2: AreaKm2,
 }
 
 impl DelineationResult {
-    /// Return the terminal atom ID that the outlet resolved to.
-    pub fn terminal_atom_id(&self) -> AtomId {
-        self.terminal_atom_id
+    /// Return the terminal unit ID that the outlet resolved to.
+    pub fn terminal_unit_id(&self) -> UnitId {
+        self.terminal_unit_id
     }
 
     /// Return the original input outlet coordinate.
@@ -77,9 +77,9 @@ impl DelineationResult {
         &self.resolution_method
     }
 
-    /// Return the slice of all upstream atom IDs (including the terminal).
-    pub fn upstream_atom_ids(&self) -> &[AtomId] {
-        &self.upstream_atom_ids
+    /// Return the slice of all upstream unit IDs (including the terminal).
+    pub fn upstream_unit_ids(&self) -> &[UnitId] {
+        &self.upstream_unit_ids
     }
 
     /// Return a reference to the refinement outcome.
@@ -119,11 +119,11 @@ impl DelineationResult {
 /// The scalar output of a successful [`Engine::delineate_area_only`] call.
 #[derive(Debug, Clone)]
 pub struct DelineationAreaOnlyResult {
-    terminal_atom_id: AtomId,
+    terminal_unit_id: UnitId,
     input_outlet: GeoCoord,
     resolved_outlet: GeoCoord,
     resolution_method: ResolutionMethod,
-    upstream_atom_ids: Vec<AtomId>,
+    upstream_unit_ids: Vec<UnitId>,
     refinement: RefinementOutcome,
     area_km2: AreaKm2,
 }
@@ -132,19 +132,19 @@ impl DelineationAreaOnlyResult {
     /// Consume a full delineation result while dropping the watershed geometry.
     pub fn from_delineation_result(result: DelineationResult) -> Self {
         Self {
-            terminal_atom_id: result.terminal_atom_id,
+            terminal_unit_id: result.terminal_unit_id,
             input_outlet: result.input_outlet,
             resolved_outlet: result.resolved_outlet,
             resolution_method: result.resolution_method,
-            upstream_atom_ids: result.upstream_atom_ids,
+            upstream_unit_ids: result.upstream_unit_ids,
             refinement: result.refinement,
             area_km2: result.area_km2,
         }
     }
 
-    /// Return the terminal atom ID that the outlet resolved to.
-    pub fn terminal_atom_id(&self) -> AtomId {
-        self.terminal_atom_id
+    /// Return the terminal unit ID that the outlet resolved to.
+    pub fn terminal_unit_id(&self) -> UnitId {
+        self.terminal_unit_id
     }
 
     /// Return the original input outlet coordinate.
@@ -162,9 +162,9 @@ impl DelineationAreaOnlyResult {
         &self.resolution_method
     }
 
-    /// Return the slice of all upstream atom IDs (including the terminal).
-    pub fn upstream_atom_ids(&self) -> &[AtomId] {
-        &self.upstream_atom_ids
+    /// Return the slice of all upstream unit IDs (including the terminal).
+    pub fn upstream_unit_ids(&self) -> &[UnitId] {
+        &self.upstream_unit_ids
     }
 
     /// Return a reference to the refinement outcome.
@@ -239,7 +239,7 @@ impl DelineationOptions {
 /// Errors that can occur during [`Engine::delineate`].
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
-    /// Fired when the outlet coordinate cannot be resolved to an HFX atom.
+    /// Fired when the outlet coordinate cannot be resolved to an HFX unit.
     #[error("outlet resolution failed for {outlet}: {source}")]
     Resolution {
         /// The outlet coordinate that was supplied.
@@ -248,56 +248,56 @@ pub enum EngineError {
         source: OutletResolutionError,
     },
 
-    /// Fired when the upstream graph traversal fails for the resolved atom.
-    #[error("upstream traversal failed for atom {atom_id}: {source}")]
+    /// Fired when the upstream graph traversal fails for the resolved unit.
+    #[error("upstream traversal failed for unit {unit_id}: {source}")]
     Traversal {
-        /// The raw atom ID that was traversed from.
-        atom_id: i64,
+        /// The raw unit ID that was traversed from.
+        unit_id: i64,
         /// Underlying traversal error.
         source: TraversalError,
     },
 
     /// Fired when the terminal catchment row cannot be fetched for refinement.
-    #[error("failed to fetch terminal catchment for refinement (atom {atom_id}): {source}")]
+    #[error("failed to fetch terminal catchment for refinement (unit {unit_id}): {source}")]
     TerminalCatchmentFetch {
-        /// The raw atom ID whose catchment fetch failed.
-        atom_id: i64,
+        /// The raw unit ID whose catchment fetch failed.
+        unit_id: i64,
         /// Underlying session error.
         source: SessionError,
     },
 
     /// Fired when the stored terminal catchment geometry fails WKB decode.
-    #[error("failed to decode terminal catchment geometry (atom {atom_id}): {source}")]
+    #[error("failed to decode terminal catchment geometry (unit {unit_id}): {source}")]
     TerminalCatchmentDecode {
-        /// The raw atom ID whose geometry could not be decoded.
-        atom_id: i64,
+        /// The raw unit ID whose geometry could not be decoded.
+        unit_id: i64,
         /// Underlying WKB decode error.
         source: WkbDecodeError,
     },
 
     /// Fired when a raster artifact cannot be materialized as a local path.
-    #[error("failed to localize raster for refinement (atom {atom_id}): {source}")]
+    #[error("failed to localize raster for refinement (unit {unit_id}): {source}")]
     RasterLocalize {
-        /// The raw atom ID for which raster localization was attempted.
-        atom_id: i64,
+        /// The raw unit ID for which raster localization was attempted.
+        unit_id: i64,
         /// Underlying session error.
         source: SessionError,
     },
 
     /// Fired when the raster-based terminal refinement step fails.
-    #[error("terminal refinement failed for atom {atom_id}: {source}")]
+    #[error("terminal refinement failed for unit {unit_id}: {source}")]
     Refinement {
-        /// The raw atom ID for which refinement was attempted.
-        atom_id: i64,
+        /// The raw unit ID for which refinement was attempted.
+        unit_id: i64,
         /// Underlying refinement error.
         source: RefinementError,
     },
 
     /// Fired when final watershed assembly fails.
-    #[error("watershed assembly failed for atom {atom_id}: {message}")]
+    #[error("watershed assembly failed for unit {unit_id}: {message}")]
     Assembly {
-        /// The raw atom ID of the terminal atom being assembled.
-        atom_id: i64,
+        /// The raw unit ID of the terminal unit being assembled.
+        unit_id: i64,
         /// Human-readable description of the assembly failure.
         message: String,
         /// The original assembly error, preserved for error-chain inspection.
@@ -374,7 +374,7 @@ impl Engine {
     ///
     /// | Variant | When |
     /// |---|---|
-    /// | [`EngineError::Resolution`] | Outlet cannot be resolved to an atom |
+    /// | [`EngineError::Resolution`] | Outlet cannot be resolved to an unit |
     /// | [`EngineError::Traversal`] | Upstream graph traversal fails |
     /// | [`EngineError::TerminalCatchmentFetch`] | Terminal catchment row is missing (refinement only) |
     /// | [`EngineError::TerminalCatchmentDecode`] | Terminal catchment WKB is invalid (refinement only) |
@@ -393,14 +393,14 @@ impl Engine {
             resolve_outlet(&self.session, outlet, &options.resolver_config)
                 .map_err(|source| EngineError::Resolution { outlet, source })?
         };
-        let terminal = resolved.atom_id;
+        let terminal = resolved.unit_id;
 
         // Step 2: Upstream traversal
         let upstream = {
             let _guard = StageGuard::enter(Stage::UpstreamTraversal);
             collect_upstream(terminal, self.session.graph()).map_err(|source| {
                 EngineError::Traversal {
-                    atom_id: terminal.get(),
+                    unit_id: terminal.get(),
                     source,
                 }
             })?
@@ -420,7 +420,7 @@ impl Engine {
                 assembly_options,
             )
             .map_err(|e| EngineError::Assembly {
-                atom_id: terminal.get(),
+                unit_id: terminal.get(),
                 message: e.to_string(),
                 source: Box::new(e),
             })?
@@ -431,11 +431,11 @@ impl Engine {
         let result = {
             let _guard = StageGuard::enter(Stage::ResultCompose);
             DelineationResult {
-                terminal_atom_id: terminal,
+                terminal_unit_id: terminal,
                 input_outlet: resolved.input_coord,
                 resolved_outlet: resolved.resolved_coord,
                 resolution_method: resolved.method,
-                upstream_atom_ids: upstream.into_atom_ids(),
+                upstream_unit_ids: upstream.into_unit_ids(),
                 refinement,
                 geometry,
                 area_km2,
@@ -453,7 +453,7 @@ impl Engine {
     ///
     /// | Variant | When |
     /// |---|---|
-    /// | [`EngineError::Resolution`] | Outlet cannot be resolved to an atom |
+    /// | [`EngineError::Resolution`] | Outlet cannot be resolved to an unit |
     /// | [`EngineError::Traversal`] | Upstream graph traversal fails |
     /// | [`EngineError::TerminalCatchmentFetch`] | Terminal catchment row is missing (refinement only) |
     /// | [`EngineError::TerminalCatchmentDecode`] | Terminal catchment WKB is invalid (refinement only) |
@@ -505,7 +505,7 @@ impl Engine {
     /// refined geometry to substitute into assembly.
     fn try_refine(
         &self,
-        terminal: AtomId,
+        terminal: UnitId,
         resolved: &ResolvedOutlet,
         options: &DelineationOptions,
     ) -> Result<(RefinementOutcome, Option<MultiPolygon<f64>>), EngineError> {
@@ -523,39 +523,39 @@ impl Engine {
         // Fetch terminal catchment geometry
         let (terminal_polygon, terminal_bbox) = {
             let _guard = StageGuard::enter(Stage::TerminalCatchmentFetch);
-            let terminal_atoms = self
+            let terminal_units = self
                 .session
                 .catchments()
                 .query_geometries_by_ids(&[terminal])
                 .map_err(|source| match source {
                     CatchmentGeometryQueryError::Read { source } => {
                         EngineError::TerminalCatchmentFetch {
-                            atom_id: terminal.get(),
+                            unit_id: terminal.get(),
                             source,
                         }
                     }
                     CatchmentGeometryQueryError::Decode { source, .. } => {
                         EngineError::TerminalCatchmentDecode {
-                            atom_id: terminal.get(),
+                            unit_id: terminal.get(),
                             source,
                         }
                     }
                 })?;
-            let terminal_atom = terminal_atoms.into_iter().next().ok_or_else(|| {
+            let terminal_unit = terminal_units.into_iter().next().ok_or_else(|| {
                 EngineError::TerminalCatchmentFetch {
-                    atom_id: terminal.get(),
+                    unit_id: terminal.get(),
                     source: SessionError::integrity(format!(
-                        "terminal atom {} not in catchment store",
+                        "terminal unit {} not in catchment store",
                         terminal.get()
                     )),
                 }
             })?;
-            let terminal_polygon = terminal_atom.into_parts().1;
+            let terminal_polygon = terminal_unit.into_parts().1;
             let terminal_bbox =
                 terminal_polygon
                     .bounding_rect()
                     .ok_or_else(|| EngineError::Refinement {
-                        atom_id: terminal.get(),
+                        unit_id: terminal.get(),
                         source: RefinementError::DegenerateTerminalPolygon,
                     })?;
             (terminal_polygon, terminal_bbox)
@@ -567,7 +567,7 @@ impl Engine {
                 .session
                 .localize_raster_window(RasterKind::FlowDir, terminal_bbox)
                 .map_err(|source| EngineError::RasterLocalize {
-                    atom_id: terminal.get(),
+                    unit_id: terminal.get(),
                     source,
                 })?;
             let bytes = flow_dir.header_bytes() + flow_dir.tile_bytes();
@@ -583,7 +583,7 @@ impl Engine {
                 .session
                 .localize_raster_window(RasterKind::FlowAcc, terminal_bbox)
                 .map_err(|source| EngineError::RasterLocalize {
-                    atom_id: terminal.get(),
+                    unit_id: terminal.get(),
                     source,
                 })?;
             let bytes = flow_acc.header_bytes() + flow_acc.tile_bytes();
@@ -619,7 +619,7 @@ impl Engine {
                 options.snap_threshold,
             )
             .map_err(|source| EngineError::Refinement {
-                atom_id: terminal.get(),
+                unit_id: terminal.get(),
                 source,
             })?
         };
@@ -663,21 +663,21 @@ mod tests {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    /// Build a 3-atom linear dataset and open a session.
+    /// Build a 3-unit linear dataset and open a session.
     ///
-    /// Graph: 1 -> 2 -> 3 (atom 3 is the terminal / outlet atom).
+    /// Graph: 1 -> 2 -> 3 (unit 3 is the terminal / outlet unit).
     /// Default catchment bboxes (from DatasetBuilder):
-    ///   atom 1: (0.50, 0.00, 0.90, 0.40)
-    ///   atom 2: (1.00, 0.00, 1.40, 0.40)
-    ///   atom 3: (1.50, 0.00, 1.90, 0.40)
-    fn three_atom_session() -> (tempfile::TempDir, DatasetSession) {
+    ///   unit 1: (0.50, 0.00, 0.90, 0.40)
+    ///   unit 2: (1.00, 0.00, 1.40, 0.40)
+    ///   unit 3: (1.50, 0.00, 1.90, 0.40)
+    fn three_unit_session() -> (tempfile::TempDir, DatasetSession) {
         let (dir, root) = DatasetBuilder::new(3).build();
         let session = DatasetSession::open_path(&root).expect("session should open");
         (dir, session)
     }
 
-    /// Coordinate inside atom 3's bbox — (1.70, 0.20).
-    fn coord_in_atom3() -> GeoCoord {
+    /// Coordinate inside unit 3's bbox — (1.70, 0.20).
+    fn coord_in_unit3() -> GeoCoord {
         GeoCoord::new(1.70, 0.20)
     }
 
@@ -743,11 +743,11 @@ mod tests {
 
     #[test]
     fn engine_single_outlet_no_rasters() {
-        let (_dir, session) = three_atom_session();
+        let (_dir, session) = three_unit_session();
         let engine = Engine::builder(session).build();
 
         let result = engine
-            .delineate(coord_in_atom3(), &DelineationOptions::default())
+            .delineate(coord_in_unit3(), &DelineationOptions::default())
             .expect("delineation should succeed");
 
         assert!(result.area_km2().as_f64() > 0.0, "area must be positive");
@@ -761,8 +761,8 @@ mod tests {
             "no rasters registered → NoRastersAvailable"
         );
         assert!(
-            !result.upstream_atom_ids().is_empty(),
-            "at least one atom in upstream"
+            !result.upstream_unit_ids().is_empty(),
+            "at least one unit in upstream"
         );
     }
 
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn engine_outlet_outside_catchments() {
-        let (_dir, session) = three_atom_session();
+        let (_dir, session) = three_unit_session();
         let engine = Engine::builder(session).build();
 
         let err = engine
@@ -787,36 +787,36 @@ mod tests {
 
     #[test]
     fn engine_batch_mixed_success_failure() {
-        let (_dir, session) = three_atom_session();
+        let (_dir, session) = three_unit_session();
         let engine = Engine::builder(session).build();
 
         let opts = DelineationOptions::default();
         let results =
-            engine.delineate_batch(&[(coord_in_atom3(), opts.clone()), (coord_outside(), opts)]);
+            engine.delineate_batch(&[(coord_in_unit3(), opts.clone()), (coord_outside(), opts)]);
 
         assert_eq!(results.len(), 2);
         assert!(results[0].is_ok(), "first outlet should succeed");
         assert!(results[1].is_err(), "second outlet should fail");
     }
 
-    // ── engine_single_headwater_atom ──────────────────────────────────────────
+    // ── engine_single_headwater_unit ──────────────────────────────────────────
 
     #[test]
-    fn engine_single_headwater_atom() {
-        // Atom 1 is the headwater (no upstream). Use a coordinate inside atom 1.
+    fn engine_single_headwater_unit() {
+        // Unit 1 is the headwater (no upstream). Use a coordinate inside unit 1.
         let (_dir, root) = DatasetBuilder::new(3).build();
         let session = DatasetSession::open_path(&root).expect("session should open");
         let engine = Engine::builder(session).build();
 
-        // Atom 1 bbox: (0.50, 0.00, 0.90, 0.40), centre at ~(0.70, 0.20)
-        let coord_in_atom1 = GeoCoord::new(0.70, 0.20);
+        // Unit 1 bbox: (0.50, 0.00, 0.90, 0.40), centre at ~(0.70, 0.20)
+        let coord_in_unit1 = GeoCoord::new(0.70, 0.20);
         let result = engine
-            .delineate(coord_in_atom1, &DelineationOptions::default())
+            .delineate(coord_in_unit1, &DelineationOptions::default())
             .expect("headwater delineation should succeed");
 
         assert!(
-            result.upstream_atom_ids().len() == 1,
-            "headwater has exactly 1 atom"
+            result.upstream_unit_ids().len() == 1,
+            "headwater has exactly 1 unit"
         );
         assert!(!result.geometry().0.is_empty(), "geometry is non-empty");
         assert!(result.area_km2().as_f64() > 0.0, "area is positive");
@@ -826,7 +826,7 @@ mod tests {
 
     #[test]
     fn engine_batch_empty_input() {
-        let (_dir, session) = three_atom_session();
+        let (_dir, session) = three_unit_session();
         let engine = Engine::builder(session).build();
 
         let results = engine.delineate_batch(&[]);
@@ -837,12 +837,12 @@ mod tests {
 
     #[test]
     fn engine_refinement_disabled() {
-        let (_dir, session) = three_atom_session();
+        let (_dir, session) = three_unit_session();
         let engine = Engine::builder(session).build();
 
         let opts = DelineationOptions::default().with_refine(false);
         let result = engine
-            .delineate(coord_in_atom3(), &opts)
+            .delineate(coord_in_unit3(), &opts)
             .expect("delineation should succeed");
 
         assert_eq!(
@@ -876,7 +876,7 @@ mod tests {
         let engine = Engine::builder(session)
             .with_raster_source(AppliedRefinementRasterSource)
             .build();
-        let terminal = AtomId::new(2).expect("valid atom id");
+        let terminal = UnitId::new(2).expect("valid unit id");
 
         let result = engine
             .delineate(
@@ -903,11 +903,11 @@ mod tests {
 
     #[test]
     fn engine_geometry_wkb_accessor() {
-        let (_dir, session) = three_atom_session();
+        let (_dir, session) = three_unit_session();
         let engine = Engine::builder(session).build();
 
         let result = engine
-            .delineate(coord_in_atom3(), &DelineationOptions::default())
+            .delineate(coord_in_unit3(), &DelineationOptions::default())
             .expect("delineation should succeed");
 
         let wkb = result.geometry_wkb().expect("WKB encoding should succeed");

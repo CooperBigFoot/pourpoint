@@ -453,7 +453,7 @@ fn sequential_delineate_with_progress(
             match &outcome {
                 Ok(res) => {
                     d.set_item("status", "ok")?;
-                    d.set_item("n_catchments", res.upstream_atom_ids().len())?;
+                    d.set_item("n_catchments", res.upstream_unit_ids().len())?;
                 }
                 Err(e) => {
                     d.set_item("status", "error")?;

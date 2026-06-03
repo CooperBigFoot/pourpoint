@@ -67,7 +67,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .with_longitude_span(BENCH_MIN_LON, BENCH_MAX_LON)
         .with_polygon_complexity(config.coords_per_ring);
     let outlet = builder
-        .generated_terminal_atom_center()
+        .generated_terminal_unit_center()
         .ok_or("bench fixture must have at least one generated atom")?;
     let (_dir, root) = builder.build();
     let session = DatasetSession::open_path(&root)?;

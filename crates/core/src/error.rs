@@ -121,11 +121,145 @@ pub enum SessionError {
 
     /// Fired when the parsed manifest fields are individually valid but
     /// `hfx_core::ManifestBuilder::new` or `.build()` rejects the combination
-    /// (e.g. terminal_sink_id != 0, uppercase fabric name).
+    /// (e.g. uppercase fabric name).
     #[error("manifest domain validation failed: {source}")]
     ManifestDomain {
         /// Underlying domain error from `hfx_core`.
         source: hfx_core::ManifestError,
+    },
+
+    /// Fired when `manifest.format_version` is not the only supported on-disk
+    /// format `"0.2.1"`. This is checked before any other manifest field is
+    /// parsed, so a v0.1 (or any other) manifest is rejected with a clear
+    /// version diagnostic rather than a missing-field error.
+    #[error("unsupported HFX format version {found:?}, expected {expected:?}")]
+    UnsupportedFormatVersion {
+        /// The version string found in the manifest.
+        found: String,
+        /// The only accepted format version (`"0.2.1"`).
+        expected: &'static str,
+    },
+
+    /// Fired when `manifest.crs` is not the only supported CRS `"EPSG:4326"`.
+    #[error("unsupported CRS {found:?}, expected {expected:?}")]
+    UnsupportedCrs {
+        /// The CRS string found in the manifest.
+        found: String,
+        /// The only accepted CRS (`"EPSG:4326"`).
+        expected: &'static str,
+    },
+
+    /// Fired when a manifest `auxiliary[]` entry lacks required structural
+    /// fields or carries invalid known-schema metadata.
+    #[error("auxiliary declaration for schema {schema:?} is invalid: {reason}")]
+    AuxiliaryDeclParse {
+        /// The auxiliary schema ID the failing entry declared.
+        schema: String,
+        /// Human-readable description of what was wrong.
+        reason: String,
+    },
+
+    /// Fired when a declared auxiliary artifact path is absolute or escapes the
+    /// dataset root.
+    #[error("auxiliary artifact path {path:?} for schema {schema:?} (key {artifact:?}) escapes the dataset root")]
+    AuxiliaryPathEscape {
+        /// The auxiliary schema ID the failing entry declared.
+        schema: String,
+        /// The artifact key whose path is non-conformant.
+        artifact: String,
+        /// The offending path string.
+        path: String,
+    },
+
+    /// Fired when a declared auxiliary artifact is absent from the dataset.
+    #[error("auxiliary artifact {artifact:?} for schema {schema:?} not found at {path}")]
+    AuxiliaryArtifactMissing {
+        /// The auxiliary schema ID the failing entry declared.
+        schema: String,
+        /// The artifact key whose file is missing.
+        artifact: String,
+        /// The resolved path that was checked.
+        path: String,
+    },
+
+    /// Fired when `catchments.parquet` is missing one of the required catchment
+    /// bbox columns (`bbox_minx`/`bbox_miny`/`bbox_maxx`/`bbox_maxy`).
+    #[error("required bbox column {column:?} missing from {artifact:?}")]
+    MissingBboxColumn {
+        /// Short name of the artifact (`"catchments.parquet"`).
+        artifact: &'static str,
+        /// The bbox column name that was absent.
+        column: &'static str,
+    },
+
+    /// Fired when `graph.parquet` lacks a `bbox_*` column. The HFX spec mandates
+    /// that Parquet row-group statistics be written on `bbox_minx`, `bbox_miny`,
+    /// `bbox_maxx`, and `bbox_maxy`; that requirement is only satisfiable if the
+    /// columns physically exist, so a missing column is rejected.
+    #[error("required graph bbox column {column:?} missing from graph.parquet")]
+    GraphMissingBboxColumn {
+        /// The bbox column name that was absent.
+        column: &'static str,
+    },
+
+    /// Fired when a v0.2.1 dataset contains or falls back to legacy
+    /// `graph.arrow`, which is not valid in v0.2.
+    #[error("legacy graph.arrow is not valid in HFX v0.2.1: {path}")]
+    LegacyGraphArrowRejected {
+        /// The path at which the legacy artifact was found or expected.
+        path: String,
+    },
+
+    /// Fired when graph rows do not exactly match catchment IDs, an upstream ID
+    /// is missing, a graph row level differs from its catchment level, or a
+    /// graph edge crosses levels.
+    #[error("graph referential integrity violation: {reason}")]
+    GraphReferentialIntegrity {
+        /// Human-readable description of the integrity failure.
+        reason: String,
+    },
+
+    /// Fired when an `hfx.aux.snap.v1` declaration is missing or carries invalid
+    /// `name`, `description`, `references_levels`, or `weight_semantics`
+    /// metadata.
+    #[error("snap aux metadata for {name:?} is invalid: {reason}")]
+    SnapAuxMetadataInvalid {
+        /// The snap declaration name (or `"<unknown>"` if absent).
+        name: String,
+        /// Human-readable description of what was wrong.
+        reason: String,
+    },
+
+    /// Fired when a snap `stem_role` value is not one of `mainstem`,
+    /// `tributary`, `distributary`, or `unknown`.
+    #[error("invalid stem_role {value:?} at snap row {row}")]
+    InvalidStemRole {
+        /// Zero-based row index within the snap artifact.
+        row: usize,
+        /// The unrecognized stem-role string.
+        value: String,
+    },
+
+    /// Fired when a snap `unit_id` references a unit that is absent from
+    /// `catchments.parquet`, or the referenced unit's level is not listed in the
+    /// declaration's `references_levels`.
+    #[error("snap referential integrity violation (snap id {snap_id}, unit_id {unit_id}): {reason}")]
+    SnapReferentialIntegrity {
+        /// The snap feature ID involved.
+        snap_id: i64,
+        /// The referenced unit ID.
+        unit_id: i64,
+        /// Human-readable description of the integrity failure.
+        reason: String,
+    },
+
+    /// Fired when a snap geometry is neither a WKB Point nor a WKB LineString.
+    #[error("invalid snap geometry at row {row}: {reason}")]
+    SnapGeometryInvalid {
+        /// Zero-based row index within the snap artifact.
+        row: usize,
+        /// Human-readable description of what was wrong.
+        reason: String,
     },
 
     /// Fired when `graph.arrow` exists but cannot be decoded as Arrow IPC.
@@ -185,12 +319,12 @@ pub enum SessionError {
         detail: String,
     },
 
-    /// Fired when the manifest declares a specific atom count but the actual
+    /// Fired when the manifest declares a specific `unit_count` but the actual
     /// number of rows in `catchments.parquet` differs.
     #[error(
-        "atom count mismatch: manifest declares {manifest_count} atoms but file contains {actual_count}"
+        "unit count mismatch: manifest declares {manifest_count} units but file contains {actual_count}"
     )]
-    AtomCountMismatch {
+    UnitCountMismatch {
         /// The count declared in `manifest.json`.
         manifest_count: u64,
         /// The actual row count found in the Parquet file.
@@ -309,14 +443,6 @@ impl SessionError {
     /// Construct a [`SessionError::RequiredArtifactMissing`] variant.
     pub(crate) fn required_missing(artifact: &'static str, path: impl Into<String>) -> Self {
         Self::RequiredArtifactMissing {
-            artifact,
-            path: path.into(),
-        }
-    }
-
-    /// Construct a [`SessionError::OptionalArtifactMissing`] variant.
-    pub(crate) fn optional_missing(artifact: &'static str, path: impl Into<String>) -> Self {
-        Self::OptionalArtifactMissing {
             artifact,
             path: path.into(),
         }

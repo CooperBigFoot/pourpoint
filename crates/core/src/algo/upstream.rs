@@ -2,7 +2,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use hfx_core::{AtomId, DrainageGraph};
+use hfx_core::{UnitId, DrainageGraph};
 use tracing::{debug, instrument};
 
 // ── TraversalError ────────────────────────────────────────────────────────────
@@ -10,108 +10,108 @@ use tracing::{debug, instrument};
 /// Errors from upstream graph traversal.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TraversalError {
-    /// The terminal atom ID does not exist in the drainage graph.
+    /// The terminal unit ID does not exist in the drainage graph.
     ///
     /// Fired when `DrainageGraph::get(terminal)` returns `None` at the
     /// start of traversal.
-    #[error("terminal atom {atom_id} not found in drainage graph")]
+    #[error("terminal unit {unit_id} not found in drainage graph")]
     TerminalNotFound {
-        /// The raw i64 value of the missing atom ID.
-        atom_id: i64,
+        /// The raw i64 value of the missing unit ID.
+        unit_id: i64,
     },
 
-    /// An atom references an upstream neighbour that is absent from the graph.
+    /// An unit references an upstream neighbour that is absent from the graph.
     ///
-    /// Fired when an `upstream_ids` entry points to an atom ID that has no
+    /// Fired when an `upstream_ids` entry points to an unit ID that has no
     /// row in the [`DrainageGraph`]. This indicates a referential integrity
     /// violation in the graph data.
-    #[error("atom {source_id} references upstream atom {target_id} which is absent from the graph")]
+    #[error("unit {source_id} references upstream unit {target_id} which is absent from the graph")]
     DanglingUpstreamRef {
-        /// The raw i64 value of the atom that contains the dangling reference.
+        /// The raw i64 value of the unit that contains the dangling reference.
         source_id: i64,
-        /// The raw i64 value of the missing upstream atom.
+        /// The raw i64 value of the missing upstream unit.
         target_id: i64,
     },
 }
 
-// ── UpstreamAtoms ─────────────────────────────────────────────────────────────
+// ── UpstreamUnits ─────────────────────────────────────────────────────────────
 
-/// The set of atom IDs reachable upstream from a terminal atom, inclusive.
+/// The set of unit IDs reachable upstream from a terminal unit, inclusive.
 ///
-/// Produced by [`collect_upstream`]. Contains the terminal atom itself plus
-/// every atom reachable via BFS over upstream adjacency edges.
+/// Produced by [`collect_upstream`]. Contains the terminal unit itself plus
+/// every unit reachable via BFS over upstream adjacency edges.
 ///
 /// # Ordering
 ///
-/// The terminal atom is always the first element of the backing slice
+/// The terminal unit is always the first element of the backing slice
 /// (accessible via [`terminal()`](Self::terminal)). Beyond that, the
 /// iteration order is deterministic but **not a stable API contract** —
 /// callers must rely only on [`terminal()`](Self::terminal) and
 /// membership semantics ([`contains`](Self::contains), [`len`](Self::len)),
-/// not on the position of non-terminal atoms.
+/// not on the position of non-terminal units.
 #[derive(Debug, Clone)]
-pub struct UpstreamAtoms {
-    atoms: Vec<AtomId>,
-    index: HashSet<AtomId>,
+pub struct UpstreamUnits {
+    units: Vec<UnitId>,
+    index: HashSet<UnitId>,
 }
 
-impl UpstreamAtoms {
-    /// Return the terminal atom ID — always the first element.
-    pub fn terminal(&self) -> AtomId {
-        self.atoms[0]
+impl UpstreamUnits {
+    /// Return the terminal unit ID — always the first element.
+    pub fn terminal(&self) -> UnitId {
+        self.units[0]
     }
 
-    /// Return the atom IDs as a slice, terminal first.
-    pub fn atom_ids(&self) -> &[AtomId] {
-        &self.atoms
+    /// Return the unit IDs as a slice, terminal first.
+    pub fn unit_ids(&self) -> &[UnitId] {
+        &self.units
     }
 
-    /// Return the number of atom IDs in this set.
+    /// Return the number of unit IDs in this set.
     pub fn len(&self) -> usize {
-        self.atoms.len()
+        self.units.len()
     }
 
-    /// Return `true` if this set contains no atom IDs.
+    /// Return `true` if this set contains no unit IDs.
     pub fn is_empty(&self) -> bool {
-        self.atoms.is_empty()
+        self.units.is_empty()
     }
 
     /// Return `true` if `id` is part of this upstream set (O(1)).
-    pub fn contains(&self, id: &AtomId) -> bool {
+    pub fn contains(&self, id: &UnitId) -> bool {
         self.index.contains(id)
     }
 
-    /// Iterate over atom IDs, terminal first.
-    pub fn iter(&self) -> std::slice::Iter<'_, AtomId> {
-        self.atoms.iter()
+    /// Iterate over unit IDs, terminal first.
+    pub fn iter(&self) -> std::slice::Iter<'_, UnitId> {
+        self.units.iter()
     }
 
-    /// Consume this set and return the underlying `Vec<AtomId>`.
-    pub fn into_atom_ids(self) -> Vec<AtomId> {
-        self.atoms
+    /// Consume this set and return the underlying `Vec<UnitId>`.
+    pub fn into_unit_ids(self) -> Vec<UnitId> {
+        self.units
     }
 }
 
-impl PartialEq for UpstreamAtoms {
+impl PartialEq for UpstreamUnits {
     fn eq(&self, other: &Self) -> bool {
-        self.atoms.first() == other.atoms.first() && self.index == other.index
+        self.units.first() == other.units.first() && self.index == other.index
     }
 }
 
-impl Eq for UpstreamAtoms {}
+impl Eq for UpstreamUnits {}
 
-impl IntoIterator for UpstreamAtoms {
-    type Item = AtomId;
-    type IntoIter = std::vec::IntoIter<AtomId>;
+impl IntoIterator for UpstreamUnits {
+    type Item = UnitId;
+    type IntoIter = std::vec::IntoIter<UnitId>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.atoms.into_iter()
+        self.units.into_iter()
     }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/// Collect all atoms upstream of a terminal atom via breadth-first traversal.
+/// Collect all units upstream of a terminal unit via breadth-first traversal.
 ///
 /// Performs an inclusive BFS over the [`DrainageGraph`], starting from
 /// `terminal`. The terminal itself is included in the result. Every upstream
@@ -128,27 +128,27 @@ impl IntoIterator for UpstreamAtoms {
 /// | Condition | Error |
 /// |-----------|-------|
 /// | `terminal` not in graph | [`TraversalError::TerminalNotFound`] |
-/// | An upstream reference points to a missing atom | [`TraversalError::DanglingUpstreamRef`] |
+/// | An upstream reference points to a missing unit | [`TraversalError::DanglingUpstreamRef`] |
 #[instrument(skip(graph), fields(terminal = terminal.get()))]
 pub fn collect_upstream(
-    terminal: AtomId,
+    terminal: UnitId,
     graph: &DrainageGraph,
-) -> Result<UpstreamAtoms, TraversalError> {
+) -> Result<UpstreamUnits, TraversalError> {
     if graph.get(terminal).is_none() {
         return Err(TraversalError::TerminalNotFound {
-            atom_id: terminal.get(),
+            unit_id: terminal.get(),
         });
     }
 
-    let mut visited: HashSet<AtomId> = HashSet::new();
-    let mut atoms: Vec<AtomId> = Vec::new();
-    let mut queue: VecDeque<AtomId> = VecDeque::new();
+    let mut visited: HashSet<UnitId> = HashSet::new();
+    let mut units: Vec<UnitId> = Vec::new();
+    let mut queue: VecDeque<UnitId> = VecDeque::new();
 
     visited.insert(terminal);
     queue.push_back(terminal);
 
     while let Some(current) = queue.pop_front() {
-        atoms.push(current);
+        units.push(current);
 
         if let Some(row) = graph.get(current) {
             for &upstream_id in row.upstream_ids() {
@@ -169,10 +169,10 @@ pub fn collect_upstream(
         }
     }
 
-    debug!(atom_count = atoms.len(), "upstream traversal complete");
+    debug!(unit_count = units.len(), "upstream traversal complete");
 
-    Ok(UpstreamAtoms {
-        atoms,
+    Ok(UpstreamUnits {
+        units,
         index: visited,
     })
 }
@@ -183,12 +183,16 @@ pub fn collect_upstream(
 mod tests {
     use std::collections::HashSet;
 
-    use hfx_core::AdjacencyRow;
+    use hfx_core::{AdjacencyRow, Level};
 
     use super::*;
 
-    fn aid(raw: i64) -> AtomId {
-        AtomId::new(raw).unwrap()
+    fn aid(raw: i64) -> UnitId {
+        UnitId::new(raw).unwrap()
+    }
+
+    fn level0() -> Level {
+        Level::new(0).unwrap()
     }
 
     fn graph(specs: &[(i64, &[i64])]) -> DrainageGraph {
@@ -196,14 +200,14 @@ mod tests {
             .iter()
             .map(|&(id, ups)| {
                 let upstream_ids = ups.iter().map(|&r| aid(r)).collect();
-                AdjacencyRow::new(aid(id), upstream_ids)
+                AdjacencyRow::new(aid(id), level0(), upstream_ids)
             })
             .collect();
         DrainageGraph::new(rows).unwrap()
     }
 
-    fn id_set(result: &UpstreamAtoms) -> HashSet<i64> {
-        result.atom_ids().iter().map(|a| a.get()).collect()
+    fn id_set(result: &UpstreamUnits) -> HashSet<i64> {
+        result.unit_ids().iter().map(|a| a.get()).collect()
     }
 
     // ── Group A: Topology traversal ───────────────────────────────────────────
@@ -299,40 +303,40 @@ mod tests {
     fn terminal_is_first_headwater() {
         let g = graph(&[(1, &[])]);
         let result = collect_upstream(aid(1), &g).unwrap();
-        assert_eq!(result.atom_ids()[0], aid(1));
+        assert_eq!(result.unit_ids()[0], aid(1));
     }
 
     #[test]
     fn terminal_is_first_chain() {
         let g = graph(&[(1, &[]), (2, &[1]), (3, &[2])]);
         let result = collect_upstream(aid(3), &g).unwrap();
-        assert_eq!(result.atom_ids()[0], aid(3));
+        assert_eq!(result.unit_ids()[0], aid(3));
     }
 
     #[test]
     fn terminal_is_first_dag() {
         let g = graph(&[(1, &[]), (2, &[1]), (3, &[1]), (4, &[2, 3])]);
         let result = collect_upstream(aid(4), &g).unwrap();
-        assert_eq!(result.atom_ids()[0], aid(4));
+        assert_eq!(result.unit_ids()[0], aid(4));
     }
 
     #[test]
     fn bfs_visits_shallower_levels_before_deeper_levels() {
         let g = graph(&[(1, &[]), (2, &[1]), (3, &[1]), (4, &[2, 3])]);
         let result = collect_upstream(aid(4), &g).unwrap();
-        let ids = result.atom_ids();
+        let ids = result.unit_ids();
 
-        let pos = |id: i64| ids.iter().position(|&atom_id| atom_id == aid(id)).unwrap();
+        let pos = |id: i64| ids.iter().position(|&unit_id| unit_id == aid(id)).unwrap();
 
         // BFS level order is the contract; sibling order within a level is not.
         assert_eq!(ids[0], aid(4));
         assert!(
             pos(2) < pos(1),
-            "depth-1 atom 2 must appear before depth-2 atom 1"
+            "depth-1 unit 2 must appear before depth-2 unit 1"
         );
         assert!(
             pos(3) < pos(1),
-            "depth-1 atom 3 must appear before depth-2 atom 1"
+            "depth-1 unit 3 must appear before depth-2 unit 1"
         );
     }
 
@@ -344,12 +348,12 @@ mod tests {
         let err = collect_upstream(aid(999), &g).unwrap_err();
         assert!(matches!(
             err,
-            TraversalError::TerminalNotFound { atom_id: 999 }
+            TraversalError::TerminalNotFound { unit_id: 999 }
         ));
     }
 
     #[test]
-    fn error_display_contains_atom_id() {
+    fn error_display_contains_unit_id() {
         let g = graph(&[(1, &[])]);
         let err = collect_upstream(aid(999), &g).unwrap_err();
         assert!(err.to_string().contains("999"));
@@ -417,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn large_atom_ids() {
+    fn large_unit_ids() {
         let g = graph(&[(i64::MAX - 1, &[]), (i64::MAX, &[i64::MAX - 1])]);
         let result = collect_upstream(aid(i64::MAX), &g).unwrap();
         assert_eq!(result.len(), 2);
@@ -425,20 +429,20 @@ mod tests {
         assert!(result.contains(&aid(i64::MAX - 1)));
     }
 
-    // ── Group F: UpstreamAtoms API ────────────────────────────────────────────
+    // ── Group F: UpstreamUnits API ────────────────────────────────────────────
 
     #[test]
-    fn contains_false_for_absent_atom() {
+    fn contains_false_for_absent_unit() {
         let g = graph(&[(1, &[]), (2, &[1]), (3, &[2])]);
         let result = collect_upstream(aid(3), &g).unwrap();
         assert!(!result.contains(&aid(999)));
     }
 
     #[test]
-    fn into_atom_ids_consumes() {
+    fn into_unit_ids_consumes() {
         let g = graph(&[(1, &[]), (2, &[1])]);
         let result = collect_upstream(aid(2), &g).unwrap();
-        let vec = result.into_atom_ids();
+        let vec = result.into_unit_ids();
         assert_eq!(vec.len(), 2);
     }
 
@@ -465,17 +469,17 @@ mod tests {
 
     #[test]
     fn partial_eq_is_set_based() {
-        // Two UpstreamAtoms with the same terminal and same set are equal
+        // Two UpstreamUnits with the same terminal and same set are equal
         // regardless of internal Vec ordering.
-        let atoms_a = vec![aid(3), aid(1), aid(2)];
-        let atoms_b = vec![aid(3), aid(2), aid(1)];
-        let index: HashSet<AtomId> = [aid(1), aid(2), aid(3)].into_iter().collect();
-        let a = UpstreamAtoms {
-            atoms: atoms_a,
+        let units_a = vec![aid(3), aid(1), aid(2)];
+        let units_b = vec![aid(3), aid(2), aid(1)];
+        let index: HashSet<UnitId> = [aid(1), aid(2), aid(3)].into_iter().collect();
+        let a = UpstreamUnits {
+            units: units_a,
             index: index.clone(),
         };
-        let b = UpstreamAtoms {
-            atoms: atoms_b,
+        let b = UpstreamUnits {
+            units: units_b,
             index,
         };
         assert_eq!(

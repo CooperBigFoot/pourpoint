@@ -4,9 +4,11 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use arrow::array::{BinaryBuilder, Float32Builder, Int64Array, Int64Builder, ListBuilder};
+use arrow::array::{
+    BinaryBuilder, Float32Builder, Float64Builder, Int16Builder, Int64Array, Int64Builder,
+    ListBuilder,
+};
 use arrow::datatypes::{DataType, Field, Schema};
-use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
 use hfx_core::BoundingBox;
 use object_store::memory::InMemory;
@@ -68,7 +70,7 @@ fn phase_3a7_open_remote_inmemory_reads_manifest_graph_and_catchments() {
     let session = DatasetSession::open_remote_with_store(store, &root, &url)
         .expect("remote session should open from InMemory object store");
 
-    assert_eq!(session.manifest().atom_count().get(), 3);
+    assert_eq!(session.manifest().unit_count().get(), 3);
     assert_eq!(session.graph().len(), 3);
     assert_eq!(session.catchments().total_rows(), 3);
 
@@ -92,7 +94,7 @@ fn phase_3a7_open_remote_inmemory_reads_manifest_graph_and_catchments() {
             .path()
             .join("testfabric")
             .join("test-v1")
-            .join("graph.arrow")
+            .join("graph.parquet")
             .is_file()
     );
 }
@@ -124,8 +126,8 @@ fn assert_remote_delineation_succeeds(session: DatasetSession) {
         .delineate(GeoCoord::new(1.70, 0.20), &DelineationOptions::default())
         .expect("remote Engine::delineate should succeed end-to-end");
 
-    assert_eq!(result.terminal_atom_id().get(), 3);
-    assert_eq!(result.upstream_atom_ids().len(), 3);
+    assert_eq!(result.terminal_unit_id().get(), 3);
+    assert_eq!(result.upstream_unit_ids().len(), 3);
     assert!(result.area_km2().as_f64() > 0.0);
     assert!(
         !result.geometry().0.is_empty(),
@@ -154,7 +156,7 @@ fn put_remote_fixture(store: &Arc<InMemory>, root: &ObjectPath, fixture: RemoteF
                 PutPayload::from(manifest_bytes()),
             )
             .await;
-            put_object(store, root, "graph.arrow", PutPayload::from(graph_bytes())).await;
+            put_object(store, root, "graph.parquet", PutPayload::from(graph_bytes())).await;
         }
         put_object(
             store,
@@ -175,15 +177,15 @@ async fn put_object(store: &Arc<InMemory>, root: &ObjectPath, name: &str, payloa
 
 fn manifest_bytes() -> String {
     serde_json::json!({
-        "format_version": "0.1",
+        "format_version": "0.2.1",
         "fabric_name": "testfabric",
         "crs": "EPSG:4326",
         "topology": "tree",
-        "terminal_sink_id": 0,
         "bbox": [-180.0, -90.0, 180.0, 90.0],
-        "atom_count": 3,
+        "unit_count": 3,
         "created_at": "2026-01-01T00:00:00Z",
-        "adapter_version": "test-v1"
+        "adapter_version": "test-v1",
+        "auxiliary": []
     })
     .to_string()
 }
@@ -191,39 +193,75 @@ fn manifest_bytes() -> String {
 fn graph_bytes() -> Vec<u8> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
+        Field::new("level", DataType::Int16, false),
         Field::new(
             "upstream_ids",
             DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
             false,
         ),
+        Field::new("bbox_minx", DataType::Float32, false),
+        Field::new("bbox_miny", DataType::Float32, false),
+        Field::new("bbox_maxx", DataType::Float32, false),
+        Field::new("bbox_maxy", DataType::Float32, false),
     ]));
 
     let id_arr = Int64Array::from(vec![1_i64, 2, 3]);
+    let mut level_b = Int16Builder::new();
     let mut list_builder = ListBuilder::new(Int64Builder::new());
+    let mut minx_b = Float32Builder::new();
+    let mut miny_b = Float32Builder::new();
+    let mut maxx_b = Float32Builder::new();
+    let mut maxy_b = Float32Builder::new();
     list_builder.append(true);
+    level_b.append_value(0);
+    minx_b.append_value(0.0);
+    miny_b.append_value(0.0);
+    maxx_b.append_value(0.9);
+    maxy_b.append_value(1.0);
     list_builder.values().append_value(1);
     list_builder.append(true);
+    level_b.append_value(0);
+    minx_b.append_value(0.95);
+    miny_b.append_value(0.0);
+    maxx_b.append_value(1.45);
+    maxy_b.append_value(0.5);
     list_builder.values().append_value(2);
     list_builder.append(true);
+    level_b.append_value(0);
+    minx_b.append_value(1.5);
+    miny_b.append_value(0.0);
+    maxx_b.append_value(2.0);
+    maxy_b.append_value(0.5);
     let upstream_arr = list_builder.finish();
     let batch = RecordBatch::try_new(
         schema.clone(),
-        vec![Arc::new(id_arr), Arc::new(upstream_arr)],
+        vec![
+            Arc::new(id_arr),
+            Arc::new(level_b.finish()),
+            Arc::new(upstream_arr),
+            Arc::new(minx_b.finish()),
+            Arc::new(miny_b.finish()),
+            Arc::new(maxx_b.finish()),
+            Arc::new(maxy_b.finish()),
+        ],
     )
     .unwrap();
 
     let cursor = Cursor::new(Vec::new());
-    let mut writer = FileWriter::try_new(cursor, &schema).unwrap();
+    let mut writer = ArrowWriter::try_new(cursor, schema, None).unwrap();
     writer.write(&batch).unwrap();
-    writer.finish().unwrap();
     writer.into_inner().unwrap().into_inner()
 }
 
 fn catchments_bytes() -> Vec<u8> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
+        Field::new("level", DataType::Int16, false),
+        Field::new("parent_id", DataType::Int64, true),
         Field::new("area_km2", DataType::Float32, false),
         Field::new("up_area_km2", DataType::Float32, true),
+        Field::new("outlet_lon", DataType::Float64, false),
+        Field::new("outlet_lat", DataType::Float64, false),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
@@ -232,21 +270,29 @@ fn catchments_bytes() -> Vec<u8> {
     ]));
 
     let mut id_b = Int64Builder::new();
+    let mut level_b = Int16Builder::new();
+    let mut parent_id_b = Int64Builder::new();
     let mut area_b = Float32Builder::new();
     let mut up_area_b = Float32Builder::new();
+    let mut outlet_lon_b = Float64Builder::new();
+    let mut outlet_lat_b = Float64Builder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
     let mut maxy_b = Float32Builder::new();
     let mut geom_b = BinaryBuilder::new();
 
-    for atom_id in 1..=3_i64 {
-        let minx = atom_id as f32 * 0.5;
+    for unit_id in 1..=3_i64 {
+        let minx = unit_id as f32 * 0.5;
         let maxx = minx + 0.4;
 
-        id_b.append_value(atom_id);
+        id_b.append_value(unit_id);
+        level_b.append_value(0);
+        parent_id_b.append_null();
         area_b.append_value(10.0);
         up_area_b.append_null();
+        outlet_lon_b.append_value(f64::from((minx + maxx) / 2.0));
+        outlet_lat_b.append_value(0.2);
         minx_b.append_value(minx);
         miny_b.append_value(0.0);
         maxx_b.append_value(maxx);
@@ -258,8 +304,12 @@ fn catchments_bytes() -> Vec<u8> {
         schema.clone(),
         vec![
             Arc::new(id_b.finish()),
+            Arc::new(level_b.finish()),
+            Arc::new(parent_id_b.finish()),
             Arc::new(area_b.finish()),
             Arc::new(up_area_b.finish()),
+            Arc::new(outlet_lon_b.finish()),
+            Arc::new(outlet_lat_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),

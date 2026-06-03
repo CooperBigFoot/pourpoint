@@ -1,94 +1,166 @@
-//! Manifest reader — parses manifest.json into an hfx_core::Manifest.
+//! Manifest reader — parses manifest.json into an hfx_core::Manifest plus
+//! shed-side auxiliary declarations.
+//!
+//! HFX v0.2.1 hard-cut: only `format_version == "0.2.1"` and `crs ==
+//! "EPSG:4326"` are accepted. The version check runs first so a v0.1 manifest
+//! is rejected with a typed [`SessionError::UnsupportedFormatVersion`] before
+//! any required-field parsing. Presence of snap/raster data is expressed
+//! through `auxiliary[]` declarations.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::str::FromStr;
 
 use hfx_core::{
-    AtomCount, BoundingBox, Crs, FlowDirEncoding, FormatVersion, Manifest, ManifestBuilder,
-    Topology,
+    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, Crs, FlowDirEncoding,
+    FormatVersion, Manifest, ManifestBuilder, Topology, UnitCount,
 };
 use tracing::instrument;
 
 use crate::error::SessionError;
 
+/// The only HFX on-disk format version this engine reads.
+const SUPPORTED_FORMAT_VERSION: &str = "0.2.1";
+/// The only CRS this engine reads.
+const SUPPORTED_CRS: &str = "EPSG:4326";
+
+/// Parsed metadata for a blessed `hfx.aux.d8_raster.v1` declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct D8RasterDecl {
+    /// Relative path (dataset-root-relative) to the flow-direction raster.
+    pub flow_dir: String,
+    /// Relative path (dataset-root-relative) to the flow-accumulation raster.
+    pub flow_acc: String,
+    /// Declared flow-direction encoding convention.
+    pub flow_dir_encoding: FlowDirEncoding,
+}
+
+/// Parsed metadata for a blessed `hfx.aux.snap.v1` declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapDecl {
+    /// Kebab-case name, unique across snap declarations in the dataset.
+    pub name: String,
+    /// Human-readable description.
+    pub description: String,
+    /// Relative path (dataset-root-relative) to the snap-feature Parquet file.
+    pub snap: String,
+    /// Non-empty list of HFX levels this snap file may reference.
+    pub references_levels: Vec<i16>,
+    /// Producer documentation for how `weight` values should be interpreted.
+    pub weight_semantics: String,
+}
+
+/// A generic (non-blessed) auxiliary declaration retained as a raw handle.
+///
+/// shed performs structural checks only on these (path resolution + presence);
+/// it does NOT parse their metadata semantically. This is the reverse-DNS /
+/// provisional handle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericAuxDecl {
+    /// The raw schema ID string.
+    pub schema: String,
+    /// Artifact key → resolved dataset-root-relative path.
+    pub artifacts: BTreeMap<String, String>,
+}
+
+/// shed-side classified auxiliary declarations parsed from `manifest.auxiliary[]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuxDeclarations {
+    /// Blessed D8 raster declarations.
+    pub d8_rasters: Vec<D8RasterDecl>,
+    /// Blessed snap declarations.
+    pub snaps: Vec<SnapDecl>,
+    /// Provisional / third-party declarations retained as raw handles.
+    pub generic: Vec<GenericAuxDecl>,
+}
+
+/// A parsed manifest plus its classified auxiliary declarations.
+#[derive(Debug, Clone)]
+pub struct ParsedManifest {
+    /// The validated core manifest.
+    pub manifest: Manifest,
+    /// shed-side classified auxiliary declarations.
+    pub aux: AuxDeclarations,
+}
+
 /// Raw serde struct for deserializing manifest.json.
 ///
-/// All fields are `Option<T>` to allow field-level error reporting rather than
-/// failing at the serde layer on missing required fields.
+/// All fields are `Option<T>` so that field-level error reporting (rather than
+/// a serde-layer failure) drives missing-required-field diagnostics.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct RawManifest {
     pub format_version: Option<String>,
     pub fabric_name: Option<String>,
     pub fabric_version: Option<String>,
-    pub fabric_level: Option<u32>,
     pub crs: Option<String>,
     pub has_up_area: Option<bool>,
-    pub has_rasters: Option<bool>,
-    pub has_snap: Option<bool>,
-    pub flow_dir_encoding: Option<String>,
-    pub terminal_sink_id: Option<i64>,
     pub topology: Option<String>,
     pub region: Option<String>,
     pub bbox: Option<Vec<f64>>,
-    pub atom_count: Option<u64>,
+    pub unit_count: Option<u64>,
     pub created_at: Option<String>,
     pub adapter_version: Option<String>,
+    #[serde(default)]
+    pub auxiliary: Vec<RawAuxiliary>,
 }
 
-/// Reads and validates `manifest.json` at `path`, returning a typed [`Manifest`].
+/// Raw serde struct for one `auxiliary[]` entry.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct RawAuxiliary {
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub artifacts: BTreeMap<String, String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+/// Reads and validates `manifest.json` at `path`, returning a [`ParsedManifest`].
 ///
 /// # Errors
 ///
 /// | Variant | Condition |
 /// |---|---|
 /// | [`SessionError::Io`] | File cannot be read |
+/// | [`SessionError::UnsupportedFormatVersion`] | `format_version` is not `"0.2.1"` |
+/// | [`SessionError::UnsupportedCrs`] | `crs` is not `"EPSG:4326"` |
 /// | [`SessionError::ManifestJsonParse`] | Bytes are not valid JSON or do not match the expected shape |
-/// | [`SessionError::ManifestFieldMissing`] | A required field is absent from the JSON object |
+/// | [`SessionError::ManifestFieldMissing`] | A required field is absent |
 /// | [`SessionError::ManifestFieldInvalid`] | A field is present but its value is invalid |
-/// | [`SessionError::ManifestDomain`] | Parsed fields pass individual checks but `ManifestBuilder` rejects the combination |
+/// | [`SessionError::AuxiliaryDeclParse`] | An `auxiliary[]` entry is malformed |
 #[instrument(skip_all, fields(path = %path.display()))]
-pub fn read_manifest(path: &Path) -> Result<Manifest, SessionError> {
+pub fn read_manifest(path: &Path) -> Result<ParsedManifest, SessionError> {
     let bytes = std::fs::read(path).map_err(|e| SessionError::io("manifest.json", e))?;
-
     read_manifest_from_bytes(&bytes)
 }
 
-/// Reads and validates `manifest.json` bytes, returning a typed [`Manifest`].
+/// Reads and validates `manifest.json` bytes, returning a [`ParsedManifest`].
 ///
 /// # Errors
 ///
-/// | Variant | Condition |
-/// |---|---|
-/// | [`SessionError::ManifestJsonParse`] | Bytes are not valid JSON or do not match the expected shape |
-/// | [`SessionError::ManifestFieldMissing`] | A required field is absent from the JSON object |
-/// | [`SessionError::ManifestFieldInvalid`] | A field is present but its value is invalid |
-/// | [`SessionError::ManifestDomain`] | Parsed fields pass individual checks but `ManifestBuilder` rejects the combination |
+/// See [`read_manifest`].
 #[instrument(skip_all, fields(byte_len = bytes.len()))]
-pub fn read_manifest_from_bytes(bytes: &[u8]) -> Result<Manifest, SessionError> {
+pub fn read_manifest_from_bytes(bytes: &[u8]) -> Result<ParsedManifest, SessionError> {
     let raw = serde_json::from_slice::<RawManifest>(bytes)
         .map_err(|source| SessionError::ManifestJsonParse { source })?;
 
     build_manifest(raw)
 }
 
-/// Converts a [`RawManifest`] into a validated [`Manifest`].
-fn build_manifest(raw: RawManifest) -> Result<Manifest, SessionError> {
-    // --- Required fields ---
-
+/// Converts a [`RawManifest`] into a validated [`ParsedManifest`].
+fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
+    // --- Format version is checked FIRST, before any required-field parsing. ---
     let format_version_str = raw
         .format_version
         .ok_or(SessionError::ManifestFieldMissing {
             field: "format_version",
         })?;
-    let format_version = FormatVersion::from_str(&format_version_str).map_err(|_| {
-        SessionError::manifest_field_invalid(
-            "format_version",
-            format!(
-                "unsupported version {:?}, expected \"0.1\"",
-                format_version_str
-            ),
-        )
-    })?;
+    if format_version_str != SUPPORTED_FORMAT_VERSION {
+        return Err(SessionError::UnsupportedFormatVersion {
+            found: format_version_str,
+            expected: SUPPORTED_FORMAT_VERSION,
+        });
+    }
+    let format_version = FormatVersion::V0_2_1;
 
     let fabric_name = raw.fabric_name.ok_or(SessionError::ManifestFieldMissing {
         field: "fabric_name",
@@ -97,12 +169,13 @@ fn build_manifest(raw: RawManifest) -> Result<Manifest, SessionError> {
     let crs_str = raw
         .crs
         .ok_or(SessionError::ManifestFieldMissing { field: "crs" })?;
-    let crs = Crs::from_str(&crs_str).map_err(|_| {
-        SessionError::manifest_field_invalid(
-            "crs",
-            format!("unsupported CRS {:?}, expected \"EPSG:4326\"", crs_str),
-        )
-    })?;
+    if crs_str != SUPPORTED_CRS {
+        return Err(SessionError::UnsupportedCrs {
+            found: crs_str,
+            expected: SUPPORTED_CRS,
+        });
+    }
+    let crs = Crs::Epsg4326;
 
     let topology_str = raw
         .topology
@@ -111,17 +184,10 @@ fn build_manifest(raw: RawManifest) -> Result<Manifest, SessionError> {
         SessionError::manifest_field_invalid(
             "topology",
             format!(
-                "unsupported topology {:?}, expected \"tree\" or \"dag\"",
-                topology_str
+                "unsupported topology {topology_str:?}, expected \"tree\" or \"dag\""
             ),
         )
     })?;
-
-    let terminal_sink_id = raw
-        .terminal_sink_id
-        .ok_or(SessionError::ManifestFieldMissing {
-            field: "terminal_sink_id",
-        })?;
 
     let bbox_raw = raw
         .bbox
@@ -143,11 +209,11 @@ fn build_manifest(raw: RawManifest) -> Result<Manifest, SessionError> {
     )
     .map_err(|e| SessionError::manifest_field_invalid("bbox", e.to_string()))?;
 
-    let atom_count_raw = raw.atom_count.ok_or(SessionError::ManifestFieldMissing {
-        field: "atom_count",
+    let unit_count_raw = raw.unit_count.ok_or(SessionError::ManifestFieldMissing {
+        field: "unit_count",
     })?;
-    let atom_count = AtomCount::new(atom_count_raw)
-        .map_err(|e| SessionError::manifest_field_invalid("atom_count", e.to_string()))?;
+    let unit_count = UnitCount::new(unit_count_raw)
+        .map_err(|e| SessionError::manifest_field_invalid("unit_count", e.to_string()))?;
 
     let created_at = raw.created_at.ok_or(SessionError::ManifestFieldMissing {
         field: "created_at",
@@ -159,77 +225,234 @@ fn build_manifest(raw: RawManifest) -> Result<Manifest, SessionError> {
             field: "adapter_version",
         })?;
 
-    // --- Conditional: flow_dir_encoding required when has_rasters is true ---
+    // --- Auxiliary declarations ---
+    let mut aux = AuxDeclarations::default();
+    let mut aux_decls: Vec<AuxiliaryDecl> = Vec::with_capacity(raw.auxiliary.len());
+    for entry in raw.auxiliary {
+        let (decl, classified) = parse_auxiliary(entry)?;
+        aux_decls.push(decl);
+        match classified {
+            ClassifiedAux::D8(d8) => aux.d8_rasters.push(d8),
+            ClassifiedAux::Snap(snap) => aux.snaps.push(snap),
+            ClassifiedAux::Generic(g) => aux.generic.push(g),
+        }
+    }
 
-    let has_rasters = raw.has_rasters.unwrap_or(false);
-    let flow_dir_encoding = if has_rasters {
-        let encoding_str = raw.flow_dir_encoding.ok_or_else(|| {
-            SessionError::manifest_field_invalid(
-                "flow_dir_encoding",
-                "required when has_rasters is true but was not provided",
-            )
-        })?;
-        let encoding = FlowDirEncoding::from_str(&encoding_str).map_err(|_| {
-            SessionError::manifest_field_invalid(
-                "flow_dir_encoding",
-                format!(
-                    "unsupported encoding {:?}, expected \"esri\" or \"taudem\"",
-                    encoding_str
-                ),
-            )
-        })?;
-        Some(encoding)
-    } else {
-        None
-    };
-
-    // --- Build ---
-
-    let builder = ManifestBuilder::new(
+    // --- Build core manifest ---
+    let mut builder = ManifestBuilder::new(
         format_version,
         fabric_name,
         crs,
         topology,
-        terminal_sink_id,
         bbox,
-        atom_count,
+        unit_count,
         created_at,
         adapter_version,
     )
     .map_err(|source| SessionError::ManifestDomain { source })?;
 
-    let builder = if raw.has_up_area.unwrap_or(false) {
-        builder.with_up_area()
-    } else {
-        builder
-    };
-    let builder = if let Some(encoding) = flow_dir_encoding {
-        builder.with_rasters(encoding)
-    } else {
-        builder
-    };
-    let builder = if raw.has_snap.unwrap_or(false) {
-        builder.with_snap()
-    } else {
-        builder
-    };
-    let builder = if let Some(v) = raw.fabric_version {
-        builder.with_fabric_version(v)
-    } else {
-        builder
-    };
-    let builder = if let Some(v) = raw.fabric_level {
-        builder.with_fabric_level(v)
-    } else {
-        builder
-    };
-    let builder = if let Some(v) = raw.region {
-        builder.with_region(v)
-    } else {
-        builder
+    if raw.has_up_area.unwrap_or(false) {
+        builder = builder.with_up_area();
+    }
+    if let Some(v) = raw.fabric_version {
+        builder = builder.with_fabric_version(v);
+    }
+    if let Some(v) = raw.region {
+        builder = builder.with_region(v);
+    }
+    for decl in aux_decls {
+        builder = builder.with_auxiliary(decl);
+    }
+
+    Ok(ParsedManifest {
+        manifest: builder.build(),
+        aux,
+    })
+}
+
+/// Classified, metadata-parsed auxiliary variant.
+enum ClassifiedAux {
+    D8(D8RasterDecl),
+    Snap(SnapDecl),
+    Generic(GenericAuxDecl),
+}
+
+/// Parse one `auxiliary[]` entry into both an [`AuxiliaryDecl`] for the core
+/// manifest and a shed-side [`ClassifiedAux`] carrying parsed metadata.
+fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), SessionError> {
+    let schema_str = raw.schema.ok_or_else(|| SessionError::AuxiliaryDeclParse {
+        schema: "<missing>".to_string(),
+        reason: "auxiliary entry is missing required \"schema\" field".to_string(),
+    })?;
+
+    let schema_id =
+        AuxiliarySchemaId::parse(&schema_str).map_err(|e| SessionError::AuxiliaryDeclParse {
+            schema: schema_str.clone(),
+            reason: e.to_string(),
+        })?;
+
+    if raw.artifacts.is_empty() {
+        return Err(SessionError::AuxiliaryDeclParse {
+            schema: schema_str,
+            reason: "auxiliary \"artifacts\" mapping must be non-empty".to_string(),
+        });
+    }
+
+    let decl = AuxiliaryDecl::new(schema_id.clone(), raw.artifacts.clone()).map_err(|e| {
+        SessionError::AuxiliaryDeclParse {
+            schema: schema_str.clone(),
+            reason: e.to_string(),
+        }
+    })?;
+
+    let classified = match &schema_id {
+        AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV1) => {
+            ClassifiedAux::D8(parse_d8_metadata(&schema_str, &raw.artifacts, &raw.metadata)?)
+        }
+        AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV1) => {
+            ClassifiedAux::Snap(parse_snap_metadata(&schema_str, &raw.artifacts, &raw.metadata)?)
+        }
+        AuxiliarySchemaId::Provisional(_) | AuxiliarySchemaId::ThirdParty(_) => {
+            // Generic handle: raw path + metadata only, no semantic parsing.
+            ClassifiedAux::Generic(GenericAuxDecl {
+                schema: schema_str,
+                artifacts: raw.artifacts,
+            })
+        }
     };
 
-    Ok(builder.build())
+    Ok((decl, classified))
+}
+
+/// Parse the metadata block for an `hfx.aux.d8_raster.v1` declaration.
+fn parse_d8_metadata(
+    schema: &str,
+    artifacts: &BTreeMap<String, String>,
+    metadata: &serde_json::Value,
+) -> Result<D8RasterDecl, SessionError> {
+    let flow_dir = require_artifact(schema, artifacts, "flow_dir")?;
+    let flow_acc = require_artifact(schema, artifacts, "flow_acc")?;
+
+    let encoding_str = metadata
+        .get("flow_dir_encoding")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| SessionError::AuxiliaryDeclParse {
+            schema: schema.to_string(),
+            reason: "metadata.flow_dir_encoding must be a string".to_string(),
+        })?;
+    let flow_dir_encoding =
+        FlowDirEncoding::from_str(encoding_str).map_err(|_| SessionError::AuxiliaryDeclParse {
+            schema: schema.to_string(),
+            reason: format!(
+                "metadata.flow_dir_encoding {encoding_str:?} must be \"esri\" or \"taudem\""
+            ),
+        })?;
+
+    Ok(D8RasterDecl {
+        flow_dir,
+        flow_acc,
+        flow_dir_encoding,
+    })
+}
+
+/// Parse the metadata block for an `hfx.aux.snap.v1` declaration.
+fn parse_snap_metadata(
+    schema: &str,
+    artifacts: &BTreeMap<String, String>,
+    metadata: &serde_json::Value,
+) -> Result<SnapDecl, SessionError> {
+    let snap = require_artifact(schema, artifacts, "snap")?;
+
+    let meta_obj = metadata
+        .as_object()
+        .ok_or_else(|| SessionError::SnapAuxMetadataInvalid {
+            name: "<unknown>".to_string(),
+            reason: "metadata block must be an object".to_string(),
+        })?;
+
+    let name = meta_obj
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| SessionError::SnapAuxMetadataInvalid {
+            name: "<unknown>".to_string(),
+            reason: "metadata.name must be a non-empty string".to_string(),
+        })?
+        .to_string();
+    if name.is_empty() {
+        return Err(SessionError::SnapAuxMetadataInvalid {
+            name: "<unknown>".to_string(),
+            reason: "metadata.name must be a non-empty string".to_string(),
+        });
+    }
+
+    let description = meta_obj
+        .get("description")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| SessionError::SnapAuxMetadataInvalid {
+            name: name.clone(),
+            reason: "metadata.description must be a string".to_string(),
+        })?
+        .to_string();
+
+    let weight_semantics = meta_obj
+        .get("weight_semantics")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| SessionError::SnapAuxMetadataInvalid {
+            name: name.clone(),
+            reason: "metadata.weight_semantics must be a string".to_string(),
+        })?
+        .to_string();
+
+    let levels_raw = meta_obj
+        .get("references_levels")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| SessionError::SnapAuxMetadataInvalid {
+            name: name.clone(),
+            reason: "metadata.references_levels must be a non-empty array".to_string(),
+        })?;
+    if levels_raw.is_empty() {
+        return Err(SessionError::SnapAuxMetadataInvalid {
+            name: name.clone(),
+            reason: "metadata.references_levels must be non-empty".to_string(),
+        });
+    }
+    let mut references_levels = Vec::with_capacity(levels_raw.len());
+    for v in levels_raw {
+        let n = v.as_i64().ok_or_else(|| SessionError::SnapAuxMetadataInvalid {
+            name: name.clone(),
+            reason: "metadata.references_levels entries must be integers".to_string(),
+        })?;
+        if !(0..=i64::from(i16::MAX)).contains(&n) {
+            return Err(SessionError::SnapAuxMetadataInvalid {
+                name: name.clone(),
+                reason: format!("metadata.references_levels entry {n} out of range [0, {}]", i16::MAX),
+            });
+        }
+        references_levels.push(n as i16);
+    }
+
+    Ok(SnapDecl {
+        name,
+        description,
+        snap,
+        references_levels,
+        weight_semantics,
+    })
+}
+
+/// Return the artifact path for `key`, erroring if it is absent.
+fn require_artifact(
+    schema: &str,
+    artifacts: &BTreeMap<String, String>,
+    key: &str,
+) -> Result<String, SessionError> {
+    artifacts
+        .get(key)
+        .cloned()
+        .ok_or_else(|| SessionError::AuxiliaryDeclParse {
+            schema: schema.to_string(),
+            reason: format!("missing required artifact key {key:?}"),
+        })
 }
 
 #[cfg(test)]
@@ -242,7 +465,6 @@ mod tests {
     use super::*;
     use crate::error::SessionError;
 
-    /// Write a JSON value to `manifest.json` inside `dir` and return the path.
     fn write_manifest(dir: &TempDir, value: &serde_json::Value) -> std::path::PathBuf {
         let path = dir.path().join("manifest.json");
         let mut file = std::fs::File::create(&path).unwrap();
@@ -252,13 +474,12 @@ mod tests {
 
     fn minimal_json() -> serde_json::Value {
         json!({
-            "format_version": "0.1",
+            "format_version": "0.2.1",
             "fabric_name": "testfabric",
             "crs": "EPSG:4326",
             "topology": "tree",
-            "terminal_sink_id": 0,
             "bbox": [-10.0, -5.0, 10.0, 5.0],
-            "atom_count": 100,
+            "unit_count": 100,
             "created_at": "2026-01-01T00:00:00Z",
             "adapter_version": "hfx-adapter-v1"
         })
@@ -269,116 +490,32 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = write_manifest(&dir, &minimal_json());
 
-        let manifest = read_manifest(&path).unwrap();
+        let parsed = read_manifest(&path).unwrap();
+        let manifest = parsed.manifest;
 
-        assert_eq!(manifest.format_version(), FormatVersion::V0_1);
+        assert_eq!(manifest.format_version(), FormatVersion::V0_2_1);
         assert_eq!(manifest.fabric_name(), "testfabric");
         assert_eq!(manifest.crs(), Crs::Epsg4326);
         assert_eq!(manifest.topology(), Topology::Tree);
-        assert_eq!(manifest.terminal_sink_id(), 0);
-        assert_eq!(manifest.atom_count().get(), 100);
+        assert_eq!(manifest.unit_count().get(), 100);
         assert_eq!(manifest.created_at(), "2026-01-01T00:00:00Z");
         assert_eq!(manifest.adapter_version(), "hfx-adapter-v1");
-        assert_eq!(manifest.fabric_version(), None);
-        assert_eq!(manifest.fabric_level(), None);
-        assert_eq!(manifest.region(), None);
-        assert_eq!(
-            manifest.up_area(),
-            hfx_core::UpAreaAvailability::NotAvailable
-        );
-        assert_eq!(manifest.rasters(), hfx_core::RasterAvailability::Absent);
-        assert_eq!(manifest.snap(), hfx_core::SnapAvailability::Absent);
+        assert!(parsed.aux.snaps.is_empty());
+        assert!(parsed.aux.d8_rasters.is_empty());
     }
 
     #[test]
-    fn test_valid_minimal_manifest_from_bytes() {
-        let bytes = minimal_json().to_string();
-
-        let manifest = read_manifest_from_bytes(bytes.as_bytes()).unwrap();
-
-        assert_eq!(manifest.format_version(), FormatVersion::V0_1);
-        assert_eq!(manifest.fabric_name(), "testfabric");
-        assert_eq!(manifest.atom_count().get(), 100);
-    }
-
-    #[test]
-    fn test_valid_full_manifest() {
+    fn test_v01_format_version_rejected_before_missing_fields() {
         let dir = TempDir::new().unwrap();
-        let mut value = minimal_json();
-        let obj = value.as_object_mut().unwrap();
-        obj.insert("has_up_area".into(), json!(true));
-        obj.insert("has_rasters".into(), json!(true));
-        obj.insert("flow_dir_encoding".into(), json!("esri"));
-        obj.insert("has_snap".into(), json!(true));
-        obj.insert("fabric_version".into(), json!("v2024"));
-        obj.insert("fabric_level".into(), json!(8u32));
-        obj.insert("region".into(), json!("North America"));
+        // v0.1 manifest: also omits unit_count, but version check must fire first.
+        let value = json!({
+            "format_version": "0.1",
+            "fabric_name": "testfabric"
+        });
         let path = write_manifest(&dir, &value);
-
-        let manifest = read_manifest(&path).unwrap();
-
-        assert_eq!(
-            manifest.up_area(),
-            hfx_core::UpAreaAvailability::Precomputed
-        );
-        assert_eq!(
-            manifest.rasters(),
-            hfx_core::RasterAvailability::Present(FlowDirEncoding::Esri)
-        );
-        assert_eq!(manifest.snap(), hfx_core::SnapAvailability::Present);
-        assert_eq!(manifest.fabric_version(), Some("v2024"));
-        assert_eq!(manifest.fabric_level(), Some(8));
-        assert_eq!(manifest.region(), Some("North America"));
-    }
-
-    #[test]
-    fn test_missing_required_field() {
-        let dir = TempDir::new().unwrap();
-        let mut value = minimal_json();
-        value.as_object_mut().unwrap().remove("format_version");
-        let path = write_manifest(&dir, &value);
-
         let err = read_manifest(&path).unwrap_err();
         assert!(
-            matches!(
-                err,
-                SessionError::ManifestFieldMissing {
-                    field: "format_version"
-                }
-            ),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn test_invalid_json() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("manifest.json");
-        std::fs::write(&path, b"{broken").unwrap();
-
-        let err = read_manifest(&path).unwrap_err();
-        assert!(
-            matches!(err, SessionError::ManifestJsonParse { .. }),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn test_unsupported_topology() {
-        let dir = TempDir::new().unwrap();
-        let mut value = minimal_json();
-        value["topology"] = json!("graph");
-        let path = write_manifest(&dir, &value);
-
-        let err = read_manifest(&path).unwrap_err();
-        assert!(
-            matches!(
-                err,
-                SessionError::ManifestFieldInvalid {
-                    field: "topology",
-                    ..
-                }
-            ),
+            matches!(err, SessionError::UnsupportedFormatVersion { ref found, .. } if found == "0.1"),
             "unexpected error: {err}"
         );
     }
@@ -389,63 +526,80 @@ mod tests {
         let mut value = minimal_json();
         value["crs"] = json!("EPSG:32632");
         let path = write_manifest(&dir, &value);
-
         let err = read_manifest(&path).unwrap_err();
-        assert!(
-            matches!(err, SessionError::ManifestFieldInvalid { field: "crs", .. }),
-            "unexpected error: {err}"
-        );
+        assert!(matches!(err, SessionError::UnsupportedCrs { .. }), "got {err}");
     }
 
     #[test]
-    fn test_has_rasters_requires_flow_dir_encoding() {
+    fn test_d8_and_snap_auxiliary_parsed() {
         let dir = TempDir::new().unwrap();
         let mut value = minimal_json();
-        value
-            .as_object_mut()
-            .unwrap()
-            .insert("has_rasters".into(), json!(true));
-        // Deliberately omit flow_dir_encoding
-        let path = write_manifest(&dir, &value);
-
-        let err = read_manifest(&path).unwrap_err();
-        assert!(
-            matches!(
-                err,
-                SessionError::ManifestFieldInvalid {
-                    field: "flow_dir_encoding",
-                    ..
+        value["auxiliary"] = json!([
+            {
+                "schema": "hfx.aux.d8_raster.v1",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "flow_dir_encoding": "esri" }
+            },
+            {
+                "schema": "hfx.aux.snap.v1",
+                "artifacts": { "snap": "snap/segment_stems.parquet" },
+                "metadata": {
+                    "name": "segment-stems",
+                    "description": "Segment stems.",
+                    "references_levels": [0],
+                    "weight_semantics": "higher is stronger"
                 }
-            ),
-            "unexpected error: {err}"
+            }
+        ]);
+        let path = write_manifest(&dir, &value);
+        let parsed = read_manifest(&path).unwrap();
+        assert_eq!(parsed.aux.d8_rasters.len(), 1);
+        assert_eq!(parsed.aux.d8_rasters[0].flow_dir, "flow_dir.tif");
+        assert_eq!(
+            parsed.aux.d8_rasters[0].flow_dir_encoding,
+            FlowDirEncoding::Esri
         );
+        assert_eq!(parsed.aux.snaps.len(), 1);
+        assert_eq!(parsed.aux.snaps[0].name, "segment-stems");
+        assert_eq!(parsed.aux.snaps[0].references_levels, vec![0]);
     }
 
     #[test]
-    fn test_degenerate_bbox() {
+    fn test_missing_required_field() {
         let dir = TempDir::new().unwrap();
         let mut value = minimal_json();
-        // minx == maxx → degenerate on x axis
-        value["bbox"] = json!([10.0, -5.0, 10.0, 5.0]);
+        value.as_object_mut().unwrap().remove("unit_count");
         let path = write_manifest(&dir, &value);
-
         let err = read_manifest(&path).unwrap_err();
         assert!(
-            matches!(
-                err,
-                SessionError::ManifestFieldInvalid { field: "bbox", .. }
-            ),
+            matches!(err, SessionError::ManifestFieldMissing { field: "unit_count" }),
             "unexpected error: {err}"
         );
     }
 
     #[test]
-    fn test_file_not_found() {
-        let path = std::path::Path::new("/nonexistent/path/to/manifest.json");
-        let err = read_manifest(path).unwrap_err();
-        assert!(
-            matches!(err, SessionError::Io { .. }),
-            "unexpected error: {err}"
-        );
+    fn test_invalid_json() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("manifest.json");
+        std::fs::write(&path, b"{broken").unwrap();
+        let err = read_manifest(&path).unwrap_err();
+        assert!(matches!(err, SessionError::ManifestJsonParse { .. }), "got {err}");
+    }
+
+    #[test]
+    fn test_generic_aux_retained_as_handle() {
+        let dir = TempDir::new().unwrap();
+        let mut value = minimal_json();
+        value["auxiliary"] = json!([
+            {
+                "schema": "org.example.custom.v1",
+                "artifacts": { "data": "extra/custom.bin" },
+                "metadata": { "anything": 42 }
+            }
+        ]);
+        let path = write_manifest(&dir, &value);
+        let parsed = read_manifest(&path).unwrap();
+        assert_eq!(parsed.aux.generic.len(), 1);
+        assert_eq!(parsed.aux.generic[0].schema, "org.example.custom.v1");
     }
 }

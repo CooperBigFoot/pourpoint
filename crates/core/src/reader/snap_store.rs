@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arrow::array::{Array, BinaryArray, BooleanArray, Float32Array, Int64Array, LargeBinaryArray};
+use arrow::array::{Array, BinaryArray, Float32Array, Int64Array, LargeBinaryArray, StringArray};
 use arrow::datatypes::DataType;
 use chrono::{DateTime, Utc};
 use futures_util::{StreamExt, stream};
-use hfx_core::{AtomId, BoundingBox, MainstemStatus, SnapId, SnapTarget, Weight, WkbGeometry};
+use hfx_core::{UnitId, BoundingBox, StemRole, SnapId, SnapTarget, Weight, WkbGeometry};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
@@ -94,7 +94,7 @@ struct RowGroupBbox {
 }
 
 #[derive(Clone)]
-struct CatchmentIdRowGroupReadContext {
+struct UnitIdRowGroupReadContext {
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
     file_size: u64,
@@ -128,7 +128,7 @@ pub struct SnapStore {
     row_groups: Vec<RowGroupBbox>,
     groups_without_stats: Vec<usize>,
     total_rows: u64,
-    all_catchment_ids: Vec<AtomId>,
+    all_unit_ids: Vec<UnitId>,
     #[allow(dead_code)]
     bbox_col_indices: BboxColIndices,
     /// Optional column-chunk cache shared across all readers for this engine.
@@ -298,9 +298,16 @@ impl SnapStore {
 
         // Validate all required columns exist with the correct types.
         require_column(schema, "id", &DataType::Int64, ARTIFACT)?;
-        require_column(schema, "catchment_id", &DataType::Int64, ARTIFACT)?;
+        require_column(schema, "unit_id", &DataType::Int64, ARTIFACT)?;
         require_column(schema, "weight", &DataType::Float32, ARTIFACT)?;
-        require_column(schema, "is_mainstem", &DataType::Boolean, ARTIFACT)?;
+        if let Ok(field) = schema.field_with_name("stem_role")
+            && field.data_type() != &DataType::Utf8
+        {
+            return Err(SessionError::parquet_schema(
+                ARTIFACT,
+                "column \"stem_role\" must be Utf8 when present",
+            ));
+        }
         let minx_idx = require_column(schema, "bbox_minx", &DataType::Float32, ARTIFACT)?;
         let miny_idx = require_column(schema, "bbox_miny", &DataType::Float32, ARTIFACT)?;
         let maxx_idx = require_column(schema, "bbox_maxx", &DataType::Float32, ARTIFACT)?;
@@ -332,7 +339,7 @@ impl SnapStore {
             }
         }
 
-        let all_catchment_ids = read_or_build_id_index(
+        let all_unit_ids = read_or_build_id_index(
             &store,
             &path,
             file_size,
@@ -348,7 +355,7 @@ impl SnapStore {
             row_groups = row_groups.len(),
             groups_without_stats = groups_without_stats.len(),
             total_rows,
-            indexed_ids = all_catchment_ids.len(),
+            indexed_ids = all_unit_ids.len(),
             "snap store opened"
         );
 
@@ -361,7 +368,7 @@ impl SnapStore {
             row_groups,
             groups_without_stats,
             total_rows,
-            all_catchment_ids,
+            all_unit_ids,
             bbox_col_indices,
             parquet_cache,
             footer_cache,
@@ -467,7 +474,7 @@ impl SnapStore {
         Ok(results)
     }
 
-    /// Read all catchment IDs referenced by snap targets (projection read of catchment_id column only).
+    /// Read all unit IDs referenced by snap targets (projection read of unit_id column only).
     ///
     /// Used at session open time for referential integrity checks.
     ///
@@ -477,11 +484,11 @@ impl SnapStore {
     /// |---|---|
     /// | File cannot be opened | [`SessionError::Io`] |
     /// | File is not valid Parquet | [`SessionError::ParquetParse`] |
-    /// | `catchment_id` column missing | [`SessionError::ParquetSchema`] |
-    /// | Row contains a null `catchment_id` | [`SessionError::InvalidRow`] |
-    /// | `catchment_id` value fails domain validation | [`SessionError::InvalidRow`] |
-    pub fn read_all_catchment_ids(&self) -> Result<Vec<hfx_core::AtomId>, SessionError> {
-        Ok(self.all_catchment_ids.clone())
+    /// | `unit_id` column missing | [`SessionError::ParquetSchema`] |
+    /// | Row contains a null `unit_id` | [`SessionError::InvalidRow`] |
+    /// | `unit_id` value fails domain validation | [`SessionError::InvalidRow`] |
+    pub fn read_all_unit_ids(&self) -> Result<Vec<hfx_core::UnitId>, SessionError> {
+        Ok(self.all_unit_ids.clone())
     }
 
     /// Return the total number of snap target rows across all row groups.
@@ -505,15 +512,15 @@ impl SnapStore {
     }
 }
 
-fn read_all_catchment_ids_from_store(
+fn read_all_unit_ids_from_store(
     store: &Arc<dyn ObjectStore>,
     path: &ObjectPath,
     file_size: u64,
     parquet_cache: Option<Arc<ParquetRowGroupCache>>,
     footer_cache: Option<Arc<ParquetFooterCache>>,
     cache_ident: Option<ArtifactIdent>,
-) -> Result<Vec<hfx_core::AtomId>, SessionError> {
-    RT.block_on(read_all_catchment_ids_from_store_async(
+) -> Result<Vec<hfx_core::UnitId>, SessionError> {
+    RT.block_on(read_all_unit_ids_from_store_async(
         store,
         path,
         file_size,
@@ -534,7 +541,7 @@ fn read_or_build_id_index(
     cache_ident: Option<ArtifactIdent>,
     id_index_path: Option<&Path>,
     path_display: &str,
-) -> Result<Vec<hfx_core::AtomId>, SessionError> {
+) -> Result<Vec<hfx_core::UnitId>, SessionError> {
     if let (Some(index_path), Some(etag)) = (id_index_path, file_etag) {
         match IdIndex::load_from_path(index_path, file_size, Some(etag)) {
             Ok(Some(index)) if index.id_row_groups.is_none() => {
@@ -570,7 +577,7 @@ fn read_or_build_id_index(
     let ids = {
         let _guard = StageGuard::enter(Stage::SnapIdIndex);
         record_path(path_display);
-        read_all_catchment_ids_from_store(
+        read_all_unit_ids_from_store(
             store,
             path,
             file_size,
@@ -598,14 +605,14 @@ fn read_or_build_id_index(
 }
 
 #[instrument(skip(store, parquet_cache, footer_cache, cache_ident), fields(path = %path))]
-async fn read_all_catchment_ids_from_store_async(
+async fn read_all_unit_ids_from_store_async(
     store: &Arc<dyn ObjectStore>,
     path: &ObjectPath,
     file_size: u64,
     parquet_cache: Option<Arc<ParquetRowGroupCache>>,
     footer_cache: Option<Arc<ParquetFooterCache>>,
     cache_ident: Option<ArtifactIdent>,
-) -> Result<Vec<hfx_core::AtomId>, SessionError> {
+) -> Result<Vec<hfx_core::UnitId>, SessionError> {
     let started = Instant::now();
     let builder = ParquetRecordBatchStreamBuilder::new(object_reader_with_cache(
         store,
@@ -633,13 +640,13 @@ async fn read_all_catchment_ids_from_store_async(
     let col_idx = parquet_schema
         .columns()
         .iter()
-        .position(|c| c.name() == "catchment_id")
-        .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "missing column \"catchment_id\""))?;
+        .position(|c| c.name() == "unit_id")
+        .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "missing column \"unit_id\""))?;
 
     let mask = ProjectionMask::roots(parquet_schema, [col_idx]);
     let selected_row_groups: Vec<usize> = (0..num_row_groups).collect();
     let rg_absolute_starts = absolute_row_starts(&metadata, &selected_row_groups);
-    let read_context = CatchmentIdRowGroupReadContext {
+    let read_context = UnitIdRowGroupReadContext {
         store: Arc::clone(store),
         path: path.clone(),
         file_size,
@@ -653,7 +660,7 @@ async fn read_all_catchment_ids_from_store_async(
         .map(|(row_group, absolute_start)| {
             let read_context = read_context.clone();
             async move {
-                read_catchment_id_row_group_async(read_context, row_group, absolute_start).await
+                read_unit_id_row_group_async(read_context, row_group, absolute_start).await
             }
         })
         .buffered(ID_INDEX_ROW_GROUP_CONCURRENCY)
@@ -676,11 +683,11 @@ async fn read_all_catchment_ids_from_store_async(
     Ok(ids)
 }
 
-async fn read_catchment_id_row_group_async(
-    context: CatchmentIdRowGroupReadContext,
+async fn read_unit_id_row_group_async(
+    context: UnitIdRowGroupReadContext,
     row_group: usize,
     absolute_start: usize,
-) -> Result<Vec<hfx_core::AtomId>, SessionError> {
+) -> Result<Vec<hfx_core::UnitId>, SessionError> {
     let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(
         object_reader_with_cache(
             &context.store,
@@ -726,24 +733,24 @@ async fn read_catchment_id_row_group_async(
                 .as_any()
                 .downcast_ref::<arrow::array::Int64Array>()
                 .ok_or_else(|| {
-                    SessionError::parquet_schema(ARTIFACT, "catchment_id column is not Int64")
+                    SessionError::parquet_schema(ARTIFACT, "unit_id column is not Int64")
                 })?;
             for i in 0..batch.num_rows() {
                 if col.is_null(i) {
                     return Err(SessionError::invalid_row(
                         ARTIFACT,
                         absolute_row + i,
-                        "null catchment_id",
+                        "null unit_id",
                     ));
                 }
-                let atom_id = hfx_core::AtomId::new(col.value(i)).map_err(|e| {
+                let unit_id = hfx_core::UnitId::new(col.value(i)).map_err(|e| {
                     SessionError::invalid_row(
                         ARTIFACT,
                         absolute_row + i,
-                        format!("invalid catchment_id: {e}"),
+                        format!("invalid unit_id: {e}"),
                     )
                 })?;
-                ids.push(atom_id);
+                ids.push(unit_id);
             }
             offset_in_group += batch.num_rows();
         }
@@ -818,11 +825,11 @@ fn extract_snap_targets_from_batch(
         .ok_or_else(|| {
             SessionError::parquet_schema(ARTIFACT, "column 'id' missing or wrong type")
         })?;
-    let catchment_id_col = batch
-        .column_by_name("catchment_id")
+    let unit_id_col = batch
+        .column_by_name("unit_id")
         .and_then(|c| c.as_any().downcast_ref::<Int64Array>())
         .ok_or_else(|| {
-            SessionError::parquet_schema(ARTIFACT, "column 'catchment_id' missing or wrong type")
+            SessionError::parquet_schema(ARTIFACT, "column 'unit_id' missing or wrong type")
         })?;
     let weight_col = batch
         .column_by_name("weight")
@@ -830,12 +837,14 @@ fn extract_snap_targets_from_batch(
         .ok_or_else(|| {
             SessionError::parquet_schema(ARTIFACT, "column 'weight' missing or wrong type")
         })?;
-    let is_mainstem_col = batch
-        .column_by_name("is_mainstem")
-        .and_then(|c| c.as_any().downcast_ref::<BooleanArray>())
-        .ok_or_else(|| {
-            SessionError::parquet_schema(ARTIFACT, "column 'is_mainstem' missing or wrong type")
-        })?;
+    let stem_role_col = batch
+        .column_by_name("stem_role")
+        .map(|c| {
+            c.as_any().downcast_ref::<StringArray>().ok_or_else(|| {
+                SessionError::parquet_schema(ARTIFACT, "column 'stem_role' has wrong type")
+            })
+        })
+        .transpose()?;
     let bbox_minx_col = batch
         .column_by_name("bbox_minx")
         .and_then(|c| c.as_any().downcast_ref::<Float32Array>())
@@ -880,9 +889,8 @@ fn extract_snap_targets_from_batch(
             };
         }
         check_null!(id_col, "id");
-        check_null!(catchment_id_col, "catchment_id");
+        check_null!(unit_id_col, "unit_id");
         check_null!(weight_col, "weight");
-        check_null!(is_mainstem_col, "is_mainstem");
         check_null!(bbox_minx_col, "bbox_minx");
         check_null!(bbox_miny_col, "bbox_miny");
         check_null!(bbox_maxx_col, "bbox_maxx");
@@ -903,17 +911,29 @@ fn extract_snap_targets_from_batch(
         let id = SnapId::new(id_col.value(i)).map_err(|e| {
             SessionError::invalid_row(ARTIFACT, absolute_row, format!("id error: {e}"))
         })?;
-        let catchment_id = AtomId::new(catchment_id_col.value(i)).map_err(|e| {
-            SessionError::invalid_row(ARTIFACT, absolute_row, format!("catchment_id error: {e}"))
+        let unit_id = UnitId::new(unit_id_col.value(i)).map_err(|e| {
+            SessionError::invalid_row(ARTIFACT, absolute_row, format!("unit_id error: {e}"))
         })?;
         let weight = Weight::new(weight_col.value(i)).map_err(|e| {
             SessionError::invalid_row(ARTIFACT, absolute_row, format!("weight error: {e}"))
         })?;
-        let mainstem_status = if is_mainstem_col.value(i) {
-            MainstemStatus::Mainstem
-        } else {
-            MainstemStatus::Tributary
-        };
+        let stem_role = stem_role_col
+            .and_then(|col| {
+                if col.is_null(i) {
+                    None
+                } else {
+                    Some(col.value(i))
+                }
+            })
+            .map(|value| {
+                value
+                    .parse::<StemRole>()
+                    .map_err(|_| SessionError::InvalidStemRole {
+                        row: absolute_row,
+                        value: value.to_string(),
+                    })
+            })
+            .transpose()?;
         let geom_bytes: Vec<u8> =
             if let Some(arr) = geometry_col_array.as_any().downcast_ref::<BinaryArray>() {
                 arr.value(i).to_vec()
@@ -934,10 +954,10 @@ fn extract_snap_targets_from_batch(
 
         results.push(SnapTarget::new(
             id,
-            catchment_id,
+            unit_id,
             weight,
-            mainstem_status,
-            row_bbox,
+            stem_role,
+            Some(row_bbox),
             geometry,
         ));
     }
@@ -1088,7 +1108,7 @@ mod tests {
     fn snap_schema() -> Arc<Schema> {
         Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
-            Field::new("catchment_id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("is_mainstem", DataType::Boolean, false),
             Field::new("bbox_minx", DataType::Float32, false),
@@ -1101,7 +1121,7 @@ mod tests {
 
     struct SnapRow {
         id: i64,
-        catchment_id: i64,
+        unit_id: i64,
         weight: f32,
         is_mainstem: bool,
         minx: f32,
@@ -1123,7 +1143,7 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
 
         let mut id_b = Int64Builder::new();
-        let mut catchment_id_b = Int64Builder::new();
+        let mut unit_id_b = Int64Builder::new();
         let mut weight_b = Float32Builder::new();
         let mut is_mainstem_b = BooleanBuilder::new();
         let mut minx_b = Float32Builder::new();
@@ -1134,7 +1154,7 @@ mod tests {
 
         for row in rows {
             id_b.append_value(row.id);
-            catchment_id_b.append_value(row.catchment_id);
+            unit_id_b.append_value(row.unit_id);
             weight_b.append_value(row.weight);
             is_mainstem_b.append_value(row.is_mainstem);
             minx_b.append_value(row.minx);
@@ -1148,7 +1168,7 @@ mod tests {
             schema.clone(),
             vec![
                 Arc::new(id_b.finish()),
-                Arc::new(catchment_id_b.finish()),
+                Arc::new(unit_id_b.finish()),
                 Arc::new(weight_b.finish()),
                 Arc::new(is_mainstem_b.finish()),
                 Arc::new(minx_b.finish()),
@@ -1318,7 +1338,7 @@ mod tests {
         let rows = vec![
             SnapRow {
                 id: 1,
-                catchment_id: 10,
+                unit_id: 10,
                 weight: 0.5,
                 is_mainstem: true,
                 minx: -10.0,
@@ -1329,7 +1349,7 @@ mod tests {
             },
             SnapRow {
                 id: 2,
-                catchment_id: 20,
+                unit_id: 20,
                 weight: 0.8,
                 is_mainstem: false,
                 minx: 1.0,
@@ -1346,12 +1366,12 @@ mod tests {
     }
 
     #[test]
-    fn test_read_all_catchment_ids_uses_cached_index() {
+    fn test_read_all_unit_ids_uses_cached_index() {
         let geom = minimal_wkb_linestring(-10.0, -5.0, -9.0, -4.0);
         let rows = vec![
             SnapRow {
                 id: 1,
-                catchment_id: 10,
+                unit_id: 10,
                 weight: 0.5,
                 is_mainstem: true,
                 minx: -10.0,
@@ -1362,7 +1382,7 @@ mod tests {
             },
             SnapRow {
                 id: 2,
-                catchment_id: 20,
+                unit_id: 20,
                 weight: 0.8,
                 is_mainstem: false,
                 minx: 1.0,
@@ -1373,7 +1393,7 @@ mod tests {
             },
             SnapRow {
                 id: 3,
-                catchment_id: 10,
+                unit_id: 10,
                 weight: 0.2,
                 is_mainstem: false,
                 minx: 3.0,
@@ -1401,13 +1421,13 @@ mod tests {
         let head_calls_after_open = counting_store.head_calls();
         let range_reads_after_open = counting_store.range_read_calls();
         let expected = vec![
-            AtomId::new(10).unwrap(),
-            AtomId::new(20).unwrap(),
-            AtomId::new(10).unwrap(),
+            UnitId::new(10).unwrap(),
+            UnitId::new(20).unwrap(),
+            UnitId::new(10).unwrap(),
         ];
 
-        assert_eq!(store.read_all_catchment_ids().unwrap(), expected);
-        assert_eq!(store.read_all_catchment_ids().unwrap(), expected);
+        assert_eq!(store.read_all_unit_ids().unwrap(), expected);
+        assert_eq!(store.read_all_unit_ids().unwrap(), expected);
         assert_eq!(counting_store.head_calls(), head_calls_after_open);
         assert_eq!(counting_store.range_read_calls(), range_reads_after_open);
     }
@@ -1418,7 +1438,7 @@ mod tests {
         let rows = vec![
             SnapRow {
                 id: 1,
-                catchment_id: 10,
+                unit_id: 10,
                 weight: 0.5,
                 is_mainstem: true,
                 minx: -10.0,
@@ -1429,7 +1449,7 @@ mod tests {
             },
             SnapRow {
                 id: 2,
-                catchment_id: 20,
+                unit_id: 20,
                 weight: 0.8,
                 is_mainstem: false,
                 minx: 1.0,
@@ -1457,7 +1477,7 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id(), SnapId::new(2).unwrap());
-        assert_eq!(results[0].catchment_id(), AtomId::new(20).unwrap());
+        assert_eq!(results[0].unit_id(), UnitId::new(20).unwrap());
 
         let records: Vec<Value> = fs::read_to_string(trace.path())
             .unwrap()
@@ -1477,7 +1497,7 @@ mod tests {
                 let x = id as f32;
                 SnapRow {
                     id,
-                    catchment_id: id * 10,
+                    unit_id: id * 10,
                     weight: 0.5,
                     is_mainstem: id % 2 == 0,
                     minx: x,
@@ -1508,7 +1528,7 @@ mod tests {
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![SnapRow {
             id: 1,
-            catchment_id: 10,
+            unit_id: 10,
             weight: 0.5,
             is_mainstem: true,
             minx: 1.0,
@@ -1534,7 +1554,7 @@ mod tests {
         let rows = vec![
             SnapRow {
                 id: 1,
-                catchment_id: 10,
+                unit_id: 10,
                 weight: 0.5,
                 is_mainstem: true,
                 minx: 1.0,
@@ -1545,7 +1565,7 @@ mod tests {
             },
             SnapRow {
                 id: 2,
-                catchment_id: 10,
+                unit_id: 10,
                 weight: 0.3,
                 is_mainstem: false,
                 minx: 1.5,
@@ -1566,8 +1586,8 @@ mod tests {
         results.sort_by_key(|r| r.id().get());
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].mainstem_status(), MainstemStatus::Mainstem);
-        assert_eq!(results[1].mainstem_status(), MainstemStatus::Tributary);
+        assert_eq!(results[0].stem_role(), None);
+        assert_eq!(results[1].stem_role(), None);
     }
 
     /// Minimal valid WKB Point geometry.
@@ -1587,7 +1607,7 @@ mod tests {
         let geom = minimal_wkb_point(5.0, 10.0);
         let rows = vec![SnapRow {
             id: 1,
-            catchment_id: 10,
+            unit_id: 10,
             weight: 1.0,
             is_mainstem: false,
             minx: 5.0,
@@ -1614,7 +1634,7 @@ mod tests {
         let geom = minimal_wkb_linestring(5.0, 9.0, 5.0, 11.0);
         let rows = vec![SnapRow {
             id: 2,
-            catchment_id: 20,
+            unit_id: 20,
             weight: 0.5,
             is_mainstem: true,
             minx: 5.0,
@@ -1643,7 +1663,7 @@ mod tests {
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![SnapRow {
             id: 1,
-            catchment_id: 10,
+            unit_id: 10,
             weight: 1.0,
             is_mainstem: true,
             minx: 2.0,
@@ -1678,7 +1698,7 @@ mod tests {
         // row 0 has a null id.  The reader must reject this with InvalidRow.
         let null_schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, true), // nullable so writer accepts null
-            Field::new("catchment_id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("is_mainstem", DataType::Boolean, false),
             Field::new("bbox_minx", DataType::Float32, false),
@@ -1745,7 +1765,7 @@ mod tests {
         // Row 0 has a null weight column.
         let null_schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
-            Field::new("catchment_id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, true), // nullable so writer accepts null
             Field::new("is_mainstem", DataType::Boolean, false),
             Field::new("bbox_minx", DataType::Float32, false),
@@ -1816,7 +1836,7 @@ mod tests {
         // Write a parquet file that's missing the 'weight' column.
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
-            Field::new("catchment_id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
             // 'weight' intentionally omitted
             Field::new("is_mainstem", DataType::Boolean, false),
             Field::new("bbox_minx", DataType::Float32, false),

@@ -2,17 +2,16 @@
 //!
 //! Each test builds a synthetic on-disk HFX dataset, opens a
 //! [`DatasetSession`], and calls [`resolve_outlet`] — verifying the correct
-//! atom ID and resolution method are returned.
+//! unit ID and resolution method are returned.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use arrow::array::{
-    BinaryBuilder, BooleanBuilder, Float32Builder, Int64Array, Int64Builder, ListBuilder,
-    RecordBatch,
+    BinaryBuilder, Float32Builder, Float64Builder, Int16Builder, Int64Array, Int64Builder,
+    ListBuilder, RecordBatch, StringBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
-use arrow::ipc::writer::FileWriter;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
@@ -72,41 +71,62 @@ fn wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
 // Artifact writer helpers
 // ---------------------------------------------------------------------------
 
-fn write_manifest(root: &Path, atom_count: usize, has_snap: bool) {
+fn write_manifest(root: &Path, unit_count: usize, has_snap: bool) {
     let mut m = serde_json::json!({
-        "format_version": "0.1",
+        "format_version": "0.2.1",
         "fabric_name": "testfabric",
         "crs": "EPSG:4326",
         "topology": "tree",
-        "terminal_sink_id": 0,
         "bbox": [-180.0, -90.0, 180.0, 90.0],
-        "atom_count": atom_count,
+        "unit_count": unit_count,
         "created_at": "2026-01-01T00:00:00Z",
-        "adapter_version": "test-v1"
+        "adapter_version": "test-v1",
+        "auxiliary": []
     });
     if has_snap {
-        m["has_snap"] = serde_json::json!(true);
+        m["auxiliary"].as_array_mut().unwrap().push(serde_json::json!({
+            "schema": "hfx.aux.snap.v1",
+            "artifacts": { "snap": "snap.parquet" },
+            "metadata": {
+                "name": "test-snap",
+                "description": "Synthetic snap targets.",
+                "references_levels": [0],
+                "weight_semantics": "higher is preferred"
+            }
+        }));
     }
     std::fs::write(root.join("manifest.json"), m.to_string()).unwrap();
 }
 
-/// Write a linear-chain graph for the given atom IDs.
+/// Write a linear-chain graph for the given unit IDs.
 ///
 /// The first ID is the headwater; each subsequent ID has the previous as its
-/// sole upstream atom.
+/// sole upstream unit.
 fn write_graph(root: &Path, ids: &[i64]) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
+        Field::new("level", DataType::Int16, false),
         Field::new(
             "upstream_ids",
             DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
             false,
         ),
+        Field::new("bbox_minx", DataType::Float32, false),
+        Field::new("bbox_miny", DataType::Float32, false),
+        Field::new("bbox_maxx", DataType::Float32, false),
+        Field::new("bbox_maxy", DataType::Float32, false),
     ]));
 
     let id_arr = Int64Array::from(ids.to_vec());
+    let mut level_b = Int16Builder::new();
     let mut list_builder = ListBuilder::new(Int64Builder::new());
+    let mut minx_b = Float32Builder::new();
+    let mut miny_b = Float32Builder::new();
+    let mut maxx_b = Float32Builder::new();
+    let mut maxy_b = Float32Builder::new();
     for (idx, _) in ids.iter().enumerate() {
+        let base = idx as f32 * 0.5;
+        level_b.append_value(0);
         if idx == 0 {
             // headwater — no upstreams
             list_builder.append(true);
@@ -114,19 +134,31 @@ fn write_graph(root: &Path, ids: &[i64]) {
             list_builder.values().append_value(ids[idx - 1]);
             list_builder.append(true);
         }
+        minx_b.append_value(base);
+        miny_b.append_value(0.0);
+        maxx_b.append_value(base + 0.4);
+        maxy_b.append_value(0.4);
     }
     let upstream_arr = list_builder.finish();
 
     let batch = RecordBatch::try_new(
         schema.clone(),
-        vec![Arc::new(id_arr), Arc::new(upstream_arr)],
+        vec![
+            Arc::new(id_arr),
+            Arc::new(level_b.finish()),
+            Arc::new(upstream_arr),
+            Arc::new(minx_b.finish()),
+            Arc::new(miny_b.finish()),
+            Arc::new(maxx_b.finish()),
+            Arc::new(maxy_b.finish()),
+        ],
     )
     .unwrap();
 
-    let file = std::fs::File::create(root.join("graph.arrow")).unwrap();
-    let mut writer = FileWriter::try_new(file, &schema).unwrap();
+    let file = std::fs::File::create(root.join("graph.parquet")).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
     writer.write(&batch).unwrap();
-    writer.finish().unwrap();
+    writer.close().unwrap();
 }
 
 /// Catchment specification: (id, area_km2, up_area_km2, minx, miny, maxx, maxy).
@@ -135,8 +167,12 @@ type CatchmentSpec = (i64, f32, Option<f32>, f64, f64, f64, f64);
 fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
+        Field::new("level", DataType::Int16, false),
+        Field::new("parent_id", DataType::Int64, true),
         Field::new("area_km2", DataType::Float32, false),
         Field::new("up_area_km2", DataType::Float32, true),
+        Field::new("outlet_lon", DataType::Float64, false),
+        Field::new("outlet_lat", DataType::Float64, false),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
@@ -153,8 +189,12 @@ fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut id_b = Int64Builder::new();
+    let mut level_b = Int16Builder::new();
+    let mut parent_id_b = Int64Builder::new();
     let mut area_b = Float32Builder::new();
     let mut up_area_b = Float32Builder::new();
+    let mut outlet_lon_b = Float64Builder::new();
+    let mut outlet_lat_b = Float64Builder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
@@ -163,6 +203,8 @@ fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
 
     for &(id, area, up_area, minx, miny, maxx, maxy) in specs {
         id_b.append_value(id);
+        level_b.append_value(0);
+        parent_id_b.append_null();
         area_b.append_value(area);
         match up_area {
             Some(v) => up_area_b.append_value(v),
@@ -172,6 +214,8 @@ fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
         miny_b.append_value(miny as f32);
         maxx_b.append_value(maxx as f32);
         maxy_b.append_value(maxy as f32);
+        outlet_lon_b.append_value((minx + maxx) / 2.0);
+        outlet_lat_b.append_value((miny + maxy) / 2.0);
         geom_b.append_value(wkb_polygon(minx, miny, maxx, maxy));
     }
 
@@ -179,8 +223,12 @@ fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
         schema,
         vec![
             Arc::new(id_b.finish()),
+            Arc::new(level_b.finish()),
+            Arc::new(parent_id_b.finish()),
             Arc::new(area_b.finish()),
             Arc::new(up_area_b.finish()),
+            Arc::new(outlet_lon_b.finish()),
+            Arc::new(outlet_lat_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),
@@ -208,9 +256,9 @@ type SnapSpec<'a> = (i64, i64, f32, bool, &'a SnapGeom);
 fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
-        Field::new("catchment_id", DataType::Int64, false),
+        Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
-        Field::new("is_mainstem", DataType::Boolean, false),
+        Field::new("stem_role", DataType::Utf8, true),
         Field::new("bbox_minx", DataType::Float32, false),
         Field::new("bbox_miny", DataType::Float32, false),
         Field::new("bbox_maxx", DataType::Float32, false),
@@ -227,9 +275,9 @@ fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut id_b = Int64Builder::new();
-    let mut catchment_id_b = Int64Builder::new();
+    let mut unit_id_b = Int64Builder::new();
     let mut weight_b = Float32Builder::new();
-    let mut is_mainstem_b = BooleanBuilder::new();
+    let mut stem_role_b = StringBuilder::new();
     let mut minx_b = Float32Builder::new();
     let mut miny_b = Float32Builder::new();
     let mut maxx_b = Float32Builder::new();
@@ -238,9 +286,9 @@ fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
 
     for &(snap_id, catchment_id, weight, is_mainstem, geom) in specs {
         id_b.append_value(snap_id);
-        catchment_id_b.append_value(catchment_id);
+        unit_id_b.append_value(catchment_id);
         weight_b.append_value(weight);
-        is_mainstem_b.append_value(is_mainstem);
+        stem_role_b.append_value(if is_mainstem { "mainstem" } else { "tributary" });
 
         match geom {
             SnapGeom::Point(x, y) => {
@@ -265,9 +313,9 @@ fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
         schema,
         vec![
             Arc::new(id_b.finish()),
-            Arc::new(catchment_id_b.finish()),
+            Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
-            Arc::new(is_mainstem_b.finish()),
+            Arc::new(stem_role_b.finish()),
             Arc::new(minx_b.finish()),
             Arc::new(miny_b.finish()),
             Arc::new(maxx_b.finish()),
@@ -287,9 +335,9 @@ fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
 
 /// Three-catchment layout used by most snap tests.
 ///
-/// Atom 1: [0.5, 0.0, 0.9, 0.4]  centre (0.7, 0.2)
-/// Atom 2: [1.0, 0.0, 1.4, 0.4]  centre (1.2, 0.2)
-/// Atom 3: [1.5, 0.0, 1.9, 0.4]  centre (1.7, 0.2)
+/// Unit 1: [0.5, 0.0, 0.9, 0.4]  centre (0.7, 0.2)
+/// Unit 2: [1.0, 0.0, 1.4, 0.4]  centre (1.2, 0.2)
+/// Unit 3: [1.5, 0.0, 1.9, 0.4]  centre (1.7, 0.2)
 fn three_catchment_specs() -> Vec<CatchmentSpec> {
     vec![
         (1, 10.0, None, 0.5, 0.0, 0.9, 0.4),
@@ -355,7 +403,7 @@ fn snap_happy_path() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.atom_id.get(), 2);
+    assert_eq!(result.unit_id.get(), 2);
     assert!(
         matches!(result.method, ResolutionMethod::Snap { .. }),
         "expected Snap method, got {:?}",
@@ -380,7 +428,7 @@ fn snap_nearest_wins() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.atom_id.get(), 2, "nearest target should be atom 2");
+    assert_eq!(result.unit_id.get(), 2, "nearest target should be unit 2");
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +467,7 @@ fn snap_weight_tie_break() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.atom_id.get(),
+        result.unit_id.get(),
         2,
         "higher weight should win tie-break"
     );
@@ -462,7 +510,7 @@ fn snap_mainstem_tie_break() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.atom_id.get(),
+        result.unit_id.get(),
         2,
         "mainstem should win tie-break over tributary"
     );
@@ -499,13 +547,13 @@ fn pip_happy_path() {
     let (_dir, root) = build_3c_pip_dataset();
     let session = DatasetSession::open_path(&root).unwrap();
 
-    // Outlet inside atom 2's polygon [1.0, 0.0, 1.4, 0.4]
+    // Outlet inside unit 2's polygon [1.0, 0.0, 1.4, 0.4]
     let outlet = GeoCoord::new(1.2, 0.2);
     let config = ResolverConfig::new();
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.atom_id.get(), 2);
+    assert_eq!(result.unit_id.get(), 2);
     assert!(
         matches!(result.method, ResolutionMethod::PointInPolygon { .. }),
         "expected PointInPolygon method, got {:?}",
@@ -542,7 +590,7 @@ fn pip_upstream_area_tie_break() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.atom_id.get(), 2, "higher upstream_area should win");
+    assert_eq!(result.unit_id.get(), 2, "higher upstream_area should win");
     assert!(
         matches!(
             result.method,
@@ -593,11 +641,11 @@ fn dispatch_snap_over_pip() {
     write_graph(&root, &ids);
     write_catchments(&root, &catchments);
 
-    // Snap target for atom 1 is placed at (1.2, 0.2) — inside atom 2's polygon.
-    // PiP would return atom 2 but snap path should return atom 1.
+    // Snap target for unit 1 is placed at (1.2, 0.2) — inside unit 2's polygon.
+    // PiP would return unit 2 but snap path should return unit 1.
     let g1 = SnapGeom::Point(1.2, 0.2);
     let g2 = SnapGeom::Point(1.2, 0.2); // same position, different catchment_id
-    // Give atom 1's target a higher weight so it wins any distance tie.
+    // Give unit 1's target a higher weight so it wins any distance tie.
     let snaps: &[SnapSpec<'_>] = &[
         (1, 1, 200.0, true, &g1), // catchment 1, placed at (1.2, 0.2), weight=200
         (2, 2, 100.0, true, &g2), // catchment 2, same point,            weight=100
@@ -605,7 +653,7 @@ fn dispatch_snap_over_pip() {
     write_snap(&root, snaps);
 
     let session = DatasetSession::open_path(&root).unwrap();
-    // Outlet at (1.2, 0.2) — inside atom 2 by PiP, but snap wins with atom 1
+    // Outlet at (1.2, 0.2) — inside unit 2 by PiP, but snap wins with unit 1
     let outlet = GeoCoord::new(1.2, 0.2);
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(5_000.0).unwrap());
@@ -613,9 +661,9 @@ fn dispatch_snap_over_pip() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.atom_id.get(),
+        result.unit_id.get(),
         1,
-        "snap path should return atom 1, not PiP's atom 2"
+        "snap path should return unit 1, not PiP's unit 2"
     );
     assert!(
         matches!(result.method, ResolutionMethod::Snap { .. }),
@@ -634,13 +682,13 @@ fn dispatch_pip_when_no_snap() {
 
     assert!(session.snap().is_none(), "dataset must have no snap file");
 
-    // Outlet inside atom 2
+    // Outlet inside unit 2
     let outlet = GeoCoord::new(1.2, 0.2);
     let config = ResolverConfig::new();
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.atom_id.get(), 2);
+    assert_eq!(result.unit_id.get(), 2);
     assert!(
         matches!(result.method, ResolutionMethod::PointInPolygon { .. }),
         "expected PointInPolygon method, got {:?}",
@@ -682,7 +730,7 @@ fn snap_linestring_target() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.atom_id.get(),
+        result.unit_id.get(),
         2,
         "should snap to nearest LineString (target 2)"
     );

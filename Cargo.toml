@@ -2,11 +2,16 @@
 members = ["crates/*"]
 
 [workspace.dependencies]
-hfx-core = "=0.2.0"
+# HFX on-disk format 0.2.1 is implemented by the unpublished local hfx-core
+# crate (crate version 0.2.64 @ ../hfx rev 478dfa6). The crate version is NOT
+# the format version. The [patch.crates-io] entry below redirects this
+# crates.io dep to that local crate; do not mistake crate version for the v0.2.1
+# contract.
+hfx-core = "=0.2.64"
 
 [package]
 name = "shed"
-version = "0.1.115"
+version = "0.1.116"
 edition = "2024"
 
 [dependencies]
@@ -27,6 +32,7 @@ tempfile = "3"
 serde_json = "1"
 shed-core = { path = "crates/core", features = ["test-fixtures"] }
 
-# Uncomment for local hfx-core development:
-# [patch.crates-io]
-# hfx-core = { path = "../hfx/crates/hfx-core" }
+# hfx-core crate version 0.2.64 @ ../hfx rev 478dfa6 implements HFX on-disk
+# format 0.2.1 (crate version != format version).
+[patch.crates-io]
+hfx-core = { path = "../hfx/crates/hfx-core" }

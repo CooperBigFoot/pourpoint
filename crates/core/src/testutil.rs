@@ -4,11 +4,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arrow::array::{
-    BinaryBuilder, BooleanBuilder, Float32Builder, Int64Array, Int64Builder, ListBuilder,
-    RecordBatch,
+    BinaryBuilder, Float32Builder, Float64Builder, Int16Builder, Int64Array, Int64Builder,
+    ListBuilder, RecordBatch, StringBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
-use arrow::ipc::writer::FileWriter;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use serde_json::json;
@@ -45,7 +44,7 @@ pub enum TestSnapGeometry {
 /// Builder for synthetic HFX dataset fixtures used in integration tests.
 pub struct DatasetBuilder {
     dir: TempDir,
-    atom_count: usize,
+    unit_count: usize,
     topology: &'static str,
     include_snap: bool,
     include_rasters: bool,
@@ -58,11 +57,11 @@ pub struct DatasetBuilder {
 }
 
 impl DatasetBuilder {
-    /// Create a new builder with a linear chain of `atom_count` atoms.
-    pub fn new(atom_count: usize) -> Self {
+    /// Create a new builder with a linear chain of `unit_count` units.
+    pub fn new(unit_count: usize) -> Self {
         Self {
             dir: TempDir::new().unwrap(),
-            atom_count,
+            unit_count,
             topology: "tree",
             include_snap: false,
             include_rasters: false,
@@ -119,14 +118,14 @@ impl DatasetBuilder {
         self
     }
 
-    /// Return the center of the terminal generated atom, if this builder uses generated catchments.
-    pub fn generated_terminal_atom_center(&self) -> Option<GeoCoord> {
-        if self.custom_catchments.is_some() || self.atom_count == 0 {
+    /// Return the center of the terminal generated unit, if this builder uses generated catchments.
+    pub fn generated_terminal_unit_center(&self) -> Option<GeoCoord> {
+        if self.custom_catchments.is_some() || self.unit_count == 0 {
             return None;
         }
 
-        let atom_count = self.generated_atom_count();
-        let (minx, miny, maxx, maxy) = self.generated_atom_bbox(atom_count - 1, atom_count);
+        let unit_count = self.generated_unit_count();
+        let (minx, miny, maxx, maxy) = self.generated_unit_bbox(unit_count - 1, unit_count);
         Some(GeoCoord::new(
             ((minx + maxx) / 2.0) as f64,
             ((miny + maxy) / 2.0) as f64,
@@ -143,9 +142,9 @@ impl DatasetBuilder {
     /// Override auto-generated catchments with custom specifications.
     ///
     /// The graph will be built as a linear chain of the provided IDs.
-    /// The `atom_count` is automatically set to the number of custom catchments.
+    /// The `unit_count` is automatically set to the number of custom catchments.
     pub fn with_custom_catchments(mut self, catchments: Vec<TestCatchment>) -> Self {
-        self.atom_count = catchments.len();
+        self.unit_count = catchments.len();
         self.custom_catchments = Some(catchments);
         self
     }
@@ -181,24 +180,36 @@ impl DatasetBuilder {
     // -----------------------------------------------------------------------
 
     fn write_manifest(&self, root: &Path) {
-        let atom_count = self.generated_atom_count();
+        let unit_count = self.generated_unit_count();
         let mut manifest = json!({
-            "format_version": "0.1",
+            "format_version": "0.2.1",
             "fabric_name": "testfabric",
             "crs": "EPSG:4326",
             "topology": self.topology,
-            "terminal_sink_id": 0,
             "bbox": [-180.0, -90.0, 180.0, 90.0],
-            "atom_count": atom_count,
+            "unit_count": unit_count,
             "created_at": "2026-01-01T00:00:00Z",
-            "adapter_version": "test-v1"
+            "adapter_version": "test-v1",
+            "auxiliary": []
         });
         if self.include_snap {
-            manifest["has_snap"] = json!(true);
+            manifest["auxiliary"].as_array_mut().unwrap().push(json!({
+                "schema": "hfx.aux.snap.v1",
+                "artifacts": { "snap": "snap.parquet" },
+                "metadata": {
+                    "name": "test-snap",
+                    "description": "Synthetic snap targets.",
+                    "references_levels": [0],
+                    "weight_semantics": "higher is preferred"
+                }
+            }));
         }
         if self.include_rasters {
-            manifest["has_rasters"] = json!(true);
-            manifest["flow_dir_encoding"] = json!("esri");
+            manifest["auxiliary"].as_array_mut().unwrap().push(json!({
+                "schema": "hfx.aux.d8_raster.v1",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "flow_dir_encoding": "esri" }
+            }));
         }
         std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
     }
@@ -206,42 +217,71 @@ impl DatasetBuilder {
     fn write_graph(&self, root: &Path) {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
+            Field::new("level", DataType::Int16, false),
             Field::new(
                 "upstream_ids",
                 DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
                 false,
             ),
+            Field::new("bbox_minx", DataType::Float32, false),
+            Field::new("bbox_miny", DataType::Float32, false),
+            Field::new("bbox_maxx", DataType::Float32, false),
+            Field::new("bbox_maxy", DataType::Float32, false),
         ]));
 
         let (ids, upstream_ids) = self.build_graph_data();
 
         let id_arr = Int64Array::from(ids);
+        let mut level_b = Int16Builder::new();
         let mut list_builder = ListBuilder::new(Int64Builder::new());
-        for ups in &upstream_ids {
+        let mut minx_b = Float32Builder::new();
+        let mut miny_b = Float32Builder::new();
+        let mut maxx_b = Float32Builder::new();
+        let mut maxy_b = Float32Builder::new();
+        let generated_unit_count = upstream_ids.len();
+        for (idx, ups) in upstream_ids.iter().enumerate() {
+            let (minx, miny, maxx, maxy) = self.generated_unit_bbox(idx, generated_unit_count);
+            level_b.append_value(0);
             for &u in ups {
                 list_builder.values().append_value(u);
             }
             list_builder.append(true);
+            minx_b.append_value(minx);
+            miny_b.append_value(miny);
+            maxx_b.append_value(maxx);
+            maxy_b.append_value(maxy);
         }
         let upstream_arr = list_builder.finish();
 
         let batch = RecordBatch::try_new(
             schema.clone(),
-            vec![Arc::new(id_arr), Arc::new(upstream_arr)],
+            vec![
+                Arc::new(id_arr),
+                Arc::new(level_b.finish()),
+                Arc::new(upstream_arr),
+                Arc::new(minx_b.finish()),
+                Arc::new(miny_b.finish()),
+                Arc::new(maxx_b.finish()),
+                Arc::new(maxy_b.finish()),
+            ],
         )
         .unwrap();
 
-        let file = std::fs::File::create(root.join("graph.arrow")).unwrap();
-        let mut writer = FileWriter::try_new(file, &schema).unwrap();
+        let file = std::fs::File::create(root.join("graph.parquet")).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
         writer.write(&batch).unwrap();
-        writer.finish().unwrap();
+        writer.close().unwrap();
     }
 
     fn write_catchments(&self, root: &Path) {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
+            Field::new("level", DataType::Int16, false),
+            Field::new("parent_id", DataType::Int64, true),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
+            Field::new("outlet_lon", DataType::Float64, false),
+            Field::new("outlet_lat", DataType::Float64, false),
             Field::new("bbox_minx", DataType::Float32, false),
             Field::new("bbox_miny", DataType::Float32, false),
             Field::new("bbox_maxx", DataType::Float32, false),
@@ -258,8 +298,12 @@ impl DatasetBuilder {
         let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
         let mut id_b = Int64Builder::new();
+        let mut level_b = Int16Builder::new();
+        let mut parent_id_b = Int64Builder::new();
         let mut area_b = Float32Builder::new();
         let mut up_area_b = Float32Builder::new();
+        let mut outlet_lon_b = Float64Builder::new();
+        let mut outlet_lat_b = Float64Builder::new();
         let mut minx_b = Float32Builder::new();
         let mut miny_b = Float32Builder::new();
         let mut maxx_b = Float32Builder::new();
@@ -270,6 +314,8 @@ impl DatasetBuilder {
             for c in customs {
                 let (poly_minx, poly_miny, poly_maxx, poly_maxy) = c.polygon;
                 id_b.append_value(c.id);
+                level_b.append_value(0);
+                parent_id_b.append_null();
                 area_b.append_value(c.area_km2);
                 match c.up_area_km2 {
                     Some(v) => up_area_b.append_value(v),
@@ -279,22 +325,28 @@ impl DatasetBuilder {
                 miny_b.append_value(poly_miny as f32);
                 maxx_b.append_value(poly_maxx as f32);
                 maxy_b.append_value(poly_maxy as f32);
+                outlet_lon_b.append_value((poly_minx + poly_maxx) / 2.0);
+                outlet_lat_b.append_value((poly_miny + poly_maxy) / 2.0);
                 let wkb = minimal_wkb_polygon(poly_minx, poly_miny, poly_maxx, poly_maxy);
                 geom_b.append_value(&wkb);
             }
         } else {
             let (ids, _) = self.build_graph_data();
-            let generated_atom_count = ids.len();
+            let generated_unit_count = ids.len();
             for (idx, &id) in ids.iter().enumerate() {
-                let (minx, miny, maxx, maxy) = self.generated_atom_bbox(idx, generated_atom_count);
+                let (minx, miny, maxx, maxy) = self.generated_unit_bbox(idx, generated_unit_count);
 
                 id_b.append_value(id);
+                level_b.append_value(0);
+                parent_id_b.append_null();
                 area_b.append_value(10.0f32);
                 up_area_b.append_null();
                 minx_b.append_value(minx);
                 miny_b.append_value(miny);
                 maxx_b.append_value(maxx);
                 maxy_b.append_value(maxy);
+                outlet_lon_b.append_value(((minx + maxx) / 2.0) as f64);
+                outlet_lat_b.append_value(((miny + maxy) / 2.0) as f64);
 
                 let wkb = generated_wkb_polygon(
                     minx as f64,
@@ -311,8 +363,12 @@ impl DatasetBuilder {
             schema,
             vec![
                 Arc::new(id_b.finish()),
+                Arc::new(level_b.finish()),
+                Arc::new(parent_id_b.finish()),
                 Arc::new(area_b.finish()),
                 Arc::new(up_area_b.finish()),
+                Arc::new(outlet_lon_b.finish()),
+                Arc::new(outlet_lat_b.finish()),
                 Arc::new(minx_b.finish()),
                 Arc::new(miny_b.finish()),
                 Arc::new(maxx_b.finish()),
@@ -329,9 +385,9 @@ impl DatasetBuilder {
     fn write_snap(&self, root: &Path) {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
-            Field::new("catchment_id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
-            Field::new("is_mainstem", DataType::Boolean, false),
+            Field::new("stem_role", DataType::Utf8, true),
             Field::new("bbox_minx", DataType::Float32, false),
             Field::new("bbox_miny", DataType::Float32, false),
             Field::new("bbox_maxx", DataType::Float32, false),
@@ -348,9 +404,9 @@ impl DatasetBuilder {
         let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
         let mut id_b = Int64Builder::new();
-        let mut catchment_id_b = Int64Builder::new();
+        let mut unit_id_b = Int64Builder::new();
         let mut weight_b = Float32Builder::new();
-        let mut is_mainstem_b = BooleanBuilder::new();
+        let mut stem_role_b = StringBuilder::new();
         let mut minx_b = Float32Builder::new();
         let mut miny_b = Float32Builder::new();
         let mut maxx_b = Float32Builder::new();
@@ -360,9 +416,9 @@ impl DatasetBuilder {
         if let Some(customs) = &self.custom_snap_targets {
             for t in customs {
                 id_b.append_value(t.id);
-                catchment_id_b.append_value(t.catchment_id);
+                unit_id_b.append_value(t.catchment_id);
                 weight_b.append_value(t.weight);
-                is_mainstem_b.append_value(t.is_mainstem);
+                stem_role_b.append_value(if t.is_mainstem { "mainstem" } else { "tributary" });
                 match &t.geometry {
                     TestSnapGeometry::Point(x, y) => {
                         // Point bbox needs non-zero extent.
@@ -386,18 +442,18 @@ impl DatasetBuilder {
             }
         } else {
             let (ids, _) = self.build_graph_data();
-            let generated_atom_count = ids.len();
-            for (idx, &atom_id) in ids.iter().enumerate() {
-                let (minx, miny, maxx, maxy) = self.generated_atom_bbox(idx, generated_atom_count);
+            let generated_unit_count = ids.len();
+            for (idx, &unit_id) in ids.iter().enumerate() {
+                let (minx, miny, maxx, maxy) = self.generated_unit_bbox(idx, generated_unit_count);
 
                 // Center of the bbox for the linestring
                 let cx = ((minx + maxx) / 2.0) as f64;
                 let cy = ((miny + maxy) / 2.0) as f64;
 
-                id_b.append_value(atom_id);
-                catchment_id_b.append_value(atom_id);
+                id_b.append_value(unit_id);
+                unit_id_b.append_value(unit_id);
                 weight_b.append_value(100.0f32);
-                is_mainstem_b.append_value(true);
+                stem_role_b.append_value("mainstem");
                 minx_b.append_value(minx);
                 miny_b.append_value(miny);
                 maxx_b.append_value(maxx);
@@ -412,9 +468,9 @@ impl DatasetBuilder {
             schema,
             vec![
                 Arc::new(id_b.finish()),
-                Arc::new(catchment_id_b.finish()),
+                Arc::new(unit_id_b.finish()),
                 Arc::new(weight_b.finish()),
-                Arc::new(is_mainstem_b.finish()),
+                Arc::new(stem_role_b.finish()),
                 Arc::new(minx_b.finish()),
                 Arc::new(miny_b.finish()),
                 Arc::new(maxx_b.finish()),
@@ -439,10 +495,10 @@ impl DatasetBuilder {
 
     /// Build the (ids, upstream_ids) vectors for the graph.
     ///
-    /// Linear chain: atom 1 is headwater, atom i has upstream=[i-1].
-    /// DAG mode appends four extra atoms forming a diamond on top of the chain.
+    /// Linear chain: unit 1 is headwater, unit i has upstream=[i-1].
+    /// DAG mode appends four extra units forming a diamond on top of the chain.
     fn build_graph_data(&self) -> (Vec<i64>, Vec<Vec<i64>>) {
-        let n = self.atom_count;
+        let n = self.unit_count;
         let mut ids: Vec<i64>;
         let mut upstream: Vec<Vec<i64>>;
 
@@ -461,7 +517,7 @@ impl DatasetBuilder {
             ids = (1..=(n as i64)).collect();
             upstream = Vec::with_capacity(n);
 
-            // Atom 1 is a headwater; atom i has upstream = [i-1].
+            // Unit 1 is a headwater; unit i has upstream = [i-1].
             for i in 1..=(n as i64) {
                 if i == 1 {
                     upstream.push(vec![]);
@@ -496,20 +552,20 @@ impl DatasetBuilder {
         (ids, upstream)
     }
 
-    fn generated_atom_count(&self) -> usize {
+    fn generated_unit_count(&self) -> usize {
         if self.dag_diamond {
-            self.atom_count + 4
+            self.unit_count + 4
         } else {
-            self.atom_count
+            self.unit_count
         }
     }
 
-    fn generated_atom_bbox(&self, idx: usize, atom_count: usize) -> (f32, f32, f32, f32) {
+    fn generated_unit_bbox(&self, idx: usize, unit_count: usize) -> (f32, f32, f32, f32) {
         let miny = 0.0f32;
         let maxy = 0.4f32;
 
         if let Some((min_lon, max_lon)) = self.generated_longitude_span {
-            let slot_width = (max_lon - min_lon) / atom_count as f64;
+            let slot_width = (max_lon - min_lon) / unit_count as f64;
             let minx = min_lon + idx as f64 * slot_width;
             let maxx = minx + slot_width * 0.8;
             return (minx as f32, miny, maxx as f32, maxy);
@@ -625,7 +681,7 @@ mod tests {
     fn test_minimal_dataset_opens() {
         let (_dir, root) = DatasetBuilder::new(3).build();
         let session = DatasetSession::open_path(&root).expect("minimal dataset should open");
-        assert_eq!(session.manifest().atom_count().get(), 3);
+        assert_eq!(session.manifest().unit_count().get(), 3);
         assert!(session.snap().is_none());
         assert!(session.raster_paths().is_none());
     }
@@ -652,15 +708,15 @@ mod tests {
         let (_dir, root) = DatasetBuilder::new(10).with_row_group_size(3).build();
         let session =
             DatasetSession::open_path(&root).expect("small row group dataset should open");
-        assert_eq!(session.manifest().atom_count().get(), 10);
+        assert_eq!(session.manifest().unit_count().get(), 10);
     }
 
     #[test]
     fn test_dag_dataset_opens() {
         let (_dir, root) = DatasetBuilder::new(3).with_dag().build();
         let session = DatasetSession::open_path(&root).expect("dag dataset should open");
-        // DAG mode adds 4 extra atoms
-        assert_eq!(session.manifest().atom_count().get(), 7);
+        // DAG mode adds 4 extra units
+        assert_eq!(session.manifest().unit_count().get(), 7);
         assert_eq!(session.topology(), hfx_core::Topology::Dag);
     }
 
@@ -683,7 +739,7 @@ mod tests {
         let (_dir, root) = DatasetBuilder::new(6).with_polygon_complexity(12).build();
         let session =
             DatasetSession::open_path(&root).expect("complex polygon dataset should open");
-        assert_eq!(session.manifest().atom_count().get(), 6);
+        assert_eq!(session.manifest().unit_count().get(), 6);
         assert_eq!(session.catchments().total_rows(), 6);
     }
 
@@ -693,15 +749,15 @@ mod tests {
             .with_longitude_span(-179.0, 179.0)
             .with_polygon_complexity(1_500);
         let terminal = builder
-            .generated_terminal_atom_center()
-            .expect("generated fixture should have a terminal atom");
+            .generated_terminal_unit_center()
+            .expect("generated fixture should have a terminal unit");
         assert!((-180.0..=180.0).contains(&terminal.lon));
         assert!((-90.0..=90.0).contains(&terminal.lat));
 
         let (_dir, root) = builder.build();
         let session =
             DatasetSession::open_path(&root).expect("large generated dataset should open");
-        assert_eq!(session.manifest().atom_count().get(), 2_500);
+        assert_eq!(session.manifest().unit_count().get(), 2_500);
         assert_eq!(session.catchments().total_rows(), 2_500);
     }
 
@@ -713,7 +769,7 @@ mod tests {
             .with_row_group_size(2)
             .build();
         let session = DatasetSession::open_path(&root).expect("full dataset should open");
-        assert_eq!(session.manifest().atom_count().get(), 6);
+        assert_eq!(session.manifest().unit_count().get(), 6);
         assert!(session.snap().is_some());
         assert!(session.raster_paths().is_some());
     }
@@ -739,7 +795,7 @@ mod tests {
             .build();
         let session =
             DatasetSession::open_path(&root).expect("custom catchments dataset should open");
-        assert_eq!(session.manifest().atom_count().get(), 2);
+        assert_eq!(session.manifest().unit_count().get(), 2);
     }
 
     #[test]
