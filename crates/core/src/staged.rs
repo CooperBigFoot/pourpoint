@@ -132,6 +132,14 @@ pub struct LevelResolvedOutlet {
 }
 
 impl LevelResolvedOutlet {
+    /// Construct a level-resolved outlet after the resolver stage has constrained it.
+    pub(crate) fn new(selected_level: SelectedLevel, resolved: ResolvedOutlet) -> Self {
+        Self {
+            selected_level,
+            resolved,
+        }
+    }
+
     /// Return the selected level used during outlet resolution.
     pub fn selected_level(&self) -> SelectedLevel {
         self.selected_level

@@ -1,8 +1,10 @@
 use hfx_core::{Level, UnitId};
+use shed_core::algo::coord::GeoCoord;
 use shed_core::reader::graph::max_level_from_row_group_statistics;
+use shed_core::resolver::ResolutionMethod;
 use shed_core::session::DatasetSession;
 use shed_core::testutil::DatasetBuilder;
-use shed_core::{Engine, LevelSelection};
+use shed_core::{DelineationOptions, Engine, LevelSelection};
 
 #[test]
 fn finest_level_selection_returns_max_fixture_level() {
@@ -70,4 +72,30 @@ fn graph_row_group_level_statistics_agree_with_stored_session_index() {
         .expect("graph row-group level statistics should read");
 
     assert_eq!(stats_max, session.max_level());
+}
+
+#[test]
+fn default_finest_pip_resolution_prefers_nested_l1_child_over_larger_l0_parent() {
+    let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+    let session = DatasetSession::open_path(&root).expect("nested fixture should open");
+    let engine = Engine::builder(session).build();
+    let outlet = GeoCoord::new(0.5, -0.5);
+
+    let result = engine
+        .delineate(outlet, &DelineationOptions::default())
+        .expect("nested finest-level outlet should delineate");
+
+    assert_eq!(
+        result.terminal_unit_id(),
+        UnitId::new(10).expect("fixture child unit id"),
+        "default finest resolution should choose the L1 child, not the larger L0 parent"
+    );
+    assert_eq!(
+        result.resolution_method(),
+        &ResolutionMethod::PointInPolygon {
+            candidates_considered: 1,
+            tie_break: None,
+        },
+        "the L0 parent has larger area/upstream area but must be filtered out before tie-break"
+    );
 }

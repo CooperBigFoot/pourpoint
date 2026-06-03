@@ -33,7 +33,7 @@ pub use engine::{
 pub use error::SessionError;
 pub use resolver::{
     OutletResolutionError, PipTieBreak, ResolutionMethod, ResolvedOutlet, ResolverConfig,
-    SearchRadiusMetres, SnapStrategy, resolve_outlet,
+    SearchRadiusMetres, SnapStrategy, resolve_outlet, resolve_outlet_at_level,
 };
 pub use source::DatasetSource;
 pub use staged::{

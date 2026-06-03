@@ -16,10 +16,11 @@ use crate::assembly::{AssemblyOptions, assemble_watershed};
 use crate::error::SessionError;
 use crate::reader::catchment_store::CatchmentGeometryQueryError;
 use crate::resolver::{
-    OutletResolutionError, ResolutionMethod, ResolvedOutlet, ResolverConfig, resolve_outlet,
+    OutletResolutionError, ResolutionMethod, ResolvedOutlet, ResolverConfig,
+    resolve_outlet_at_level as resolve_outlet_in_resolver_at_level,
 };
 use crate::session::{DatasetSession, RasterKind};
-use crate::staged::{LevelSelection, RefinementMode, SelectedLevel};
+use crate::staged::{LevelResolvedOutlet, LevelSelection, RefinementMode, SelectedLevel};
 use crate::telemetry::{
     Stage, StageGuard, record_bytes, record_cache_status, record_path, record_requests,
 };
@@ -418,6 +419,24 @@ impl Engine {
         }
     }
 
+    /// Resolve an outlet within a selected HFX drainage-unit level.
+    ///
+    /// # Errors
+    ///
+    /// | Variant | When |
+    /// |---|---|
+    /// | [`EngineError::Resolution`] | Outlet cannot be resolved to an unit |
+    pub fn resolve_outlet_at_level(
+        &self,
+        outlet: GeoCoord,
+        selected_level: SelectedLevel,
+        config: &ResolverConfig,
+    ) -> Result<LevelResolvedOutlet, EngineError> {
+        resolve_outlet_in_resolver_at_level(&self.session, outlet, selected_level, config)
+            .map(|resolved| LevelResolvedOutlet::new(selected_level, resolved))
+            .map_err(|source| EngineError::Resolution { outlet, source })
+    }
+
     /// Delineate the watershed upstream of `outlet`.
     ///
     /// # Errors
@@ -437,12 +456,13 @@ impl Engine {
         outlet: GeoCoord,
         options: &DelineationOptions,
     ) -> Result<DelineationResult, EngineError> {
-        // Step 1: Resolve outlet
-        let resolved = {
+        // Step 1: Select finest level and resolve outlet within that level.
+        let level_resolved = {
             let _guard = StageGuard::enter(Stage::OutletResolve);
-            resolve_outlet(&self.session, outlet, &options.resolver_config)
-                .map_err(|source| EngineError::Resolution { outlet, source })?
+            let selected_level = self.select_level(LevelSelection::Finest)?;
+            self.resolve_outlet_at_level(outlet, selected_level, &options.resolver_config)?
         };
+        let resolved = level_resolved.resolved();
         let terminal = resolved.unit_id;
 
         // Step 2: Upstream traversal
@@ -484,7 +504,7 @@ impl Engine {
                 terminal_unit_id: terminal,
                 input_outlet: resolved.input_coord,
                 resolved_outlet: resolved.resolved_coord,
-                resolution_method: resolved.method,
+                resolution_method: resolved.method.clone(),
                 upstream_unit_ids: upstream.into_unit_ids(),
                 refinement,
                 geometry,

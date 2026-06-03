@@ -16,6 +16,7 @@ use crate::algo::coord::GeoCoord;
 use crate::algo::wkb::{decode_wkb, decode_wkb_multi_polygon};
 use crate::error::SessionError;
 use crate::session::DatasetSession;
+use crate::staged::SelectedLevel;
 
 // ── SearchRadiusMetres ────────────────────────────────────────────────────────
 
@@ -513,6 +514,7 @@ const PIP_BUFFER_M: f64 = 100.0;
 fn resolve_via_pip(
     session: &DatasetSession,
     outlet: GeoCoord,
+    selected_level: Option<SelectedLevel>,
 ) -> Result<ResolvedOutlet, OutletResolutionError> {
     // 1. Build a small search bbox around the outlet.
     let bbox = search_bbox(outlet, PIP_BUFFER_M)?;
@@ -532,7 +534,7 @@ fn resolve_via_pip(
 
     // 4. Decode geometries upfront, skipping failures.
     let mut decode_failures: usize = 0;
-    let decoded: Vec<(&CatchmentUnit, geo::MultiPolygon<f64>)> = candidates
+    let decoded_all_levels: Vec<(&CatchmentUnit, geo::MultiPolygon<f64>)> = candidates
         .iter()
         .filter_map(|unit| match decode_wkb_multi_polygon(unit.geometry()) {
             Ok(mp) => Some((unit, mp)),
@@ -547,6 +549,22 @@ fn resolve_via_pip(
             }
         })
         .collect();
+    let decoded: Vec<(&CatchmentUnit, geo::MultiPolygon<f64>)> =
+        if let Some(selected_level) = selected_level {
+            let selected_level = selected_level.level();
+            let filtered: Vec<_> = decoded_all_levels
+                .into_iter()
+                .filter(|(unit, _)| unit.level() == selected_level)
+                .collect();
+            debug!(
+                selected_level = selected_level.get(),
+                candidate_count = filtered.len(),
+                "PiP candidates filtered to selected level"
+            );
+            filtered
+        } else {
+            decoded_all_levels
+        };
 
     // 5. Convert outlet to geo::Point.
     let point: geo::Point<f64> = outlet.into();
@@ -684,7 +702,38 @@ pub fn resolve_outlet(
         resolve_via_snap(session, outlet, config)
     } else {
         debug!("no snap.parquet, using point-in-polygon resolution path");
-        resolve_via_pip(session, outlet)
+        resolve_via_pip(session, outlet, None)
+    }
+}
+
+/// Resolve a user-provided outlet coordinate within the selected HFX level.
+///
+/// Uses the same snap-vs-PiP dispatch as [`resolve_outlet`]. The PiP branch
+/// filters decoded catchment candidates to `selected_level` before containment
+/// testing and tie-breaking. The snap branch is intentionally unchanged in
+/// this step.
+///
+/// # Errors
+///
+/// | Variant | Condition |
+/// |---|---|
+/// | [`OutletResolutionError::NoSnapCandidates`] | Snap path: no targets within search radius |
+/// | [`OutletResolutionError::OutsideAllCatchments`] | PiP path: outlet not in any selected-level catchment |
+/// | [`OutletResolutionError::DatasetRead`] | Parquet store query failed |
+/// | [`OutletResolutionError::AllGeometriesCorrupt`] | All candidate geometries in the search area failed to decode |
+#[instrument(skip(session, config), fields(outlet = %outlet, selected_level = selected_level.level().get()))]
+pub fn resolve_outlet_at_level(
+    session: &DatasetSession,
+    outlet: GeoCoord,
+    selected_level: SelectedLevel,
+    config: &ResolverConfig,
+) -> Result<ResolvedOutlet, OutletResolutionError> {
+    if session.snap().is_some() {
+        debug!("snap.parquet present, using snap resolution path");
+        resolve_via_snap(session, outlet, config)
+    } else {
+        debug!("no snap.parquet, using selected-level point-in-polygon resolution path");
+        resolve_via_pip(session, outlet, Some(selected_level))
     }
 }
 
