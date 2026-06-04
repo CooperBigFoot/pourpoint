@@ -14,6 +14,7 @@ mod error;
 mod geojson;
 pub(crate) mod kwargs;
 mod result;
+mod staged;
 
 use std::sync::OnceLock;
 
@@ -127,6 +128,13 @@ fn _pyshed(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<engine::PyEngine>()?;
     m.add_class::<result::PyDelineationResult>()?;
     m.add_class::<result::PyAreaOnlyResult>()?;
+    m.add_class::<staged::PySelectedLevel>()?;
+    m.add_class::<staged::PyResolvedOutlet>()?;
+    m.add_class::<staged::PyUpstreamUnits>()?;
+    m.add_class::<staged::PyPreMergeDrainageUnits>()?;
+    m.add_class::<staged::PyPreMergeDrainageUnit>()?;
+    m.add_class::<staged::PyTerminalRefinement>()?;
+    m.add_class::<staged::PyDissolvedWatershed>()?;
     m.add("ShedError", m.py().get_type::<error::ShedError>())?;
     m.add("DatasetError", m.py().get_type::<error::DatasetError>())?;
     m.add(

@@ -63,6 +63,52 @@ class TestSingleDelineation:
             engine.delineate(lat=50.0, lon=50.0)
 
 
+class TestStagedDelineation:
+    """Tests for the typed staged API."""
+
+    def test_manual_staged_composition_matches_delineate(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        direct = engine.delineate(lat=0.20, lon=1.70)
+
+        level = engine.select_level()
+        outlet = engine.resolve_outlet(level, lat=0.20, lon=1.70)
+        upstream = engine.traverse(outlet)
+        units = engine.pre_merge_units(upstream)
+        refinement = engine.refine(outlet, units)
+        dissolved = engine.dissolve(units, refinement)
+        manual = engine.compose_result(outlet, upstream, units, refinement, dissolved)
+
+        assert manual.terminal_unit_id == direct.terminal_unit_id
+        assert manual.input_outlet == direct.input_outlet
+        assert manual.resolved_outlet == direct.resolved_outlet
+        assert manual.upstream_unit_ids == direct.upstream_unit_ids
+        assert manual.area_km2 == pytest.approx(direct.area_km2, rel=1e-9)
+        assert manual.geometry_wkb == direct.geometry_wkb
+
+    def test_staged_missing_kwargs_use_friendly_errors(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        level = engine.select_level()
+        with pytest.raises(TypeError, match="lat"):
+            engine.resolve_outlet(level, lon=1.70)
+        with pytest.raises(TypeError, match="lat"):
+            engine.resolve_outlet(level, lattitude=0.20, lon=1.70)
+
+    def test_staged_wrong_intermediate_type_errors(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        level = engine.select_level()
+        with pytest.raises(TypeError):
+            engine.traverse(level)
+
+    def test_staged_out_of_order_call_errors(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        level = engine.select_level()
+        outlet = engine.resolve_outlet(level, lat=0.20, lon=1.70)
+        upstream = engine.traverse(outlet)
+        units = engine.pre_merge_units(upstream)
+        with pytest.raises(TypeError):
+            engine.dissolve(units, outlet)
+
+
 class TestCoordinateValidation:
     """Tests for coordinate validation (issue 6 fix)."""
 

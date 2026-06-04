@@ -6,15 +6,21 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use shed_core::Engine;
 use shed_core::algo::GeoCoord;
+use shed_core::export::{ExportMethod, FabricIdentity};
 use shed_core::parquet_cache::{
     DEFAULT_PARQUET_CACHE_MAX_BYTES, ParquetFooterCache, ParquetRowGroupCache,
 };
 use shed_core::session::DatasetSession;
+use shed_core::staged::LevelSelection;
 use shed_gdal::{GdalGeometryRepair, GdalRasterSource};
 
 use crate::config::{EngineConfig, RepairGeometry};
 use crate::error::engine_err_to_py;
 use crate::result::{PyAreaOnlyResult, PyDelineationResult};
+use crate::staged::{
+    PyDissolvedWatershed, PyPreMergeDrainageUnits, PyResolvedOutlet, PySelectedLevel,
+    PyTerminalRefinement, PyUpstreamUnits,
+};
 
 const MAX_PARQUET_CACHE_MB: u64 = 1_048_576;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
@@ -79,6 +85,7 @@ enum PyDelineateOutput {
 pub struct PyEngine {
     engine: Arc<Engine>,
     config: EngineConfig,
+    pub(crate) fabric_identity: FabricIdentity,
 }
 
 #[pymethods]
@@ -203,6 +210,7 @@ impl PyEngine {
                 DatasetSession::open_with_caches(&dataset_path, row_group_cache, footer_cache)
             })
             .map_err(crate::error::dataset_err)?;
+        let fabric_identity = FabricIdentity::from_manifest(session.manifest());
 
         let mut builder = Engine::builder(session).with_raster_source(GdalRasterSource::new());
         if config.requests_gdal_geometry_repair() {
@@ -213,7 +221,120 @@ impl PyEngine {
         Ok(Self {
             engine: Arc::new(engine),
             config,
+            fabric_identity,
         })
+    }
+
+    /// Select the finest HFX drainage-unit level for a staged delineation run.
+    fn select_level(&self, py: Python<'_>) -> PyResult<PySelectedLevel> {
+        let engine = self.engine.clone();
+        py.allow_threads(move || engine.select_level(LevelSelection::Finest))
+            .map(PySelectedLevel::from_inner)
+            .map_err(engine_err_to_py)
+    }
+
+    /// Resolve an outlet at a previously selected HFX level.
+    #[pyo3(signature = (level, **kwargs))]
+    fn resolve_outlet(
+        &self,
+        py: Python<'_>,
+        level: &PySelectedLevel,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<PyResolvedOutlet> {
+        const ALLOWED: &[&str] = &["lat", "lon"];
+        crate::kwargs::validate_kwargs(kwargs, ALLOWED, crate::kwargs::KwargContext::Delineate)?;
+        let lat = required_f64_kwarg(kwargs, "lat", "Engine.resolve_outlet()")?;
+        let lon = required_f64_kwarg(kwargs, "lon", "Engine.resolve_outlet()")?;
+        validate_coord(lat, lon)?;
+
+        let engine = self.engine.clone();
+        let selected_level = level.inner;
+        let resolver_config = self
+            .config
+            .to_delineation_options()?
+            .resolver_config()
+            .clone();
+        py.allow_threads(move || {
+            engine.resolve_outlet_at_level(
+                GeoCoord::new(lon, lat),
+                selected_level,
+                &resolver_config,
+            )
+        })
+        .map(PyResolvedOutlet::from_inner)
+        .map_err(engine_err_to_py)
+    }
+
+    /// Traverse same-level upstream units from a resolved outlet.
+    fn traverse(&self, py: Python<'_>, outlet: &PyResolvedOutlet) -> PyResult<PyUpstreamUnits> {
+        let engine = self.engine.clone();
+        let outlet = outlet.inner.clone();
+        py.allow_threads(move || engine.traverse_upstream_at_level(&outlet))
+            .map(PyUpstreamUnits::from_inner)
+            .map_err(engine_err_to_py)
+    }
+
+    /// Materialize whole pre-merge drainage units for a traversal.
+    fn pre_merge_units(
+        &self,
+        py: Python<'_>,
+        upstream: &PyUpstreamUnits,
+    ) -> PyResult<PyPreMergeDrainageUnits> {
+        let engine = self.engine.clone();
+        let upstream = upstream.inner.clone();
+        py.allow_threads(move || engine.produce_pre_merge_units(&upstream))
+            .map(PyPreMergeDrainageUnits::from_inner)
+            .map_err(engine_err_to_py)
+    }
+
+    /// Run terminal refinement against whole pre-merge units.
+    fn refine(
+        &self,
+        py: Python<'_>,
+        outlet: &PyResolvedOutlet,
+        units: &PyPreMergeDrainageUnits,
+    ) -> PyResult<PyTerminalRefinement> {
+        let engine = self.engine.clone();
+        let outlet = outlet.inner.clone();
+        let units = units.inner.clone();
+        let options = self.config.to_delineation_options()?;
+        py.allow_threads(move || engine.refine_terminal_placeholder(&outlet, &units, &options))
+            .map(PyTerminalRefinement::from_inner)
+            .map_err(engine_err_to_py)
+    }
+
+    /// Dissolve pre-merge units into the final watershed geometry.
+    fn dissolve(
+        &self,
+        py: Python<'_>,
+        units: &PyPreMergeDrainageUnits,
+        refinement: &PyTerminalRefinement,
+    ) -> PyResult<PyDissolvedWatershed> {
+        let engine = self.engine.clone();
+        let units = units.inner.clone();
+        let refinement = refinement.inner.clone();
+        let options = self.config.to_delineation_options()?;
+        py.allow_threads(move || engine.dissolve_watershed(&units, &refinement, &options))
+            .map(PyDissolvedWatershed::from_inner)
+            .map_err(engine_err_to_py)
+    }
+
+    /// Compose typed staged intermediates into the same merged result returned by `delineate()`.
+    fn compose_result(
+        &self,
+        outlet: &PyResolvedOutlet,
+        upstream: &PyUpstreamUnits,
+        units: &PyPreMergeDrainageUnits,
+        refinement: &PyTerminalRefinement,
+        dissolved: &PyDissolvedWatershed,
+    ) -> PyDelineationResult {
+        PyDelineationResult::from_result(self.engine.compose_result(
+            outlet.inner.clone(),
+            upstream.inner.clone(),
+            &units.inner,
+            refinement.inner.clone(),
+            dissolved.inner.clone(),
+        ))
     }
 
     /// Delineate the watershed upstream of a single outlet.
@@ -413,6 +534,31 @@ impl PyEngine {
 
         Ok(py_results)
     }
+}
+
+pub(crate) fn default_export_method(config: &EngineConfig) -> PyResult<ExportMethod> {
+    if config.to_delineation_options()?.refinement_mode()
+        == shed_core::staged::RefinementMode::Disabled
+    {
+        Ok(ExportMethod::no_refine())
+    } else {
+        Ok(ExportMethod::d8_best_effort())
+    }
+}
+
+fn required_f64_kwarg(
+    kwargs: Option<&Bound<'_, PyDict>>,
+    name: &str,
+    method: &str,
+) -> PyResult<f64> {
+    kwargs
+        .and_then(|k| k.get_item(name).ok().flatten())
+        .ok_or_else(|| {
+            pyo3::exceptions::PyTypeError::new_err(format!(
+                "{method} missing required keyword argument: '{name}'"
+            ))
+        })?
+        .extract()
 }
 
 /// Sequential per-outlet delineation that fires `cb` after each outlet

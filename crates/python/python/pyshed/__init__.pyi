@@ -97,6 +97,102 @@ class AreaOnlyResult:
     def __repr__(self) -> str: ...
 
 
+class SelectedLevel:
+    @property
+    def level(self) -> int: ...
+
+    def __repr__(self) -> str: ...
+
+
+class ResolvedOutlet:
+    @property
+    def level(self) -> int: ...
+
+    @property
+    def terminal_unit_id(self) -> int: ...
+
+    @property
+    def input_outlet(self) -> tuple[float, float]: ...
+
+    @property
+    def resolved_outlet(self) -> tuple[float, float]: ...
+
+    @property
+    def resolution_method(self) -> str: ...
+
+    def __repr__(self) -> str: ...
+
+
+class UpstreamUnits:
+    @property
+    def terminal_unit_id(self) -> int: ...
+
+    @property
+    def level(self) -> int: ...
+
+    @property
+    def unit_ids(self) -> list[int]: ...
+
+    def __repr__(self) -> str: ...
+
+
+class PreMergeDrainageUnit:
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def level(self) -> int: ...
+
+    @property
+    def area_km2(self) -> float: ...
+
+    @property
+    def up_area_km2(self) -> float | None: ...
+
+    @property
+    def outlet(self) -> tuple[float, float]: ...
+
+    def __repr__(self) -> str: ...
+
+
+class PreMergeDrainageUnits:
+    R3_NOTE: str
+
+    @property
+    def terminal_unit_id(self) -> int: ...
+
+    @property
+    def level(self) -> int: ...
+
+    @property
+    def units(self) -> list[PreMergeDrainageUnit]: ...
+
+    @property
+    def unit_geometry_wkb(self) -> list[bytes]: ...
+
+    def __repr__(self) -> str: ...
+
+
+class TerminalRefinement:
+    @property
+    def status(self) -> Literal["applied", "best_effort_skipped", "disabled"]: ...
+
+    @property
+    def refined_outlet(self) -> tuple[float, float] | None: ...
+
+    def __repr__(self) -> str: ...
+
+
+class DissolvedWatershed:
+    @property
+    def area_km2(self) -> float: ...
+
+    @property
+    def geometry_wkb(self) -> bytes: ...
+
+    def __repr__(self) -> str: ...
+
+
 class Engine:
     def __init__(
         self,
@@ -135,3 +231,30 @@ class Engine:
         *,
         progress: ProgressCallback | None = None,
     ) -> list[DelineationResult]: ...
+
+    def select_level(self) -> SelectedLevel: ...
+
+    def resolve_outlet(
+        self, level: SelectedLevel, *, lat: float, lon: float
+    ) -> ResolvedOutlet: ...
+
+    def traverse(self, outlet: ResolvedOutlet) -> UpstreamUnits: ...
+
+    def pre_merge_units(self, upstream: UpstreamUnits) -> PreMergeDrainageUnits: ...
+
+    def refine(
+        self, outlet: ResolvedOutlet, units: PreMergeDrainageUnits
+    ) -> TerminalRefinement: ...
+
+    def dissolve(
+        self, units: PreMergeDrainageUnits, refinement: TerminalRefinement
+    ) -> DissolvedWatershed: ...
+
+    def compose_result(
+        self,
+        outlet: ResolvedOutlet,
+        upstream: UpstreamUnits,
+        units: PreMergeDrainageUnits,
+        refinement: TerminalRefinement,
+        dissolved: DissolvedWatershed,
+    ) -> DelineationResult: ...
