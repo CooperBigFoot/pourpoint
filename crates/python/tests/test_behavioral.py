@@ -81,7 +81,7 @@ class TestStagedDelineation:
         engine = pyshed.Engine(hfx_dataset)
         direct = engine.delineate(lat=0.20, lon=1.70)
 
-        level = engine.select_level()
+        level = engine.select_level(pyshed.LevelSelection.FINEST)
         outlet = engine.resolve_outlet(level, lat=0.20, lon=1.70)
         upstream = engine.traverse(outlet)
         units = engine.pre_merge_units(upstream)
@@ -95,6 +95,19 @@ class TestStagedDelineation:
         assert manual.upstream_unit_ids == direct.upstream_unit_ids
         assert manual.area_km2 == pytest.approx(direct.area_km2, rel=1e-9)
         assert manual.geometry_wkb == direct.geometry_wkb
+
+    def test_select_level_defaults_to_finest(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        default_level = engine.select_level()
+        explicit_level = engine.select_level(pyshed.LevelSelection.FINEST)
+
+        assert default_level.level == explicit_level.level
+        assert repr(default_level) == repr(explicit_level)
+
+    def test_select_level_rejects_non_level_selection(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        with pytest.raises(TypeError, match="LevelSelection"):
+            engine.select_level("FINEST")
 
     def test_staged_missing_kwargs_use_friendly_errors(self, hfx_dataset):
         engine = pyshed.Engine(hfx_dataset)

@@ -132,6 +132,7 @@ fn _pyshed(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<result::PyDelineationResult>()?;
     m.add_class::<result::PyAreaOnlyResult>()?;
     m.add_class::<result::PyDelineationUnitMetadata>()?;
+    m.add_class::<staged::PyLevelSelection>()?;
     m.add_class::<staged::PySelectedLevel>()?;
     m.add_class::<staged::PyResolvedOutlet>()?;
     m.add_class::<staged::PyUpstreamUnits>()?;

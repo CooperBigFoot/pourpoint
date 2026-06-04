@@ -137,7 +137,7 @@ swallowed and logged; they do not interrupt the batch.
 `delineate()` is the convenience composition of the staged API:
 
 ```python
-level = engine.select_level()
+level = engine.select_level(selection=pyshed.LevelSelection.FINEST)
 outlet = engine.resolve_outlet(level, lat=47.3769, lon=8.5417)
 upstream = engine.traverse(outlet)
 units = engine.pre_merge_units(upstream)
@@ -145,6 +145,9 @@ refinement = engine.refine(outlet, units)
 dissolved = engine.dissolve(units, refinement)
 result = engine.compose_result(outlet, upstream, units, refinement, dissolved)
 ```
+
+`LevelSelection.FINEST` is the only level selection in 0.2.0; multi-level
+selection is on the roadmap.
 
 `result` matches `engine.delineate(lat=47.3769, lon=8.5417)`. The merged result
 exposes final `geometry_wkb`, final `area_km2`, and light per-unit metadata

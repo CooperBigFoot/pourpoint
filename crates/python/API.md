@@ -180,7 +180,7 @@ Without `progress`, the batch runs in parallel via Rayon.
 `Engine.delineate()` is equivalent to this staged composition:
 
 ```python
-level = engine.select_level()
+level = engine.select_level(selection=LevelSelection.FINEST)
 outlet = engine.resolve_outlet(level, lat=47.3769, lon=8.5417)
 upstream = engine.traverse(outlet)
 units = engine.pre_merge_units(upstream)
@@ -200,13 +200,16 @@ wrong object type raises `TypeError`.
 
 | Method | Returns | Meaning |
 |---|---|---|
-| `select_level()` | `SelectedLevel` | Selects the finest loaded HFX level |
+| `select_level(selection=LevelSelection.FINEST)` | `SelectedLevel` | Selects the finest loaded HFX level |
 | `resolve_outlet(level, *, lat, lon)` | `ResolvedOutlet` | Resolves an outlet at that level |
 | `traverse(outlet)` | `UpstreamUnits` | Traverses same-level upstream unit IDs |
 | `pre_merge_units(upstream)` | `PreMergeDrainageUnits` | Materializes whole source drainage units and whole-unit WKB |
 | `refine(outlet, units)` | `TerminalRefinement` | Runs or skips terminal refinement based on engine config and dataset auxiliaries |
 | `dissolve(units, refinement)` | `DissolvedWatershed` | Produces the final merged geometry and area |
 | `compose_result(...)` | `DelineationResult` | Packages the same merged result shape returned by `delineate()` |
+
+`LevelSelection.FINEST` is the only valid selection in 0.2.0. Multi-level
+selection is on the roadmap.
 
 R3 note: `PreMergeDrainageUnits` contains whole source drainage units, including
 the whole terminal unit. When terminal refinement is applied, summing or

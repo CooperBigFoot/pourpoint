@@ -11,15 +11,14 @@ use shed_core::parquet_cache::{
     DEFAULT_PARQUET_CACHE_MAX_BYTES, ParquetFooterCache, ParquetRowGroupCache,
 };
 use shed_core::session::DatasetSession;
-use shed_core::staged::LevelSelection;
 use shed_gdal::{GdalGeometryRepair, GdalRasterSource};
 
 use crate::config::{EngineConfig, RepairGeometry};
 use crate::error::engine_err_to_py;
 use crate::result::{PyAreaOnlyResult, PyDelineationResult};
 use crate::staged::{
-    PyDissolvedWatershed, PyPreMergeDrainageUnits, PyResolvedOutlet, PySelectedLevel,
-    PyTerminalRefinement, PyUpstreamUnits,
+    PyDissolvedWatershed, PyLevelSelection, PyPreMergeDrainageUnits, PyResolvedOutlet,
+    PySelectedLevel, PyTerminalRefinement, PyUpstreamUnits,
 };
 
 const MAX_PARQUET_CACHE_MB: u64 = 1_048_576;
@@ -225,10 +224,19 @@ impl PyEngine {
         })
     }
 
-    /// Select the finest HFX drainage-unit level for a staged delineation run.
-    fn select_level(&self, py: Python<'_>) -> PyResult<PySelectedLevel> {
+    /// Select an HFX drainage-unit level for a staged delineation run.
+    ///
+    /// `LevelSelection.FINEST` is the only valid selection in 0.2.0; multi-level
+    /// selection is planned for a later release.
+    #[pyo3(signature = (selection = PyLevelSelection::Finest))]
+    fn select_level(
+        &self,
+        py: Python<'_>,
+        selection: PyLevelSelection,
+    ) -> PyResult<PySelectedLevel> {
         let engine = self.engine.clone();
-        py.allow_threads(move || engine.select_level(LevelSelection::Finest))
+        let core_selection = selection.into();
+        py.allow_threads(move || engine.select_level(core_selection))
             .map(PySelectedLevel::from_inner)
             .map_err(engine_err_to_py)
     }

@@ -39,6 +39,12 @@ class ResolutionError(ShedError): ...
 class AssemblyError(ShedError): ...
 
 
+class LevelSelection:
+    FINEST: LevelSelection
+
+    def __eq__(self, other: object) -> bool: ...
+
+
 class DelineationResult:
     @property
     def terminal_unit_id(self) -> int: ...
@@ -287,7 +293,9 @@ class Engine:
         progress: ProgressCallback | None = None,
     ) -> list[DelineationResult]: ...
 
-    def select_level(self) -> SelectedLevel: ...
+    def select_level(
+        self, selection: LevelSelection = LevelSelection.FINEST
+    ) -> SelectedLevel: ...
 
     def resolve_outlet(
         self, level: SelectedLevel, *, lat: float, lon: float

@@ -4,9 +4,26 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use shed_core::algo::encode_wkb_multi_polygon;
 use shed_core::staged::{
-    DissolvedWatershed, LevelResolvedOutlet, PreMergeDrainageUnits, SameLevelUpstreamUnits,
-    SelectedLevel, TerminalRefinement,
+    DissolvedWatershed, LevelResolvedOutlet, LevelSelection, PreMergeDrainageUnits,
+    SameLevelUpstreamUnits, SelectedLevel, TerminalRefinement,
 };
+
+/// Python-visible HFX level selection.
+#[pyclass(name = "LevelSelection", eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PyLevelSelection {
+    /// Select the finest loaded HFX drainage-unit level.
+    #[pyo3(name = "FINEST")]
+    Finest,
+}
+
+impl From<PyLevelSelection> for LevelSelection {
+    fn from(selection: PyLevelSelection) -> Self {
+        match selection {
+            PyLevelSelection::Finest => LevelSelection::Finest,
+        }
+    }
+}
 
 /// Python-visible wrapper around a selected HFX level.
 #[pyclass(name = "SelectedLevel")]
