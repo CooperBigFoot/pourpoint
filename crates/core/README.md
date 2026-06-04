@@ -193,12 +193,12 @@ terminals; it verifies only that the typed ambiguity boundary is surfaced.
 
 | Term | Meaning |
 |---|---|
-| Atom | Fundamental spatial unit in HFX — one catchment polygon with an ID, area, and WKB geometry |
-| AtomId | Unique positive `i64` identifier for an atom (newtype in `hfx_core`) |
+| Unit | Fundamental spatial unit in HFX — one catchment polygon with an ID, area, and WKB geometry |
+| UnitId | Unique positive `i64` identifier for a unit (newtype in `hfx_core`) |
 | D8 | Eight-direction flow model where each raster cell drains to exactly one of its 8 neighbours |
 | ESRI D8 | D8 encoding using powers of two: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128 |
 | TauDEM D8 | D8 encoding counter-clockwise from east: E=1, NE=2, N=3, NW=4, W=5, SW=6, S=7, SE=8 |
-| Upstream set | All atoms reachable via upstream adjacency from a terminal atom, inclusive of the terminal itself |
+| Upstream set | All units reachable via upstream adjacency from a terminal unit, inclusive of the terminal itself |
 | Pour point | The outlet cell of a watershed — the single cell where flow exits the catchment |
 | Snap | Moving a pour point to the nearest high-accumulation cell within a catchment mask |
 | SnapThreshold | Minimum flow-accumulation pixel count a cell must exceed to be a snap candidate |
@@ -236,8 +236,7 @@ terminals; it verifies only that the typed ambiguity boundary is surfaced.
 | `SnappedPoint` | `algo/snap.rs` | Result of a successful pour-point snap (grid cell + geo coord + accumulation) |
 | `snap_pour_point` | `algo/snap.rs` | Snap outlet to nearest masked cell above `SnapThreshold` |
 | `trace_upstream` | `algo/trace.rs` | DFS upstream traversal returning a `CatchmentMask` |
-| `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` — returns `UpstreamAtoms` |
-| `UpstreamAtoms` | `algo/upstream.rs` | Terminal atom + full upstream set with O(1) membership check |
+| `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` |
 | `dissolve` | `algo/dissolve.rs` | Parallel boolean union of polygon slices |
 | `RasterSource` | `algo/traits.rs` | Trait for windowed GeoTIFF reads; implemented by `shed-gdal::GdalRasterSource` |
 | `GeometryRepair` | `algo/traits.rs` | Trait for geometry repair; implemented by `shed-gdal::GdalGeometryRepair` |

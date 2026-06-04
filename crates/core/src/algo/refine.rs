@@ -1,4 +1,4 @@
-//! Terminal atom raster refinement.
+//! Terminal unit raster refinement.
 //!
 //! Refines a coarse terminal polygon into a precise watershed by:
 //! 1. Rasterizing the terminal polygon onto the flow raster grid.
@@ -15,7 +15,7 @@
 //!
 //! This implementation masks **both** tiles, so the trace is strictly contained
 //! within the terminal polygon. This guarantees the refined polygon is a
-//! sub-polygon of the coarse terminal, preventing overlap with upstream atoms
+//! sub-polygon of the coarse terminal, preventing overlap with upstream units
 //! in Component 6's dissolve step. The tradeoff is that raster-supported area
 //! outside the coarse boundary is lost — if the coarse polygon is too tight,
 //! refinement can only shrink, never correct outward.
@@ -36,7 +36,7 @@ use crate::algo::tile_state::Raw;
 use crate::algo::trace::trace_upstream;
 use crate::algo::traits::{RasterSource, RasterSourceError};
 
-/// Errors from terminal atom raster refinement.
+/// Errors from terminal unit raster refinement.
 #[derive(Debug, thiserror::Error)]
 pub enum RefinementError {
     /// Flow direction and accumulation tiles have different grid dimensions.
@@ -119,7 +119,7 @@ impl From<RasterSourceError> for RefinementError {
     }
 }
 
-/// Result of a successful terminal atom refinement.
+/// Result of a successful terminal unit refinement.
 #[derive(Debug, Clone)]
 pub struct RefinementResult {
     snapped_point: SnappedPoint,
