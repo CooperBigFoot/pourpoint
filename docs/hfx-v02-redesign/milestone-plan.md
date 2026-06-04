@@ -1,5 +1,13 @@
 # shed HFX v0.2 Redesign Milestone Plan
 
+> **Status: COMPLETE.** M1–M5 closed at `shed v0.1.156` (2026-06-04). The
+> recommended first vertical slice (v0.2 loading → staged inspection →
+> D8-as-default behind a trait, parity-green) plus the documented basin
+> GeoParquet export all landed. Deferred to separate design sessions: full pyshed
+> redesign, aux→strategy binding, level-selection strategies, Python-authored
+> strategies. Per-milestone disposition trails live alongside this file
+> (`m1-` … `m5-step-plan.md` / `-critique.md`).
+
 This plan breaks the `shed` HFX v0.2 redesign into independently verifiable
 vertical slices. It incorporates the critique in
 `docs/hfx-v02-redesign/milestone-plan-critique.md`: the hfx-core v0.2.1 type
@@ -328,50 +336,106 @@ This proves the first complete recommended slice: v0.2 loading, staged
 inspection, D8-as-default behind a trait, manifest-declared raster access, and
 parity-green final geometry.
 
-### M5 - Rust Core API Cutover And Campaign Boundary
+### M5 - Rust Core API Cutover, Basin GeoParquet Export, And Campaign Boundary
 
-Goal: make the Rust core redesign coherent as the new public surface and record
-what is intentionally deferred.
+Goal: make the Rust core redesign coherent as the new public surface, ship the
+documented basin GeoParquet export, and record what is intentionally deferred.
+
+Detailed execution lives in
+`docs/hfx-v02-redesign/m5-step-plan.md`. The already-converged export sub-plan
+lives in `docs/hfx-v02-redesign/m5-export-plan.md` as E1-E9 and is folded into
+this milestone without renumbering.
 
 Scope:
 
-- Stabilize result types for terminal unit, resolved outlet, upstream
-  drainage-unit records, refinement provenance, final geometry, and area.
-- Document intentional divergence: pristine pre-refinement unit records may not
-  union or sum to final refined geometry/area.
-- Ensure telemetry and error names match the staged pipeline.
-- Update migration notes: v0.1 input unsupported, HFX v0.2.1 required.
-- Document that pyshed redesign is deferred even though thin bindings were kept
-  compiling in M2.
-- Ensure every implementation commit includes a patch bump and tag per
-  `CLAUDE.md`.
+- Phase A: stabilize/audit result types for terminal unit, resolved outlet,
+  upstream drainage-unit records, refinement provenance, final geometry, and
+  area. Core `DelineationResult` is already unit-named; M5 locks that surface
+  rather than churning it.
+- Phase A: document intentional R3 divergence: pristine pre-refinement unit
+  records may not union or sum to final refined geometry/area.
+- Phase A: ensure telemetry and error names match the staged pipeline.
+- Phase B: mechanically rename the remaining public atom vocabulary in CLI JSON
+  keys, pyshed thin bindings, pyshed GeoJSON keys, repr strings, and stale core
+  docs/comments. This is an output-contract change:
+  `terminal_atom_id` becomes `terminal_unit_id`, and `upstream_atom_count`
+  becomes `upstream_unit_count`.
+- Phase C: implement basin GeoParquet export exactly as E1-E9 in
+  `m5-export-plan.md`: documented format, export identity types, spatial/Hilbert
+  utilities, schema/footer metadata, row-group planner, batch writer, small
+  golden fixture, optional thin CLI wrapper, and closure docs.
+- Phase D: update migration notes: v0.1 input unsupported, HFX v0.2.1 required,
+  export is a documented shed format rather than a versioned open spec, and
+  deferred work is explicitly ledgered.
+- Ensure every implementation commit includes a patch bump and `v*` tag per
+  `CLAUDE.md`. The pyshed mechanical rename rides in workspace commits only; do
+  not cut a `pyshed-v*` release in M5.
+
+Sequencing:
+
+1. W1 core stabilization and R3/telemetry/error audit.
+2. W1 mechanical atom-to-unit rename across CLI, pyshed thin bindings, and core
+   docs/comments.
+3. W2 export E1-E9 in the order already specified by `m5-export-plan.md`.
+4. W1 migration/deferral closure and W2 E9 closure together, ending in one full
+   green workspace gate.
 
 Explicit non-scope:
 
-- pyshed redesign is deferred to a separate campaign/design session.
+- Full pyshed redesign is deferred to a separate campaign/design session.
 - Full aux-to-strategy binding is deferred.
 - Python-authored strategies are deferred.
 - Level-selection strategies beyond default finest are deferred.
+- Additional blessed refinement strategies are deferred.
+- Versioned export-spec machinery and conformance suite are not part of M5.
+- No delineation behavior, canonicalizer, staged-contract, M1 golden, or M4
+  carve-output changes.
 
 Gate:
 
 ```bash
 cargo build --workspace --exclude pyshed
+cargo check -p pyshed
 cargo test -p shed-core
-rg "atom|Atom" crates/core/src crates/core/README.md docs/hfx-v02-redesign
+cargo test --workspace --exclude pyshed --no-run
+cargo test -p shed-core --test parity_golden_artifacts
+cargo test -p shed-core --test staged_delineation
+cargo test -p shed-core --test d8_refinement_parity
+test -z "$(rg -n '\b[Aa]tom' crates/core/src crates/core/README.md | rg -v '\bAtomic[A-Za-z0-9_]*|\batomic\b')"
+test -z "$(rg -n '\b[Aa]tom|terminal_atom_id|upstream_atom_ids|upstream_atom_count' src crates/python/src crates/python/python/pyshed/__init__.pyi crates/python/API.md crates/python/README.md | rg -v '\bAtomic[A-Za-z0-9_]*|\batomic\b')"
+test -z "$(rg -n 'terminal_atom_id|upstream_atom_ids|upstream_atom_count' src crates/python)"
+test -n "$(printf 'crates/core/README.md:1:terminal atom leak\n' | rg -v '\bAtomic[A-Za-z0-9_]*|\batomic\b')"
+rg -n "HFX v0\\.2\\.1|required|v0\\.1.*unsupported" docs/hfx-v02-redesign
+rg -n "pyshed.*deferred|aux.*binding.*deferred|Python-authored.*deferred|level-selection.*deferred" docs/hfx-v02-redesign
+test -f docs/basin-geoparquet-export.md
+cargo test -p shed-core export_identity
+cargo test -p shed-core export_spatial
+cargo test -p shed-core export_schema
+cargo test -p shed-core export_row_groups
+cargo test -p shed-core export_writer
+cargo test -p shed-core export_golden
 ```
 
-The grep gate must have an explicit allowlist for historical fixture names or
-quoted migration notes only; no core public engine result method may expose
-`atom` terminology for drainage units. A docs-presence check must verify that
-the migration docs state the hard cut to HFX v0.2.1 and list deferred pyshed,
-aux-binding, Python-authored strategy, and non-finest level-selection work.
+If E8 lands, add:
+
+```bash
+cargo test --workspace --exclude pyshed cli_export
+```
+
+The hardened grep gates are split by surface. The hard no-domain-atom checks
+cover live/public core, CLI, and pyshed surfaces only; planning and critique
+docs are not in that hard gate because they must describe the migration. The
+only filtered hits are std `Atomic*`/`atomic` identifiers, and the planted-leak
+negative proof keeps the filter from masking `terminal atom` regressions.
+`algo/refine.rs` is not allowlisted: M5 renames only its stale doc comments and
+proves byte identity by re-running `d8_refinement_parity` and
+`parity_golden_artifacts`.
 
 Why it is a vertical slice:
 
 This proves the Rust core redesign is usable, inspectable, named consistently,
-and ready to hand off to separate pyshed and aux-binding design work without
-leaving a red workspace.
+has a documented and tested persistence/export surface, and is ready to hand off
+to separate pyshed and aux-binding design work without leaving a red workspace.
 
 ## 2. Ordering Justification
 
