@@ -10,7 +10,7 @@ per-commit Rust crate versioning).
 - Added `LevelSelection.FINEST` and the explicit
   `Engine.select_level(selection=...)` parameter.
 
-## [0.2.0rc1] - 2026-06-04
+## [0.2.0rc2] - 2026-06-04
 
 - requires HFX v0.2.1; v0.1 no longer loads
 - new: staged sub-function API + unit-bundle GeoParquet export.
