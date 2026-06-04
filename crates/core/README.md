@@ -87,6 +87,10 @@ graph TD
     reader --> graph[graph.rs\ndecode graph.arrow]
     reader --> catchment[catchment_store.rs\nlazy Parquet reader]
     reader --> snap[snap_store.rs\nlazy Parquet reader]
+    reader --> d8decl[hfx.aux.d8_raster.v1\nD8 declarations]
+    session --> refinement[refinement.rs\nterminal strategy seam]
+    refinement --> d8strategy[BuiltInD8 strategy\nD8-only pantry]
+    d8strategy --> session
 
     algo[algo/] --> foundation[Foundation Types\ncoord · area · distance\ngeo_transform · flow_dir\nsnap_threshold · clean_epsilon\ntile_state]
     algo --> raster_infra[Raster Infrastructure\nraster_tile · flow_direction_tile\naccumulation_tile · catchment_mask]
@@ -103,16 +107,18 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant S as DatasetSession
+    participant R as BuiltInD8 strategy
     participant T as RasterSource (shed-gdal)
     participant A as algo/
 
     S->>S: open() — validate layout, load graph, prepare Parquet readers
-    S->>A: terminal refinement strategy seam
-    A->>S: localize declared D8 raster windows
+    S->>R: terminal refinement strategy seam
+    R->>S: select inclusive covering D8 declaration
+    R->>S: localize declared D8 raster windows
     S->>T: load_flow_direction(bbox)
     S->>T: load_accumulation(bbox)
-    T-->>A: FlowDirectionTile<Raw>
-    T-->>A: AccumulationTile<Raw>
+    T-->>R: FlowDirectionTile<Raw>
+    T-->>R: AccumulationTile<Raw>
     A->>A: rasterize_polygon → CatchmentMask
     A->>A: AccumulationTile.apply_mask → AccumulationTile<Masked>
     A->>A: snap_pour_point → SnappedPoint
@@ -121,6 +127,57 @@ sequenceDiagram
     A->>A: dissolve → MultiPolygon
     A->>A: WatershedGeometry pipeline → Polygon
 ```
+
+## M4 Refinement Scope
+
+M4 ships exactly one blessed terminal-refinement strategy: built-in D8 raster
+refinement. The current pantry is intentionally D8-only. Full auxiliary
+schema-to-strategy binding, reverse-DNS auxiliary parsing, Python-authored
+strategies, and additional blessed strategies are deferred.
+
+The built-in D8 carve sequence is fixed as:
+
+```text
+rasterize terminal -> mask flow-dir + accumulation -> snap -> masked trace -> polygonize
+```
+
+There is no vector clamp, intersection, or cleaning pass in the refinement
+algorithm. Final watershed assembly is always merge-after: preserve pristine
+pre-merge unit records for inspection, exclude the whole terminal from final
+assembly, insert the refined terminal geometry, and then dissolve/assemble. This
+is why the R3 disagreement is intentional: pre-merge terminal geometry and area
+can differ from the final refined geometry and `area_km2`.
+
+D8 tile coverage uses inclusive rectangle semantics, so exact bbox equality and
+edge-touching count. This is only a rectangular-extent selection policy. It
+cannot disambiguate overlapping irregular Pfaf basins: real MERIT-Hydro
+`merit/0.2.0` for `rhine_basel` surfaces `AmbiguousD8Coverage` because multiple
+per-Pfaf-02 D8 raster declarations fully cover the terminal bbox by rectangular
+extent. The MERIT adapter is correct; overlapping extents are expected Pfaf
+geometry with nodata outside each basin. shed correctly refuses to guess. A
+real-data carve for those terminals is deferred pending a nodata or
+basin-membership disambiguation policy.
+
+Offline M4 gate:
+
+```bash
+cargo build --workspace --exclude pyshed
+cargo check -p pyshed
+cargo test -p shed-core --test d8_refinement_parity
+cargo test -p shed-core --test d8_aux_accessor
+cargo test -p shed-core --test parity_golden_artifacts
+cargo test -p shed-core --test staged_delineation
+```
+
+Network-gated boundary proof:
+
+```bash
+SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
+```
+
+Release note: M4 verifies the offline D8 strategy seam and synthetic parity
+goldens. It does not verify successful real-data carve on overlapping-Pfaf
+terminals; it verifies only that the typed ambiguity boundary is surfaced.
 
 ## Glossary
 

@@ -44,12 +44,15 @@ canonicalizer version and invalidates captured goldens.
 
 ## Commands
 
-Offline comparison gate:
+Offline M4 gate:
 
 ```bash
-cargo build -p shed-core
-cargo test -p shed-core --test parity_v01_oracle_capture
+cargo build --workspace --exclude pyshed
+cargo check -p pyshed
+cargo test -p shed-core --test d8_refinement_parity
+cargo test -p shed-core --test d8_aux_accessor
 cargo test -p shed-core --test parity_golden_artifacts
+cargo test -p shed-core --test staged_delineation
 ```
 
 Network-gated capture and refresh:
@@ -60,6 +63,12 @@ SHED_PARITY_R2_CAPTURE=1 cargo test -p shed-core --test parity_v01_oracle_captur
 
 Golden refresh is intentionally explicit. Do not regenerate or re-bless M1
 goldens during offline comparison work.
+
+Network-gated M4 ambiguity-boundary proof:
+
+```bash
+SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
+```
 
 ## Synthetic Refined Raster Fixture
 
@@ -93,6 +102,23 @@ The B TIFFs are the deterministic, byte-identical M1-to-M4 parity path. For M4
 real-data D8 parity, use `merit/0.2.0`; `merit-basins/0.1.0` is the M1
 real-data v0.1 oracle C input, not the M4 v0.2.1 target.
 
+M4 ships exactly one blessed strategy: built-in D8 raster refinement. The pantry
+is D8-only. Full aux-to-strategy binding, reverse-DNS aux parsing,
+Python-authored strategies, and additional blessed strategies are deferred.
+
+The real carve sequence is:
+
+```text
+rasterize -> mask flow-dir + accumulation -> snap -> masked trace -> polygonize
+```
+
+There is no clamp, intersection, or cleaning stage in the D8 carve. Final
+watershed assembly is always merge-after: pristine pre-merge unit records remain
+available for inspection, then final assembly excludes the whole terminal,
+inserts the refined terminal geometry, and dissolves. The R3 disagreement is
+therefore intentional: pre-merge terminal records can disagree with final
+refined geometry and `area_km2`.
+
 M4's real-data D8 proof is now an ambiguity-boundary proof, not a successful
 carve assertion. It is both `#[ignore]`d and env-gated, so offline tests compile
 it but do not open the network:
@@ -107,12 +133,17 @@ expects format version `0.2.1`, 60 `hfx.aux.d8_raster.v1` declarations under
 `rhine_basel` terminal bbox, proves D8 selection uses bounded extent-header
 reads rather than legacy root `flow_dir.tif`/`flow_acc.tif` downloads, and then
 asserts that shed surfaces typed `AmbiguousD8Coverage` for overlapping Pfaf
-declarations instead of silently choosing a tile. This is a known M4 boundary:
-MERIT-Hydro D8 rasters are per-Pfaf-02 basin windows with nodata outside each
-irregular basin, so rectangular extents can legitimately overlap. Real-data D8
-carve on such terminals is deferred until shed has a nodata or basin-membership
-tile-selection policy. When that policy lands, upgrade this proof to assert a
-successful contained carve.
+declarations instead of silently choosing a tile. D8 coverage uses inclusive
+rectangle semantics, so exact bbox equality and edge-touching count. This is a
+known M4 boundary: MERIT-Hydro D8 rasters are per-Pfaf-02 basin windows with
+nodata outside each irregular basin, so rectangular extents can legitimately
+overlap. The merit adapter is correct; this is a shed consumer-side selection
+gap. Real-data D8 carve on such terminals is deferred until shed has a nodata or
+basin-membership tile-selection policy. When that policy lands, upgrade this
+proof to assert a successful contained carve.
+
+Release note: successful real-data carve on overlapping-Pfaf terminals was not
+verified in M4. The network proof verifies only the typed ambiguity boundary.
 
 GDAL parity proof command:
 
