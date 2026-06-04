@@ -2,6 +2,8 @@
 
 ## HFX v0.2.1 Hard Cut
 
+HFX v0.2.1 required; HFX v0.1 input unsupported.
+
 HFX v0.2.1 is required for shed M5. HFX v0.1 input datasets are unsupported:
 the loader rejects v0.1 manifests before attempting later required field checks.
 
@@ -16,6 +18,26 @@ the loader rejects v0.1 manifests before attempting later required field checks.
 | pyshed result property | `upstream_atom_ids` | `upstream_unit_ids` |
 | pyshed GeoJSON properties | `terminal_atom_id` | `terminal_unit_id` |
 | pyshed GeoJSON properties | `upstream_atom_count` | `upstream_unit_count` |
+
+## Basin GeoParquet Export Surface
+
+M5 adds a basin GeoParquet export surface for shed-produced basin outlines. This
+is additive to delineation; it does not change HFX input loading, staged
+inspection, refinement, or final watershed geometry behavior.
+
+The export is a documented shed output format, not a versioned spec. It writes
+OGC WKB basin geometries with a GeoParquet footer and deterministic Hilbert
+ordering, and `docs/basin-geoparquet-export.md` is the reader-facing format
+document for M5.
+
+## Deferral Ledger
+
+- full pyshed redesign (inspectable stages, strategy menu, Python-authored strategy callbacks, Python export API) - deferred
+- full aux-to-strategy binding - deferred
+- Python-authored strategies - deferred
+- level-selection strategies beyond default finest - deferred
+- additional blessed refinement strategies - deferred
+- versioned export spec / conformance suite - deferred
 
 ## Live-Surface Gates
 
