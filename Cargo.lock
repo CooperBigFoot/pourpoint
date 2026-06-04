@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "shed"
-version = "0.1.147"
+version = "0.1.152"
 dependencies = [
  "anyhow",
  "assert_cmd",

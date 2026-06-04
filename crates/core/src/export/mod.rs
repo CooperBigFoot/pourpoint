@@ -1,10 +1,12 @@
 //! Basin GeoParquet export helpers.
 
 pub mod identity;
+pub mod row_groups;
 pub mod schema;
 pub mod spatial;
 
 pub use identity::{BasinId, DelineationLabel, ExportMethod, ExportOrigin, FabricIdentity};
+pub use row_groups::{RowGroupPlan, plan_row_groups};
 pub use schema::{BasinExportSchemaProfile, basin_export_schema, geo_footer_json};
 pub use spatial::{
     BasinBbox, BasinCentroid, BasinSpatialSortKey, HilbertIndex, basin_bbox, basin_centroid,
