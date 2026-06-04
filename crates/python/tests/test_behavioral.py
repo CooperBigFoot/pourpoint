@@ -108,6 +108,41 @@ class TestStagedDelineation:
         with pytest.raises(TypeError):
             engine.dissolve(units, outlet)
 
+    def test_merged_result_is_lean_and_pre_merge_bundle_is_heavy(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        result = engine.delineate(lat=0.20, lon=1.70)
+        level = engine.select_level()
+        outlet = engine.resolve_outlet(level, lat=0.20, lon=1.70)
+        upstream = engine.traverse(outlet)
+        units = engine.pre_merge_units(upstream)
+
+        assert isinstance(result.geometry_wkb, bytes)
+        assert result.upstream_units
+        first = result.upstream_units[0]
+        assert isinstance(first, pyshed.DelineationUnitMetadata)
+        assert first.id in result.upstream_unit_ids
+        assert first.area_km2 > 0
+        assert not hasattr(first, "geometry_wkb")
+        assert not hasattr(result, "unit_geometry_wkb")
+
+        whole_unit_wkb = units.unit_geometry_wkb
+        assert len(whole_unit_wkb) == len(units.units)
+        assert all(isinstance(wkb, bytes) and wkb for wkb in whole_unit_wkb)
+
+    def test_pre_merge_bundle_documents_r3_divergence(self, hfx_dataset):
+        engine = pyshed.Engine(hfx_dataset)
+        direct = engine.delineate(lat=0.20, lon=1.70)
+        level = engine.select_level()
+        outlet = engine.resolve_outlet(level, lat=0.20, lon=1.70)
+        upstream = engine.traverse(outlet)
+        units = engine.pre_merge_units(upstream)
+
+        assert "R3" in pyshed.PreMergeDrainageUnits.R3_NOTE
+        assert "whole terminal" in pyshed.PreMergeDrainageUnits.R3_NOTE
+        assert "r3_note" in repr(units)
+        source_unit_area_sum = sum(unit.area_km2 for unit in units.units)
+        assert source_unit_area_sum != pytest.approx(direct.area_km2, rel=1e-9)
+
 
 class TestCoordinateValidation:
     """Tests for coordinate validation (issue 6 fix)."""

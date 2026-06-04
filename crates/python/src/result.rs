@@ -26,6 +26,11 @@ impl PyDelineationResult {
             geometry_wkb: OnceLock::new(),
         }
     }
+
+    /// Return the wrapped core result for internal Python binding modules.
+    pub(crate) fn inner(&self) -> &DelineationResult {
+        &self.inner
+    }
 }
 
 /// Python-visible wrapper around [`DelineationAreaOnlyResult`].
@@ -39,6 +44,17 @@ impl PyAreaOnlyResult {
     pub fn from_result(result: DelineationAreaOnlyResult) -> Self {
         Self { inner: result }
     }
+}
+
+/// Light Python value for upstream unit metadata retained on a merged result.
+#[pyclass(name = "DelineationUnitMetadata")]
+#[derive(Clone)]
+pub struct PyDelineationUnitMetadata {
+    id: i64,
+    level: i16,
+    area_km2: f64,
+    up_area_km2: Option<f64>,
+    outlet: (f64, f64),
 }
 
 #[pymethods]
@@ -83,6 +99,22 @@ impl PyDelineationResult {
             .upstream_unit_ids()
             .iter()
             .map(|id| id.get())
+            .collect()
+    }
+
+    /// Light upstream unit metadata without per-unit geometries.
+    #[getter]
+    fn upstream_units(&self) -> Vec<PyDelineationUnitMetadata> {
+        self.inner
+            .upstream_units()
+            .iter()
+            .map(|unit| PyDelineationUnitMetadata {
+                id: unit.id().get(),
+                level: unit.level().get(),
+                area_km2: f64::from(unit.area().get()),
+                up_area_km2: unit.up_area().map(|area| f64::from(area.get())),
+                outlet: (unit.outlet().lon(), unit.outlet().lat()),
+            })
             .collect()
     }
 
@@ -137,6 +169,46 @@ impl PyDelineationResult {
             self.inner.terminal_unit_id().get(),
             self.inner.area_km2().as_f64(),
             self.inner.upstream_unit_ids().len(),
+        )
+    }
+}
+
+#[pymethods]
+impl PyDelineationUnitMetadata {
+    /// Drainage unit ID.
+    #[getter]
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    /// HFX drainage-unit level.
+    #[getter]
+    fn level(&self) -> i16 {
+        self.level
+    }
+
+    /// Local drainage area from `catchments.parquet`.
+    #[getter]
+    fn area_km2(&self) -> f64 {
+        self.area_km2
+    }
+
+    /// Total upstream drainage area from `catchments.parquet`, if present.
+    #[getter]
+    fn up_area_km2(&self) -> Option<f64> {
+        self.up_area_km2
+    }
+
+    /// Declared outlet coordinate as `(lon, lat)`.
+    #[getter]
+    fn outlet(&self) -> (f64, f64) {
+        self.outlet
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DelineationUnitMetadata(id={}, level={}, area_km2={:.2})",
+            self.id, self.level, self.area_km2
         )
     }
 }
