@@ -354,8 +354,12 @@ pub enum TerminalRefinementError {
     EmptyContainedTerminalGeometry,
 
     /// Fired when a required raster source is absent.
-    #[error("terminal refinement strategy {strategy:?} requires a raster source")]
+    #[error(
+        "terminal refinement strategy {strategy:?} requires a raster source for unit {unit_id}"
+    )]
     RasterSource {
+        /// Terminal drainage-unit ID.
+        unit_id: i64,
         /// Strategy that required raster access.
         strategy: RefinementStrategyName,
     },

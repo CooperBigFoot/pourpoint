@@ -5,8 +5,15 @@ use geo::{Rect, coord};
 use hfx_core::FlowDirEncoding;
 use serde_json::{Value, json};
 use shed_core::algo::coord::GeoCoord;
+use shed_core::algo::{
+    AccumulationTile, FlowDirectionTile, RasterSource, RasterSourceError, Raw,
+    canonical_wkb_multi_polygon,
+};
 use shed_core::session::{DatasetSession, RasterKind};
-use shed_core::{DelineationOptions, Engine, RefinementMode, RefinementOutcome, SessionError};
+use shed_core::{
+    BestEffortSkipReason, DelineationOptions, Engine, EngineError, RefinementMode,
+    RefinementOutcome, RefinementProvenance, RefinementStrategyName, SessionError,
+};
 use tempfile::TempDir;
 use tiff::encoder::{TiffEncoder, colortype};
 use tiff::tags::Tag;
@@ -114,6 +121,81 @@ fn refine_off_still_dissolves_whole_terminal_with_legacy_engine_behavior() {
     assert!(result.area_km2().as_f64() > 0.0);
 }
 
+#[test]
+fn require_d8_without_declared_aux_hard_errors_with_schema_name() {
+    let (_tmp, root) = copied_fixture();
+    remove_d8_aux(&root);
+    let session = DatasetSession::open_path(&root).expect("temp fixture without D8 should open");
+    let engine = Engine::builder(session).build();
+    let options = DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8);
+
+    let err = engine
+        .delineate(GeoCoord::new(2.5, -2.5), &options)
+        .expect_err("RequireD8 should fail when no D8 aux is declared");
+
+    assert!(matches!(err, EngineError::D8Selection { .. }));
+    assert!(err.to_string().contains("hfx.aux.d8_raster.v1"));
+}
+
+#[test]
+fn best_effort_without_declared_aux_visibly_skips_and_dissolves_whole_terminal() {
+    let (_tmp, root) = copied_fixture();
+    remove_d8_aux(&root);
+    let best_effort = {
+        let session = DatasetSession::open_path(&root).expect("temp fixture should open");
+        Engine::builder(session)
+            .build()
+            .delineate(GeoCoord::new(2.5, -2.5), &DelineationOptions::default())
+            .expect("BestEffort with no D8 aux should succeed")
+    };
+    let disabled = {
+        let session = DatasetSession::open_path(&root).expect("temp fixture should reopen");
+        Engine::builder(session)
+            .build()
+            .delineate(
+                GeoCoord::new(2.5, -2.5),
+                &DelineationOptions::default().with_refinement_mode(RefinementMode::Disabled),
+            )
+            .expect("Disabled should succeed")
+    };
+
+    assert_eq!(
+        best_effort.refinement(),
+        &RefinementOutcome::BestEffortSkipped {
+            provenance: RefinementProvenance::BestEffortSkipped {
+                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+                why: BestEffortSkipReason::NoD8AuxDeclared,
+            },
+        }
+    );
+    assert_eq!(
+        canonical_wkb_multi_polygon(best_effort.geometry())
+            .expect("BestEffort geometry should canonicalize"),
+        canonical_wkb_multi_polygon(disabled.geometry())
+            .expect("Disabled geometry should canonicalize")
+    );
+}
+
+#[test]
+fn selected_d8_read_failure_hard_errors_under_best_effort_and_require_d8() {
+    for mode in [RefinementMode::BestEffort, RefinementMode::RequireD8] {
+        let session = DatasetSession::open_path(&fixture_path()).expect("fixture should open");
+        let engine = Engine::builder(session)
+            .with_raster_source(FailingRasterSource)
+            .build();
+        let options = DelineationOptions::default().with_refinement_mode(mode);
+
+        let err = engine
+            .delineate(GeoCoord::new(2.5, -2.5), &options)
+            .expect_err("selected but unreadable D8 should hard-error");
+
+        assert!(
+            matches!(err, EngineError::Refinement { .. }),
+            "expected refinement read failure under {mode:?}, got {err:?}"
+        );
+    }
+}
+
 fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_DIR)
 }
@@ -192,6 +274,30 @@ fn remove_d8_aux(root: &Path) {
 enum FarRasterKind {
     FlowDir,
     FlowAcc,
+}
+
+struct FailingRasterSource;
+
+impl RasterSource for FailingRasterSource {
+    fn load_flow_direction(
+        &self,
+        uri: &str,
+        _bbox: &Rect<f64>,
+    ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+        Err(RasterSourceError::FileNotFound {
+            path: uri.to_string(),
+        })
+    }
+
+    fn load_accumulation(
+        &self,
+        uri: &str,
+        _bbox: &Rect<f64>,
+    ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+        Err(RasterSourceError::FileNotFound {
+            path: uri.to_string(),
+        })
+    }
 }
 
 fn write_far_away_tiff(path: &Path, kind: FarRasterKind) {

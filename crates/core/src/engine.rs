@@ -327,6 +327,15 @@ pub enum EngineError {
         source: SessionError,
     },
 
+    /// Fired when D8 refinement is required but no raster source is attached.
+    #[error(
+        "required auxiliary schema hfx.aux.d8_raster.v1 selected for unit {unit_id}, but no raster source is attached"
+    )]
+    RequiredD8RasterSourceMissing {
+        /// The raw unit ID for which required D8 refinement was attempted.
+        unit_id: i64,
+    },
+
     /// Fired when the raster-based terminal refinement step fails.
     #[error("terminal refinement failed for unit {unit_id}: {source}")]
     Refinement {
@@ -674,11 +683,18 @@ impl Engine {
         options: &DelineationOptions,
     ) -> Result<TerminalRefinement, EngineError> {
         let terminal = units.terminal();
-        if options.refinement_mode == RefinementMode::Disabled {
-            return Ok(TerminalRefinement::Disabled);
-        }
-        if !self.session.has_d8_aux() {
-            return Ok(TerminalRefinement::best_effort_no_d8_aux_declared());
+        match options.refinement_mode {
+            RefinementMode::Disabled => return Ok(TerminalRefinement::Disabled),
+            RefinementMode::BestEffort if !self.session.has_d8_aux() => {
+                return Ok(TerminalRefinement::best_effort_no_d8_aux_declared());
+            }
+            RefinementMode::RequireD8 if !self.session.has_d8_aux() => {
+                return Err(EngineError::D8Selection {
+                    unit_id: terminal.get(),
+                    source: SessionError::MissingRequiredD8Aux,
+                });
+            }
+            RefinementMode::BestEffort | RefinementMode::RequireD8 => {}
         }
 
         let terminal_polygon = units
@@ -703,10 +719,11 @@ impl Engine {
             raster_source: self.raster_source.as_deref(),
         };
 
-        self.refinement_strategy
+        let decision = self
+            .refinement_strategy
             .refine_terminal(input, &pantry)
-            .map(terminal_refinement_from_decision)
-            .map_err(EngineError::from)
+            .map_err(EngineError::from)?;
+        terminal_refinement_from_decision(decision, options.refinement_mode, terminal)
     }
 
     /// Dissolve pre-merge drainage-unit geometries into the final watershed.
@@ -942,20 +959,28 @@ fn refinement_outcome_from_terminal(refinement: &TerminalRefinement) -> Refineme
     }
 }
 
-fn terminal_refinement_from_decision(decision: TerminalRefinementDecision) -> TerminalRefinement {
+fn terminal_refinement_from_decision(
+    decision: TerminalRefinementDecision,
+    mode: RefinementMode,
+    terminal: UnitId,
+) -> Result<TerminalRefinement, EngineError> {
     match decision {
         TerminalRefinementDecision::Applied {
             refined_outlet,
             geometry,
             provenance,
-        } => TerminalRefinement::Applied {
+        } => Ok(TerminalRefinement::Applied {
             refined_outlet,
             geometry,
             provenance,
+        }),
+        TerminalRefinementDecision::BestEffortSkipped { provenance } => match mode {
+            RefinementMode::BestEffort => Ok(TerminalRefinement::BestEffortSkipped { provenance }),
+            RefinementMode::RequireD8 => Err(EngineError::RequiredD8RasterSourceMissing {
+                unit_id: terminal.get(),
+            }),
+            RefinementMode::Disabled => Ok(TerminalRefinement::Disabled),
         },
-        TerminalRefinementDecision::BestEffortSkipped { provenance } => {
-            TerminalRefinement::BestEffortSkipped { provenance }
-        }
     }
 }
 
@@ -966,15 +991,9 @@ impl From<TerminalRefinementError> for EngineError {
                 unit_id: 0,
                 source: RefinementError::EmptyPolygonization,
             },
-            TerminalRefinementError::RasterSource { strategy } => EngineError::Refinement {
-                unit_id: 0,
-                source: RefinementError::RasterLoad {
-                    source: crate::algo::RasterSourceError::ReadFailed {
-                        path: format!("{strategy:?}"),
-                        reason: "missing raster source".to_string(),
-                    },
-                },
-            },
+            TerminalRefinementError::RasterSource { unit_id, .. } => {
+                EngineError::RequiredD8RasterSourceMissing { unit_id }
+            }
             TerminalRefinementError::D8Selection { unit_id, source } => {
                 EngineError::D8Selection { unit_id, source }
             }

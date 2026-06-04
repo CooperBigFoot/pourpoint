@@ -113,6 +113,8 @@ impl SelectedLevel {
 pub enum RefinementMode {
     /// Try raster refinement when the dataset and engine provide raster inputs.
     BestEffort,
+    /// Require declared D8 raster refinement and fail if it cannot be applied.
+    RequireD8,
     /// Skip terminal refinement and dissolve whole drainage-unit polygons.
     Disabled,
 }

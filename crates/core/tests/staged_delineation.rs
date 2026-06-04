@@ -205,6 +205,52 @@ fn staged_refine_terminal_placeholder_best_effort_no_rasters() {
 }
 
 #[test]
+fn staged_require_d8_no_declared_aux_hard_errors_with_schema_name() {
+    let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+    let session = DatasetSession::open_path(&root).expect("nested fixture should open");
+    let engine = Engine::builder(session).build();
+    let (resolved, pre_merge) = pre_merge_for_nested_fixture(&engine);
+    let options = DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8);
+
+    let err = engine
+        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .expect_err("RequireD8 should fail when hfx.aux.d8_raster.v1 is absent");
+
+    assert!(matches!(err, EngineError::D8Selection { .. }));
+    assert!(err.to_string().contains("hfx.aux.d8_raster.v1"));
+}
+
+#[test]
+fn staged_require_d8_declared_aux_without_raster_source_hard_errors() {
+    let session = DatasetSession::open_path(&parity_fixture_path(V021_SYNTHETIC_REFINED_DIR))
+        .expect("v0.2.1 converted parity fixture should open");
+    let engine = Engine::builder(session).build();
+    let selected = engine
+        .select_level(LevelSelection::Finest)
+        .expect("finest level should resolve");
+    let resolved = engine
+        .resolve_outlet_at_level(GeoCoord::new(2.5, -2.5), selected, &Default::default())
+        .expect("fixture outlet should resolve");
+    let upstream = engine
+        .traverse_upstream_at_level(&resolved)
+        .expect("same-level traversal should succeed");
+    let pre_merge = engine
+        .produce_pre_merge_units(&upstream)
+        .expect("pre-merge units should materialize");
+    let options = DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8);
+
+    let err = engine
+        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .expect_err("RequireD8 should fail when no raster source is attached");
+
+    assert!(matches!(
+        err,
+        EngineError::RequiredD8RasterSourceMissing { unit_id: 1 }
+    ));
+    assert!(err.to_string().contains("hfx.aux.d8_raster.v1"));
+}
+
+#[test]
 fn staged_dissolve_is_byte_identical_across_permuted_four_thread_runs() {
     let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
     let session = DatasetSession::open_path(&root).expect("nested fixture should open");
