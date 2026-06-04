@@ -36,6 +36,7 @@ test-fixtures = []
 criterion = "0.5"
 shed-core = { path = ".", features = ["test-fixtures"] }
 tempfile = "3"
+tiff = "0.9"
 tracing-core = "0.1"
 
 [[example]]

@@ -15,8 +15,11 @@ use tracing::{debug, info, instrument};
 use url::Url;
 
 use crate::cache::{ArtifactMeta, RemoteArtifactCache, ValidationSidecar};
-use crate::cog::{LocalizedRasterWindow, RasterWindowRequest};
-use crate::error::SessionError;
+use crate::cog::{
+    CogExtent, EXTENT_HEADER_RANGE_BYTES, LocalizedRasterWindow, RasterWindowRequest,
+    read_local_extent, read_remote_extent,
+};
+use crate::error::{CacheError, SessionError};
 use crate::parquet_cache::{
     DEFAULT_PARQUET_CACHE_MAX_BYTES, ParquetFooterCache, ParquetRowGroupCache,
 };
@@ -25,6 +28,7 @@ use crate::reader;
 use crate::reader::catchment_store::CatchmentStore;
 use crate::reader::manifest::{AuxDeclarations, SnapDecl};
 use crate::reader::snap_store::SnapStore;
+use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
 use crate::source::{DatasetSource, shed_get_ranges_concurrency};
 use crate::source_telemetry::{HttpStatsHandle, HttpStatsSnapshot};
@@ -627,6 +631,11 @@ impl DatasetSession {
         self.raster_paths.as_ref()
     }
 
+    /// Return whether the manifest declares blessed D8 raster auxiliary data.
+    pub fn has_d8_aux(&self) -> bool {
+        !self.aux_declarations.d8_rasters.is_empty()
+    }
+
     /// Return object-store request counters when network benchmarking is enabled.
     pub fn http_stats(&self) -> Option<HttpStatsSnapshot> {
         self.http_stats.as_ref().map(HttpStatsHandle::snapshot)
@@ -681,9 +690,155 @@ impl DatasetSession {
         Ok(LocalizedRasterWindow::cached(path))
     }
 
+    /// Select the single blessed-D8 declaration whose raster extents cover `bbox`.
+    ///
+    /// Coverage uses inclusive closed rectangles so equality and edge-touching
+    /// count as intersection/containment.
+    pub fn select_d8_raster_for_bbox(
+        &self,
+        bbox: Rect<f64>,
+    ) -> Result<D8RasterHandle, SessionError> {
+        if self.aux_declarations.d8_rasters.is_empty() {
+            return Err(SessionError::MissingRequiredD8Aux);
+        }
+
+        let mut intersecting = Vec::new();
+        let mut covering = Vec::new();
+        for (index, decl) in self.aux_declarations.d8_rasters.iter().enumerate() {
+            let flow_dir_extent = self.d8_extent(index, RasterKind::FlowDir, &decl.flow_dir)?;
+            if !rects_intersect_inclusive(&flow_dir_extent.rect(), &bbox) {
+                continue;
+            }
+            let flow_acc_extent = self.d8_extent(index, RasterKind::FlowAcc, &decl.flow_acc)?;
+            if rects_intersect_inclusive(&flow_acc_extent.rect(), &bbox) {
+                intersecting.push(index);
+            }
+            if rect_contains_inclusive(&flow_dir_extent.rect(), &bbox)
+                && rect_contains_inclusive(&flow_acc_extent.rect(), &bbox)
+            {
+                covering.push(self.d8_handle(index)?);
+            }
+        }
+
+        match covering.len() {
+            1 => Ok(covering.remove(0)),
+            n if n > 1 => Err(SessionError::AmbiguousD8Coverage {
+                min_x: bbox.min().x,
+                min_y: bbox.min().y,
+                max_x: bbox.max().x,
+                max_y: bbox.max().y,
+                declaration_indices: covering
+                    .iter()
+                    .map(D8RasterHandle::declaration_index)
+                    .collect(),
+            }),
+            _ if intersecting.len() > 1 => Err(SessionError::TerminalSpansD8Tiles {
+                min_x: bbox.min().x,
+                min_y: bbox.min().y,
+                max_x: bbox.max().x,
+                max_y: bbox.max().y,
+                declaration_indices: intersecting,
+            }),
+            _ => Err(SessionError::NoCoveringD8Tile {
+                min_x: bbox.min().x,
+                min_y: bbox.min().y,
+                max_x: bbox.max().x,
+                max_y: bbox.max().y,
+            }),
+        }
+    }
+
+    /// Return a local filesystem path for a window of the selected D8 declaration.
+    pub fn localize_d8_raster_window(
+        &self,
+        handle: &D8RasterHandle,
+        kind: RasterKind,
+        bbox: Rect<f64>,
+    ) -> Result<LocalizedRasterWindow, SessionError> {
+        if let (Some(cache), Some(store), Some(_root)) = (
+            self.raster_cache.as_ref(),
+            self.remote_store.as_ref(),
+            self.remote_root.as_ref(),
+        ) {
+            let remote_path = selected_remote_path(handle, kind).ok_or_else(|| {
+                SessionError::integrity("selected D8 handle has no remote object-store path")
+            })?;
+            let request = RasterWindowRequest::new(kind, bbox);
+            let (fabric_name, adapter_version) = &self.fabric_cache_key;
+            return RT
+                .block_on(cache.get_or_fetch_window(
+                    store.as_ref(),
+                    remote_path,
+                    &request,
+                    fabric_name,
+                    adapter_version,
+                ))
+                .map_err(SessionError::from);
+        }
+
+        if self.raster_cache.is_some() || self.remote_store.is_some() || self.remote_root.is_some()
+        {
+            return Err(SessionError::integrity(
+                "remote raster localization state is incomplete",
+            ));
+        }
+
+        Ok(LocalizedRasterWindow::cached(PathBuf::from(selected_uri(
+            handle, kind,
+        ))))
+    }
+
     /// Return the dataset root directory path.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    fn d8_extent(
+        &self,
+        declaration_index: usize,
+        kind: RasterKind,
+        decl_path: &str,
+    ) -> Result<CogExtent, SessionError> {
+        if let (Some(store), Some(root)) = (self.remote_store.as_ref(), self.remote_root.as_ref()) {
+            let remote_path = remote_artifact_path(root, decl_path);
+            return RT
+                .block_on(read_remote_extent(store.as_ref(), &remote_path))
+                .map_err(|source| map_extent_error(declaration_index, kind, decl_path, source));
+        }
+
+        let path = self.root.join(decl_path);
+        read_local_extent(&path).map_err(|source| {
+            map_extent_error(declaration_index, kind, &path.display().to_string(), source)
+        })
+    }
+
+    fn d8_handle(&self, declaration_index: usize) -> Result<D8RasterHandle, SessionError> {
+        let decl = self
+            .aux_declarations
+            .d8_rasters
+            .get(declaration_index)
+            .ok_or_else(|| SessionError::integrity("selected D8 declaration index is absent"))?;
+        if let Some(root) = self.remote_root.as_ref() {
+            let flow_dir_path = remote_artifact_path(root, &decl.flow_dir);
+            let flow_acc_path = remote_artifact_path(root, &decl.flow_acc);
+            return Ok(D8RasterHandle::new(
+                declaration_index,
+                remote_artifact_url_string_from_root(&self.root, &decl.flow_dir),
+                remote_artifact_url_string_from_root(&self.root, &decl.flow_acc),
+                Some(flow_dir_path),
+                Some(flow_acc_path),
+                decl.flow_dir_encoding,
+            ));
+        }
+
+        Ok(D8RasterHandle::new(
+            declaration_index,
+            raster_uri_string(&self.root.join(&decl.flow_dir)),
+            raster_uri_string(&self.root.join(&decl.flow_acc)),
+            None,
+            None,
+            decl.flow_dir_encoding,
+        ))
     }
 }
 
@@ -704,6 +859,66 @@ fn raster_uri_string(path: &Path) -> String {
 
 fn remote_artifact_url_string(url: &Url, artifact: &str) -> String {
     format!("{}/{}", url.as_str().trim_end_matches('/'), artifact)
+}
+
+fn remote_artifact_url_string_from_root(root: &Path, artifact: &str) -> String {
+    format!(
+        "{}/{}",
+        root.display().to_string().trim_end_matches('/'),
+        artifact
+    )
+}
+
+fn selected_uri(handle: &D8RasterHandle, kind: RasterKind) -> &str {
+    match kind {
+        RasterKind::FlowDir => handle.flow_dir_uri(),
+        RasterKind::FlowAcc => handle.flow_acc_uri(),
+    }
+}
+
+fn selected_remote_path(handle: &D8RasterHandle, kind: RasterKind) -> Option<&ObjectPath> {
+    match kind {
+        RasterKind::FlowDir => handle.remote_flow_dir_path(),
+        RasterKind::FlowAcc => handle.remote_flow_acc_path(),
+    }
+}
+
+fn map_extent_error(
+    declaration_index: usize,
+    kind: RasterKind,
+    path: &str,
+    source: CacheError,
+) -> SessionError {
+    match &source {
+        CacheError::UnsupportedCog { reason, .. } if reason.contains("extent header too large") => {
+            SessionError::CogExtentHeaderTooLarge {
+                declaration_index,
+                kind,
+                path: path.to_string(),
+                limit_bytes: EXTENT_HEADER_RANGE_BYTES,
+            }
+        }
+        _ => SessionError::CogExtentHeaderRead {
+            declaration_index,
+            kind,
+            path: path.to_string(),
+            source,
+        },
+    }
+}
+
+fn rect_contains_inclusive(container: &Rect<f64>, candidate: &Rect<f64>) -> bool {
+    candidate.min().x >= container.min().x
+        && candidate.min().y >= container.min().y
+        && candidate.max().x <= container.max().x
+        && candidate.max().y <= container.max().y
+}
+
+fn rects_intersect_inclusive(a: &Rect<f64>, b: &Rect<f64>) -> bool {
+    a.min().x <= b.max().x
+        && a.max().x >= b.min().x
+        && a.min().y <= b.max().y
+        && a.max().y >= b.min().y
 }
 
 fn validate_local_aux_paths(root: &Path, aux: &AuxDeclarations) -> Result<(), SessionError> {

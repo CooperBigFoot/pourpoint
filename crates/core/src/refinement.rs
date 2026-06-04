@@ -1,7 +1,9 @@
 //! Terminal refinement strategy contract and provenance types.
 
 use geo::MultiPolygon;
+use hfx_core::FlowDirEncoding;
 use hfx_core::UnitId;
+use object_store::path::Path as ObjectPath;
 
 use crate::algo::coord::GeoCoord;
 use crate::algo::{RasterSource, RefinementError, SnapThreshold};
@@ -49,6 +51,68 @@ pub struct D8RefinementPantry<'a> {
     pub session: &'a DatasetSession,
     /// Engine-attached raster source, if available.
     pub raster_source: Option<&'a (dyn RasterSource + Send + Sync)>,
+}
+
+/// Typed handle for one selected blessed-D8 raster declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct D8RasterHandle {
+    declaration_index: usize,
+    flow_dir_uri: String,
+    flow_acc_uri: String,
+    remote_flow_dir_path: Option<ObjectPath>,
+    remote_flow_acc_path: Option<ObjectPath>,
+    flow_dir_encoding: FlowDirEncoding,
+}
+
+impl D8RasterHandle {
+    /// Construct a D8 handle after path resolution and coverage checks pass.
+    pub(crate) fn new(
+        declaration_index: usize,
+        flow_dir_uri: String,
+        flow_acc_uri: String,
+        remote_flow_dir_path: Option<ObjectPath>,
+        remote_flow_acc_path: Option<ObjectPath>,
+        flow_dir_encoding: FlowDirEncoding,
+    ) -> Self {
+        Self {
+            declaration_index,
+            flow_dir_uri,
+            flow_acc_uri,
+            remote_flow_dir_path,
+            remote_flow_acc_path,
+            flow_dir_encoding,
+        }
+    }
+
+    /// Return the zero-based declaration index from manifest order.
+    pub fn declaration_index(&self) -> usize {
+        self.declaration_index
+    }
+
+    /// Return the resolved flow-direction raster URI.
+    pub fn flow_dir_uri(&self) -> &str {
+        &self.flow_dir_uri
+    }
+
+    /// Return the resolved flow-accumulation raster URI.
+    pub fn flow_acc_uri(&self) -> &str {
+        &self.flow_acc_uri
+    }
+
+    /// Return the selected remote flow-direction object-store path, if remote.
+    pub fn remote_flow_dir_path(&self) -> Option<&ObjectPath> {
+        self.remote_flow_dir_path.as_ref()
+    }
+
+    /// Return the selected remote flow-accumulation object-store path, if remote.
+    pub fn remote_flow_acc_path(&self) -> Option<&ObjectPath> {
+        self.remote_flow_acc_path.as_ref()
+    }
+
+    /// Return the declared flow-direction encoding.
+    pub fn flow_dir_encoding(&self) -> FlowDirEncoding {
+        self.flow_dir_encoding
+    }
 }
 
 /// Refined terminal polygon produced by the built-in D8 carve.

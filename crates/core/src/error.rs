@@ -435,6 +435,88 @@ pub enum SessionError {
     /// Fired when reading from or writing to a specialized cache fails.
     #[error(transparent)]
     Cache(#[from] CacheError),
+
+    /// Fired when a required blessed D8 raster declaration is absent.
+    #[error("required auxiliary schema hfx.aux.d8_raster.v1 is not declared")]
+    MissingRequiredD8Aux,
+
+    /// Fired when no single D8 declaration covers a terminal bbox.
+    #[error("no D8 raster declaration covers terminal bbox [{min_x}, {min_y}, {max_x}, {max_y}]")]
+    NoCoveringD8Tile {
+        /// Terminal bbox minimum x.
+        min_x: f64,
+        /// Terminal bbox minimum y.
+        min_y: f64,
+        /// Terminal bbox maximum x.
+        max_x: f64,
+        /// Terminal bbox maximum y.
+        max_y: f64,
+    },
+
+    /// Fired when multiple D8 declarations fully cover a terminal bbox.
+    #[error(
+        "ambiguous D8 coverage for terminal bbox [{min_x}, {min_y}, {max_x}, {max_y}]: declarations {declaration_indices:?}"
+    )]
+    AmbiguousD8Coverage {
+        /// Terminal bbox minimum x.
+        min_x: f64,
+        /// Terminal bbox minimum y.
+        min_y: f64,
+        /// Terminal bbox maximum x.
+        max_x: f64,
+        /// Terminal bbox maximum y.
+        max_y: f64,
+        /// Candidate declaration indices that fully cover the bbox.
+        declaration_indices: Vec<usize>,
+    },
+
+    /// Fired when the terminal bbox intersects multiple D8 declarations but no
+    /// single declaration fully covers it.
+    #[error(
+        "terminal bbox [{min_x}, {min_y}, {max_x}, {max_y}] spans multiple D8 declarations {declaration_indices:?}; mosaicking is not implemented"
+    )]
+    TerminalSpansD8Tiles {
+        /// Terminal bbox minimum x.
+        min_x: f64,
+        /// Terminal bbox minimum y.
+        min_y: f64,
+        /// Terminal bbox maximum x.
+        max_x: f64,
+        /// Terminal bbox maximum y.
+        max_y: f64,
+        /// Intersecting declaration indices.
+        declaration_indices: Vec<usize>,
+    },
+
+    /// Fired when bounded COG extent-header reading fails for a declaration.
+    #[error(
+        "failed to read D8 COG extent header for declaration {declaration_index} {kind:?} at {path}: {source}"
+    )]
+    CogExtentHeaderRead {
+        /// Zero-based D8 declaration index in manifest order.
+        declaration_index: usize,
+        /// Raster kind whose extent was being read.
+        kind: crate::session::RasterKind,
+        /// Resolved raster path or URI.
+        path: String,
+        /// Underlying cache/COG error.
+        source: CacheError,
+    },
+
+    /// Fired when the initial bounded extent range is too small for the COG IFD.
+    #[error(
+        "D8 COG extent header for declaration {declaration_index} {kind:?} at {path} exceeds bounded range of {limit_bytes} bytes"
+    )]
+    CogExtentHeaderTooLarge {
+        /// Zero-based D8 declaration index in manifest order.
+        declaration_index: usize,
+        /// Raster kind whose extent was being read.
+        kind: crate::session::RasterKind,
+        /// Resolved raster path or URI.
+        path: String,
+        /// Maximum range size used for extent reads.
+        limit_bytes: u64,
+    },
 }
 
 impl SessionError {

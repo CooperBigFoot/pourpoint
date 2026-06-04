@@ -24,6 +24,13 @@ use crate::error::CacheError;
 use crate::session::RasterKind;
 
 const HEADER_RANGE_BYTES: u64 = 16 * 1024 * 1024;
+/// Bounded range for D8 declaration extent reads.
+///
+/// Selecting among 60 D8 declarations may inspect roughly 60 object `head`
+/// responses plus 60 small range reads before fetching any selected window.
+/// Keeping this at 256 KiB bounds worst-case pre-selection range transfer near
+/// 15 MiB and fails loudly when an IFD is too far from the TIFF header.
+pub(crate) const EXTENT_HEADER_RANGE_BYTES: u64 = 256 * 1024;
 const MODEL_PIXEL_SCALE_TAG: Tag = Tag::ModelPixelScaleTag;
 const MODEL_TIEPOINT_TAG: Tag = Tag::ModelTiepointTag;
 const GEO_KEY_DIRECTORY_TAG: Tag = Tag::GeoKeyDirectoryTag;
@@ -49,7 +56,7 @@ impl RasterWindowRequest {
 
 /// A local GeoTIFF window and the remote bytes used to produce it.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct LocalizedRasterWindow {
+pub struct LocalizedRasterWindow {
     path: PathBuf,
     header_bytes: u64,
     tile_bytes: u64,
@@ -68,23 +75,23 @@ impl LocalizedRasterWindow {
         }
     }
 
-    pub(crate) fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
-    pub(crate) fn header_bytes(&self) -> u64 {
+    pub fn header_bytes(&self) -> u64 {
         self.header_bytes
     }
 
-    pub(crate) fn tile_bytes(&self) -> u64 {
+    pub fn tile_bytes(&self) -> u64 {
         self.tile_bytes
     }
 
-    pub(crate) fn tile_count(&self) -> usize {
+    pub fn tile_count(&self) -> usize {
         self.tile_count
     }
 
-    pub(crate) fn window_pixels(&self) -> u64 {
+    pub fn window_pixels(&self) -> u64 {
         self.window_pixels
     }
 }
@@ -113,6 +120,18 @@ pub(crate) struct CogMetadata {
     predictor: u16,
     tile_offsets: Vec<u64>,
     tile_byte_counts: Vec<u64>,
+}
+
+/// Spatial extent decoded from a GeoTIFF header.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CogExtent {
+    rect: Rect<f64>,
+}
+
+impl CogExtent {
+    pub(crate) fn rect(&self) -> Rect<f64> {
+        self.rect
+    }
 }
 
 impl CogMetadata {
@@ -283,6 +302,107 @@ pub(crate) async fn prepare_window(
         metadata,
         window,
         plan,
+    })
+}
+
+/// Read only the bounded COG header range needed for raster extent selection.
+pub(crate) async fn read_remote_extent(
+    store: &dyn ObjectStore,
+    remote_path: &ObjectPath,
+) -> Result<CogExtent, CacheError> {
+    let object_meta = store
+        .head(remote_path)
+        .await
+        .map_err(|source| CacheError::ObjectStore {
+            path: remote_path.clone(),
+            source,
+        })?;
+    let object_size = object_meta.size as u64;
+    let header_end = min(EXTENT_HEADER_RANGE_BYTES, object_size);
+    let header = store
+        .get_range(remote_path, 0..header_end)
+        .await
+        .map_err(|source| CacheError::ObjectStore {
+            path: remote_path.clone(),
+            source,
+        })?;
+    let reader = RangeBackedTiffReader::new(object_size, vec![(0..header_end, header)]);
+    match read_extent(reader, &remote_path.as_ref().to_string()) {
+        Ok(extent) => Ok(extent),
+        Err(CacheError::Tiff { .. }) if object_size > header_end => {
+            Err(CacheError::UnsupportedCog {
+                path: remote_path.clone(),
+                reason: format!(
+                    "extent header too large for bounded {} byte range",
+                    EXTENT_HEADER_RANGE_BYTES
+                ),
+            })
+        }
+        Err(source) => Err(source),
+    }
+}
+
+/// Read only local GeoTIFF header tags needed for raster extent selection.
+pub(crate) fn read_local_extent(path: &Path) -> Result<CogExtent, CacheError> {
+    let file = File::open(path).map_err(|source| CacheError::Io {
+        op: "open",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    read_extent(file, &path.display().to_string())
+}
+
+fn read_extent<R>(reader: R, path: &str) -> Result<CogExtent, CacheError>
+where
+    R: Read + Seek,
+{
+    let mut decoder = Decoder::new(reader).map_err(|source| CacheError::Tiff {
+        path: path.to_string(),
+        source,
+    })?;
+    let (width, height) = decoder.dimensions().map_err(|source| CacheError::Tiff {
+        path: path.to_string(),
+        source,
+    })?;
+    let scale = decoder
+        .get_tag_f64_vec(MODEL_PIXEL_SCALE_TAG)
+        .map_err(|source| CacheError::Tiff {
+            path: path.to_string(),
+            source,
+        })?;
+    let tiepoint = decoder
+        .get_tag_f64_vec(MODEL_TIEPOINT_TAG)
+        .map_err(|source| CacheError::Tiff {
+            path: path.to_string(),
+            source,
+        })?;
+    if scale.len() < 2 || tiepoint.len() < 6 {
+        return Err(CacheError::UnsupportedCog {
+            path: ObjectPath::from(path.to_string()),
+            reason: "missing GeoTIFF model scale or tiepoint values".to_string(),
+        });
+    }
+
+    let origin_x = tiepoint[3] - tiepoint[0] * scale[0];
+    let origin_y = tiepoint[4] + tiepoint[1] * scale[1];
+    let pixel_width = scale[0];
+    let pixel_height = -scale[1];
+    if pixel_width <= 0.0 || pixel_height >= 0.0 {
+        return Err(CacheError::UnsupportedCog {
+            path: ObjectPath::from(path.to_string()),
+            reason: "only north-up rasters with positive x and negative y pixels are supported"
+                .to_string(),
+        });
+    }
+    let min_x = origin_x;
+    let max_x = origin_x + f64::from(width) * pixel_width;
+    let max_y = origin_y;
+    let min_y = origin_y + f64::from(height) * pixel_height;
+    Ok(CogExtent {
+        rect: Rect::new(
+            geo::coord! { x: min_x, y: min_y },
+            geo::coord! { x: max_x, y: max_y },
+        ),
     })
 }
 

@@ -28,13 +28,14 @@ pub mod test_raster_source;
 #[allow(deprecated)]
 pub mod testutil;
 
+pub use cog::LocalizedRasterWindow;
 pub use engine::{
     DelineationOptions, DelineationResult, Engine, EngineBuilder, EngineError, RefinementOutcome,
 };
 pub use error::SessionError;
 pub use refinement::{
-    AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, D8RefinementPantry,
-    RefinementProvenance, RefinementStrategyName, TerminalRefinementDecision,
+    AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle,
+    D8RefinementPantry, RefinementProvenance, RefinementStrategyName, TerminalRefinementDecision,
     TerminalRefinementError, TerminalRefinementInput, TerminalRefinementStrategy,
 };
 pub use resolver::{
