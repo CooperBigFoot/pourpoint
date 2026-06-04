@@ -890,3 +890,165 @@ mod export_writer_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod export_golden_tests {
+    use std::fs::File;
+    use std::path::PathBuf;
+
+    use arrow::array::{Array, BinaryArray, Float32Array, StringArray};
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    use parquet::file::reader::{FileReader, SerializedFileReader};
+    use serde_json::{Value, json};
+
+    const FIXTURE_PATH: &str = "tests/fixtures/export/basin-geoparquet-golden.parquet";
+
+    #[test]
+    fn export_golden_fixture_reads_with_standard_parquet_arrow_path() {
+        let batches = read_batches(fixture_path());
+
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].num_rows(), 3);
+        assert_eq!(
+            batches[0]
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| field.name().as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "basin_id",
+                "delineation",
+                "geometry",
+                "outlet_lon",
+                "outlet_lat",
+                "area_km2",
+                "bbox_minx",
+                "bbox_miny",
+                "bbox_maxx",
+                "bbox_maxy",
+                "resolution_method",
+                "refinement_status",
+                "upstream_unit_ids",
+                "adapter_version",
+            ]
+        );
+        assert!(
+            binary_column(&batches[0], 2)
+                .iter()
+                .all(|value| value.is_some_and(|wkb| !wkb.is_empty()))
+        );
+    }
+
+    #[test]
+    fn export_golden_footer_geo_metadata_matches_expected_values() {
+        let footer = footer_geo_json(fixture_path());
+        let geometry = &footer["columns"]["geometry"];
+
+        assert_eq!(footer["version"], "1.1.0");
+        assert_eq!(footer["primary_column"], "geometry");
+        assert_eq!(geometry["encoding"], "WKB");
+        assert_eq!(geometry["geometry_types"], json!(["MultiPolygon"]));
+        assert_eq!(geometry["crs"]["id"]["authority"], "EPSG");
+        assert_eq!(geometry["crs"]["id"]["code"], 4326);
+        assert_eq!(geometry["bbox"], json!([-100.0, -1.0, 21.0, 11.0]));
+    }
+
+    #[test]
+    fn export_golden_hilbert_order_is_stable() {
+        let batches = read_batches(fixture_path());
+        let ids = string_column(&batches[0], 0);
+        let actual = (0..ids.len())
+            .map(|index| ids.value(index))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, vec!["basin-center", "basin-west", "basin-east"]);
+    }
+
+    #[test]
+    fn export_golden_bbox_values_cover_true_geometry_bounds() {
+        let batches = read_batches(fixture_path());
+        let ids = string_column(&batches[0], 0);
+        let minx = f32_column(&batches[0], 6);
+        let miny = f32_column(&batches[0], 7);
+        let maxx = f32_column(&batches[0], 8);
+        let maxy = f32_column(&batches[0], 9);
+
+        for index in 0..ids.len() {
+            let expected = expected_bounds(ids.value(index));
+            assert!(f64::from(minx.value(index)) <= expected.0);
+            assert!(f64::from(miny.value(index)) <= expected.1);
+            assert!(f64::from(maxx.value(index)) >= expected.2);
+            assert!(f64::from(maxy.value(index)) >= expected.3);
+        }
+    }
+
+    #[test]
+    fn export_golden_fixture_is_isolated_from_existing_fixture_paths() {
+        let path = fixture_path();
+
+        assert!(path.exists());
+        assert!(path.ends_with("tests/fixtures/export/basin-geoparquet-golden.parquet"));
+        assert!(!path.to_string_lossy().contains("tests/fixtures/parity"));
+    }
+
+    fn fixture_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_PATH)
+    }
+
+    fn read_batches(path: PathBuf) -> Vec<arrow::record_batch::RecordBatch> {
+        let file = File::open(path).expect("open parquet");
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file).expect("parquet reader");
+        builder
+            .build()
+            .expect("record batch reader")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("record batches")
+    }
+
+    fn footer_geo_json(path: PathBuf) -> Value {
+        let file = File::open(path).expect("open parquet");
+        let reader = SerializedFileReader::new(file).expect("serialized parquet reader");
+        let geo = reader
+            .metadata()
+            .file_metadata()
+            .key_value_metadata()
+            .and_then(|entries| entries.iter().find(|entry| entry.key == "geo"))
+            .and_then(|entry| entry.value.as_deref())
+            .expect("geo footer key_value_metadata should exist");
+        serde_json::from_str(geo).expect("geo footer should parse")
+    }
+
+    fn string_column(batch: &arrow::record_batch::RecordBatch, index: usize) -> &StringArray {
+        batch
+            .column(index)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string column")
+    }
+
+    fn binary_column(batch: &arrow::record_batch::RecordBatch, index: usize) -> &BinaryArray {
+        batch
+            .column(index)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .expect("binary column")
+    }
+
+    fn f32_column(batch: &arrow::record_batch::RecordBatch, index: usize) -> &Float32Array {
+        batch
+            .column(index)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .expect("f32 column")
+    }
+
+    fn expected_bounds(basin_id: &str) -> (f64, f64, f64, f64) {
+        match basin_id {
+            "basin-west" => (-100.0, 10.0, -99.0, 11.0),
+            "basin-center" => (-1.0, -1.0, 0.0, 0.0),
+            "basin-east" => (20.0, 10.0, 21.0, 11.0),
+            other => panic!("unexpected basin id {other}"),
+        }
+    }
+}

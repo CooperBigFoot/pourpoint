@@ -126,6 +126,21 @@ Writers must enable bbox column statistics so row-group pruning can use the outw
 
 The repeated `basin_id` is valid because the `delineation` values are distinct.
 
+## Reader Smoke
+
+The committed fixture at `crates/core/tests/fixtures/export/basin-geoparquet-golden.parquet` was smoke-loaded with GeoPandas and PyOGRIO available in the local Python environment:
+
+```bash
+python3 - <<'PY'
+import geopandas as gpd
+frame = gpd.read_parquet("crates/core/tests/fixtures/export/basin-geoparquet-golden.parquet")
+assert len(frame) == 3
+assert frame.crs.to_epsg() == 4326
+assert frame.geometry.geom_type.tolist() == ["MultiPolygon"] * 3
+assert frame["basin_id"].tolist() == ["basin-center", "basin-west", "basin-east"]
+PY
+```
+
 ## Elevation Path
 
 If another producer or external conformer needs to target this format, elevate this document into a versioned open spec with compatibility rules, fixtures, and a conformance test suite.

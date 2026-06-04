@@ -83,6 +83,48 @@ fn epsg_4326_projjson() -> serde_json::Value {
                         "authority": "EPSG",
                         "code": 1166
                     }
+                },
+                {
+                    "name": "World Geodetic System 1984 (G730)",
+                    "id": {
+                        "authority": "EPSG",
+                        "code": 1152
+                    }
+                },
+                {
+                    "name": "World Geodetic System 1984 (G873)",
+                    "id": {
+                        "authority": "EPSG",
+                        "code": 1153
+                    }
+                },
+                {
+                    "name": "World Geodetic System 1984 (G1150)",
+                    "id": {
+                        "authority": "EPSG",
+                        "code": 1154
+                    }
+                },
+                {
+                    "name": "World Geodetic System 1984 (G1674)",
+                    "id": {
+                        "authority": "EPSG",
+                        "code": 1155
+                    }
+                },
+                {
+                    "name": "World Geodetic System 1984 (G1762)",
+                    "id": {
+                        "authority": "EPSG",
+                        "code": 1156
+                    }
+                },
+                {
+                    "name": "World Geodetic System 1984 (G2139)",
+                    "id": {
+                        "authority": "EPSG",
+                        "code": 1309
+                    }
                 }
             ],
             "ellipsoid": {
