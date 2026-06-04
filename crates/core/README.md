@@ -10,6 +10,11 @@ Pure-Rust core library for the shed watershed extraction engine. It handles two 
 
 M3 fixes the delineation skeleton around typed intermediate outputs. Step 1 documents the method signatures as a contract; later M3 steps add the method bodies without changing the existing `Engine::delineate` result surface.
 
+Public delineation results are unit-named at the Rust API boundary:
+`terminal_unit_id()`, `upstream_unit_ids()`, `resolved_outlet()`,
+`resolution_method()`, and `geometry_wkb()` are the stable accessors consumed by
+downstream M5 export work.
+
 ```mermaid
 flowchart LR
     select[select level]
