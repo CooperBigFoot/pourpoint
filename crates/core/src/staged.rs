@@ -43,6 +43,7 @@
 //!     &self,
 //!     resolved: LevelResolvedOutlet,
 //!     upstream: SameLevelUpstreamUnits,
+//!     units: &PreMergeDrainageUnits,
 //!     refinement: TerminalRefinement,
 //!     dissolved: DissolvedWatershed,
 //! ) -> DelineationResult;

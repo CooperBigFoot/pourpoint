@@ -31,7 +31,8 @@ pub mod testutil;
 
 pub use cog::LocalizedRasterWindow;
 pub use engine::{
-    DelineationOptions, DelineationResult, Engine, EngineBuilder, EngineError, RefinementOutcome,
+    DelineationOptions, DelineationResult, DelineationUnitMetadata, Engine, EngineBuilder,
+    EngineError, RefinementOutcome,
 };
 pub use error::SessionError;
 pub use export::{

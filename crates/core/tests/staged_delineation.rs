@@ -394,7 +394,7 @@ fn explicit_staged_composition(
     let refinement = engine.refine_terminal_placeholder(&resolved, &pre_merge, options)?;
     let dissolved = engine.dissolve_watershed(&pre_merge, &refinement, options)?;
 
-    Ok(engine.compose_result(resolved, upstream, refinement, dissolved))
+    Ok(engine.compose_result(resolved, upstream, &pre_merge, refinement, dissolved))
 }
 
 fn assert_delineation_results_equal(

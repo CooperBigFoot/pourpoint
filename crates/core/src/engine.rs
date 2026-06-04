@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use geo::MultiPolygon;
-use hfx_core::UnitId;
+use hfx_core::{Level, OutletCoord, UnitId};
 use rayon::prelude::*;
 use tracing::instrument;
 
@@ -57,6 +57,53 @@ pub enum RefinementOutcome {
 
 // ── DelineationResult ─────────────────────────────────────────────────────────
 
+/// Light drainage-unit metadata retained on a merged delineation result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DelineationUnitMetadata {
+    id: UnitId,
+    level: Level,
+    area: hfx_core::AreaKm2,
+    up_area: Option<hfx_core::AreaKm2>,
+    outlet: OutletCoord,
+}
+
+impl DelineationUnitMetadata {
+    fn from_pre_merge(unit: &PreMergeDrainageUnit) -> Self {
+        Self {
+            id: unit.id(),
+            level: unit.level(),
+            area: unit.area(),
+            up_area: unit.up_area(),
+            outlet: unit.outlet(),
+        }
+    }
+
+    /// Return the drainage unit ID.
+    pub fn id(&self) -> UnitId {
+        self.id
+    }
+
+    /// Return the HFX level of this drainage unit.
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
+    /// Return the local drainage area from `catchments.parquet`.
+    pub fn area(&self) -> hfx_core::AreaKm2 {
+        self.area
+    }
+
+    /// Return the total upstream drainage area from `catchments.parquet`, if present.
+    pub fn up_area(&self) -> Option<hfx_core::AreaKm2> {
+        self.up_area
+    }
+
+    /// Return the declared outlet coordinate for this drainage unit.
+    pub fn outlet(&self) -> OutletCoord {
+        self.outlet
+    }
+}
+
 /// The output of a successful [`Engine::delineate`] call.
 #[derive(Debug, Clone)]
 pub struct DelineationResult {
@@ -65,6 +112,7 @@ pub struct DelineationResult {
     resolved_outlet: GeoCoord,
     resolution_method: ResolutionMethod,
     upstream_unit_ids: Vec<UnitId>,
+    upstream_units: Vec<DelineationUnitMetadata>,
     refinement: RefinementOutcome,
     geometry: MultiPolygon<f64>,
     area_km2: AreaKm2,
@@ -94,6 +142,11 @@ impl DelineationResult {
     /// Return the slice of all upstream unit IDs (including the terminal).
     pub fn upstream_unit_ids(&self) -> &[UnitId] {
         &self.upstream_unit_ids
+    }
+
+    /// Return light metadata for all upstream units, including the terminal.
+    pub fn upstream_units(&self) -> &[DelineationUnitMetadata] {
+        &self.upstream_units
     }
 
     /// Return a reference to the refinement outcome.
@@ -800,6 +853,7 @@ impl Engine {
         &self,
         resolved: LevelResolvedOutlet,
         upstream: SameLevelUpstreamUnits,
+        units: &PreMergeDrainageUnits,
         refinement: TerminalRefinement,
         dissolved: DissolvedWatershed,
     ) -> DelineationResult {
@@ -809,6 +863,11 @@ impl Engine {
             resolved_outlet: resolved.resolved().resolved_coord,
             resolution_method: resolved.resolved().method.clone(),
             upstream_unit_ids: upstream.upstream().unit_ids().to_vec(),
+            upstream_units: units
+                .units()
+                .iter()
+                .map(DelineationUnitMetadata::from_pre_merge)
+                .collect(),
             refinement: refinement_outcome_from_terminal(&refinement),
             geometry: dissolved.geometry().clone(),
             area_km2: dissolved.area_km2(),
@@ -865,6 +924,7 @@ impl Engine {
             self.compose_result(
                 level_resolved,
                 same_level_upstream,
+                &pre_merge,
                 terminal_refinement,
                 dissolved,
             )
@@ -1132,6 +1192,72 @@ mod tests {
             !result.upstream_unit_ids().is_empty(),
             "at least one unit in upstream"
         );
+    }
+
+    #[test]
+    fn merged_result_retains_light_upstream_unit_metadata() {
+        let (_dir, root) = DatasetBuilder::new(3)
+            .with_custom_catchments(vec![
+                TestCatchment {
+                    id: 1,
+                    area_km2: 11.0,
+                    up_area_km2: Some(11.0),
+                    polygon: (0.5, 0.0, 0.9, 0.4),
+                },
+                TestCatchment {
+                    id: 2,
+                    area_km2: 22.0,
+                    up_area_km2: Some(33.0),
+                    polygon: (1.0, 0.0, 1.4, 0.4),
+                },
+                TestCatchment {
+                    id: 3,
+                    area_km2: 33.0,
+                    up_area_km2: Some(66.0),
+                    polygon: (1.5, 0.0, 1.9, 0.4),
+                },
+            ])
+            .build();
+        let session = DatasetSession::open_path(&root).expect("session should open");
+        let engine = Engine::builder(session).build();
+
+        let result = engine
+            .delineate(coord_in_unit3(), &DelineationOptions::default())
+            .expect("delineation should succeed");
+
+        assert_eq!(result.upstream_unit_ids().len(), 3);
+        assert_eq!(
+            result.upstream_units().len(),
+            result.upstream_unit_ids().len()
+        );
+
+        let terminal = result
+            .upstream_units()
+            .iter()
+            .find(|unit| unit.id() == UnitId::new(3).expect("valid unit id"))
+            .expect("terminal metadata should be present");
+        assert_eq!(terminal.level().get(), 0);
+        assert_eq!(terminal.area().get(), 33.0);
+        assert_eq!(terminal.up_area().map(hfx_core::AreaKm2::get), Some(66.0));
+        assert_eq!(terminal.outlet().lon(), 1.7);
+        assert_eq!(terminal.outlet().lat(), 0.2);
+    }
+
+    #[test]
+    fn merged_result_unit_records_are_metadata_only() {
+        let (_dir, session) = three_unit_session();
+        let engine = Engine::builder(session).build();
+
+        let result = engine
+            .delineate(coord_in_unit3(), &DelineationOptions::default())
+            .expect("delineation should succeed");
+
+        let metadata = result.upstream_units();
+        assert_eq!(metadata.len(), result.upstream_unit_ids().len());
+        assert!(metadata.iter().all(|unit| unit.level().get() == 0));
+        assert!(metadata.iter().all(|unit| unit.area().get() > 0.0));
+        assert!(metadata.iter().all(|unit| unit.outlet().lon().is_finite()));
+        assert!(metadata.iter().all(|unit| unit.outlet().lat().is_finite()));
     }
 
     // ── engine_outlet_outside_catchments ─────────────────────────────────────
