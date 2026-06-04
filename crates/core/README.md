@@ -24,8 +24,10 @@ flowchart LR
     refine[terminal refinement strategy seam]
     dissolve[dissolve/assemble]
     compose[compose result]
+    export[export persistence\nGeoParquet]
 
     select --> resolve --> traverse --> records --> refine --> dissolve --> compose
+    compose -.outside delineation.-> export
 ```
 
 ```rust
@@ -73,10 +75,13 @@ pub fn compose_result(
 
 `PreMergeDrainageUnit` is an inspection record for pristine upstream drainage
 units. The collection includes the whole terminal polygon before any terminal
-refinement. This intentionally diverges from the final watershed result:
-summing pre-merge `area` values does not define final `area_km2`, and unioning
-pre-merge geometries does not define final refined geometry. Final geometry and
-area are produced only by the downstream dissolve/assemble stage.
+refinement. This R3 divergence is intentional: pre-merge drainage-unit records
+are pristine inspection records and do not define final watershed output after
+refinement. Summing pre-merge `area` values does not define final `area_km2`,
+and unioning pre-merge geometries does not define final refined geometry. Final
+geometry and area are produced only by the downstream dissolve/assemble stage.
+Export persistence, including future GeoParquet output, must consume the
+composed final result instead of treating pre-merge records as the final basin.
 
 M4 exposes the Rust terminal-refinement strategy seam with a deliberately
 D8-specific pantry: the strategy receives the `DatasetSession` plus the
