@@ -1,16 +1,16 @@
 """Behavioral tests for pyshed bindings.
 
 Exercises delineation, coordinate validation, batch exception mapping,
-GeoJSON output, and repr — all against a synthetic 3-atom HFX dataset
+GeoJSON output, and repr — all against a synthetic 3-unit HFX dataset
 created by the ``hfx_dataset`` fixture in conftest.py.
 
-Atom layout (non-overlapping bboxes along x-axis):
-    atom 1: x=[0.5, 0.9], y=[0.0, 0.4]  — headwater
-    atom 2: x=[1.0, 1.4], y=[0.0, 0.4]  — drains atom 1
-    atom 3: x=[1.5, 1.9], y=[0.0, 0.4]  — drains atoms 1+2 (outlet)
+Unit layout (non-overlapping bboxes along x-axis):
+    unit 1: x=[0.5, 0.9], y=[0.0, 0.4]  — headwater
+    unit 2: x=[1.0, 1.4], y=[0.0, 0.4]  — drains unit 1
+    unit 3: x=[1.5, 1.9], y=[0.0, 0.4]  — drains units 1+2 (outlet)
 
-Test coordinate inside atom 3: lon=1.70, lat=0.20
-Test coordinate inside atom 1: lon=0.70, lat=0.20
+Test coordinate inside unit 3: lon=1.70, lat=0.20
+Test coordinate inside unit 1: lon=0.70, lat=0.20
 """
 
 import json
@@ -34,7 +34,7 @@ class TestSingleDelineation:
 
     def test_delineate_returns_result(self, hfx_dataset):
         engine = pyshed.Engine(hfx_dataset)
-        # Coordinate inside atom 3's bbox
+        # Coordinate inside unit 3's bbox
         result = engine.delineate(lat=0.20, lon=1.70)
         assert result.area_km2 > 0
         assert isinstance(result.geometry_wkb, bytes)
