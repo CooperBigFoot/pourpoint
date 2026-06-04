@@ -4,6 +4,7 @@ pub mod identity;
 pub mod row_groups;
 pub mod schema;
 pub mod spatial;
+pub mod writer;
 
 pub use identity::{BasinId, DelineationLabel, ExportMethod, ExportOrigin, FabricIdentity};
 pub use row_groups::{RowGroupPlan, plan_row_groups};
@@ -12,6 +13,7 @@ pub use spatial::{
     BasinBbox, BasinCentroid, BasinSpatialSortKey, HilbertIndex, basin_bbox, basin_centroid,
     outward_f32_bbox,
 };
+pub use writer::{BasinExportInput, BasinGeoParquetWriter, ExportOptions};
 
 /// Errors raised while preparing basin GeoParquet exports.
 #[derive(Debug, thiserror::Error)]
@@ -74,6 +76,49 @@ pub enum ExportError {
         /// Number of rows requested.
         row_count: usize,
         /// Human-readable planning failure reason.
+        reason: &'static str,
+    },
+
+    /// Fires when an export batch contains no basin rows.
+    #[error("basin GeoParquet export requires at least one row")]
+    EmptyInput,
+
+    /// Fires when two rows use the same `(basin_id, delineation)` identity.
+    #[error("duplicate export row for basin_id {basin_id} and delineation {delineation}")]
+    DuplicateRow {
+        /// Duplicate basin identifier.
+        basin_id: String,
+        /// Duplicate delineation label.
+        delineation: String,
+    },
+
+    /// Fires when a delineation geometry cannot be encoded as WKB.
+    #[error("cannot encode geometry for basin_id {basin_id}: {source}")]
+    GeometryEncodingFailure {
+        /// Basin identifier being materialized.
+        basin_id: String,
+        /// Lower-level WKB encoding failure.
+        source: crate::algo::WkbEncodeError,
+    },
+
+    /// Fires when Arrow array or record-batch construction fails before writing.
+    #[error("cannot build Arrow export batch: {source}")]
+    ArrowWriteFailure {
+        /// Lower-level Arrow error.
+        source: arrow::error::ArrowError,
+    },
+
+    /// Fires when Parquet writer construction, row writing, flushing, or closing fails.
+    #[error("cannot write basin GeoParquet file: {source}")]
+    ParquetWriteFailure {
+        /// Lower-level Parquet error.
+        source: parquet::errors::ParquetError,
+    },
+
+    /// Fires when the writer cannot prove `geo` metadata reached the Parquet footer.
+    #[error("GeoParquet footer metadata failure: {reason}")]
+    FooterMetadataFailure {
+        /// Human-readable footer metadata failure reason.
         reason: &'static str,
     },
 }
