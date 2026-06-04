@@ -93,6 +93,27 @@ The B TIFFs are the deterministic, byte-identical M1-to-M4 parity path. For M4
 real-data D8 parity, use `merit/0.2.0`; `merit-basins/0.1.0` is the M1
 real-data v0.1 oracle C input, not the M4 v0.2.1 target.
 
+M4's real-data D8 proof is now an ambiguity-boundary proof, not a successful
+carve assertion. It is both `#[ignore]`d and env-gated, so offline tests compile
+it but do not open the network:
+
+```bash
+SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
+```
+
+That proof opens `https://basin-delineations-public.upstream.tech/merit/0.2.0/`,
+expects format version `0.2.1`, 60 `hfx.aux.d8_raster.v1` declarations under
+`aux/d8/pfaf_NN/flow_{dir,acc}.tif`, and one snap declaration. It resolves the
+`rhine_basel` terminal bbox, proves D8 selection uses bounded extent-header
+reads rather than legacy root `flow_dir.tif`/`flow_acc.tif` downloads, and then
+asserts that shed surfaces typed `AmbiguousD8Coverage` for overlapping Pfaf
+declarations instead of silently choosing a tile. This is a known M4 boundary:
+MERIT-Hydro D8 rasters are per-Pfaf-02 basin windows with nodata outside each
+irregular basin, so rectangular extents can legitimately overlap. Real-data D8
+carve on such terminals is deferred until shed has a nodata or basin-membership
+tile-selection policy. When that policy lands, upgrade this proof to assert a
+successful contained carve.
+
 GDAL parity proof command:
 
 ```bash
