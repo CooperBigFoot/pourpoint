@@ -35,9 +35,8 @@ pub use engine::{
 };
 pub use error::SessionError;
 pub use export::{
-    BasinBbox, BasinCentroid, BasinId, BasinSpatialSortKey, DelineationLabel, ExportError,
-    ExportMethod, ExportOrigin, FabricIdentity, HilbertIndex, basin_bbox, basin_centroid,
-    outward_f32_bbox,
+    BasinBbox, BasinCentroid, BasinExportSchemaProfile, BasinId, BasinSpatialSortKey,
+    DelineationLabel, ExportError, ExportMethod, ExportOrigin, FabricIdentity, HilbertIndex,
 };
 pub use refinement::{
     AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle,
