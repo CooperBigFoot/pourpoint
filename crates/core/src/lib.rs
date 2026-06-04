@@ -7,6 +7,7 @@ pub(crate) mod cache;
 pub(crate) mod cog;
 pub mod engine;
 pub mod error;
+pub mod export;
 pub mod parquet_cache;
 #[allow(dead_code)]
 pub(crate) mod raster_cache;
@@ -33,6 +34,9 @@ pub use engine::{
     DelineationOptions, DelineationResult, Engine, EngineBuilder, EngineError, RefinementOutcome,
 };
 pub use error::SessionError;
+pub use export::{
+    BasinId, DelineationLabel, ExportError, ExportMethod, ExportOrigin, FabricIdentity,
+};
 pub use refinement::{
     AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle,
     D8RasterRefinementStrategy, D8RefinementPantry, RefinementProvenance, RefinementStrategyName,
