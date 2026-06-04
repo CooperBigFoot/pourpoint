@@ -347,7 +347,7 @@ pub enum SessionError {
     },
 
     /// Fired when referential integrity between dataset artifacts is violated —
-    /// for example, a graph atom ID that has no corresponding catchment row.
+    /// for example, a graph unit ID that has no corresponding catchment row.
     #[error("integrity violation: {detail}")]
     IntegrityViolation {
         /// Human-readable description of the integrity failure.
