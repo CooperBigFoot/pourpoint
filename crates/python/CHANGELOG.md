@@ -7,6 +7,12 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+## [0.2.1] - TBD
+
+- perf: large-dataset open no longer reads full catchment geometry for
+  referential validation; cold open drops from minutes to sub-second. No API or
+  input-contract change; requires HFX v0.2.1 datasets (unchanged from 0.2.0).
+
 ## [0.2.0] - 2026-06-05
 
 - requires HFX v0.2.1; v0.1 no longer loads
