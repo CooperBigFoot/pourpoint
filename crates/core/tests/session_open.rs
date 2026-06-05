@@ -177,6 +177,11 @@ fn write_graph_raw(root: &Path, ids: &[i64], upstream_ids: &[Vec<i64>]) {
 }
 
 fn write_catchments(root: &Path, unit_count: usize, row_group_size: usize) {
+    let levels = vec![0; unit_count];
+    write_catchments_with_levels(root, &levels, row_group_size);
+}
+
+fn write_catchments_with_levels(root: &Path, levels: &[i16], row_group_size: usize) {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
         Field::new("level", DataType::Int16, false),
@@ -215,7 +220,8 @@ fn write_catchments(root: &Path, unit_count: usize, row_group_size: usize) {
     let mut stem_role_b = StringBuilder::new();
     let mut geom_b = BinaryBuilder::new();
 
-    for i in 1..=(unit_count as i64) {
+    for (index, &level) in levels.iter().enumerate() {
+        let i = (index + 1) as i64;
         let idx = i as f32;
         let minx = idx * 0.5;
         let miny = 0.0f32;
@@ -223,7 +229,7 @@ fn write_catchments(root: &Path, unit_count: usize, row_group_size: usize) {
         let maxy = 0.4f32;
 
         id_b.append_value(i);
-        level_b.append_value(0);
+        level_b.append_value(level);
         parent_b.append_null();
         area_b.append_value(10.0f32);
         up_area_b.append_null();
@@ -895,6 +901,27 @@ fn test_graph_upstream_id_missing_from_catchments() {
     // The error message should name the missing upstream unit
     let msg = err.to_string();
     assert!(msg.contains("99"), "error should mention unit 99: {msg}");
+}
+
+#[test]
+fn test_graph_level_mismatch_from_open_path() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+
+    write_manifest(root, 3, false, false, "tree");
+    write_catchments_with_levels(root, &[0, 1, 0], 8192);
+    write_graph(root, 3);
+
+    let err = DatasetSession::open_path(root).unwrap_err();
+    assert!(
+        matches!(err, SessionError::GraphReferentialIntegrity { .. }),
+        "expected GraphReferentialIntegrity, got: {err}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("differs from catchment level"),
+        "error should mention the level mismatch: {msg}"
+    );
 }
 
 #[test]

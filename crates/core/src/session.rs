@@ -1,6 +1,6 @@
 //! Dataset session — loads an HFX dataset for repeated queries.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -460,12 +460,11 @@ impl DatasetSession {
                 fabric = fabric_name,
                 adapter_version, "remote validation sidecar matched current artifact metadata"
             );
-            let catchment_ids = catchments.read_all_ids()?;
             catchments
-                .query_by_ids(&catchment_ids)?
+                .read_id_levels()?
                 .iter()
-                .map(|unit| (unit.id(), unit.level()))
-                .collect::<std::collections::HashMap<_, _>>()
+                .map(|row| (row.id(), row.level()))
+                .collect::<HashMap<_, _>>()
         } else {
             let t = std::time::Instant::now();
             let catchment_levels = {
@@ -965,13 +964,15 @@ fn validate_graph_catchments(
     }
 
     debug!("verifying graph ↔ catchment referential integrity");
-    let catchment_ids = catchments.read_all_ids()?;
-    let catchment_id_set: std::collections::HashSet<UnitId> =
-        catchment_ids.iter().copied().collect();
-    let catchment_levels = catchments
-        .query_by_ids(&catchment_ids)?
-        .into_iter()
-        .map(|unit| (unit.id(), unit.level()))
+    let catchment_id_level_rows = catchments.read_id_levels()?;
+    let catchment_ids = catchment_id_level_rows
+        .iter()
+        .map(|row| row.id())
+        .collect::<Vec<_>>();
+    let catchment_id_set: HashSet<UnitId> = catchment_ids.iter().copied().collect();
+    let catchment_levels = catchment_id_level_rows
+        .iter()
+        .map(|row| (row.id(), row.level()))
         .collect::<HashMap<_, _>>();
 
     if graph.len() != catchment_ids.len() {
@@ -1187,7 +1188,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
 
-    use arrow::array::{BinaryBuilder, Float32Builder, Int64Array, Int64Builder, ListBuilder};
+    use arrow::array::{
+        BinaryBuilder, Float32Builder, Int16Builder, Int64Array, Int64Builder, ListBuilder,
+    };
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     use bytes::Bytes;
@@ -1639,6 +1642,7 @@ mod tests {
     fn catchments_bytes() -> Vec<u8> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
+            Field::new("level", DataType::Int16, false),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
             Field::new("bbox_minx", DataType::Float32, false),
@@ -1649,6 +1653,7 @@ mod tests {
         ]));
 
         let mut id_b = Int64Builder::new();
+        let mut level_b = Int16Builder::new();
         let mut area_b = Float32Builder::new();
         let mut up_area_b = Float32Builder::new();
         let mut minx_b = Float32Builder::new();
@@ -1660,6 +1665,7 @@ mod tests {
             let minx = i as f32;
             let maxx = minx + 0.5;
             id_b.append_value(i);
+            level_b.append_value(0);
             area_b.append_value(1.0);
             up_area_b.append_null();
             minx_b.append_value(minx);
@@ -1673,6 +1679,7 @@ mod tests {
             schema,
             vec![
                 Arc::new(id_b.finish()),
+                Arc::new(level_b.finish()),
                 Arc::new(area_b.finish()),
                 Arc::new(up_area_b.finish()),
                 Arc::new(minx_b.finish()),
@@ -1931,7 +1938,7 @@ mod tests {
     }
 
     #[test]
-    fn open_decodes_catchment_geometry_during_validation_pre_fix() {
+    fn open_does_not_decode_catchment_geometry_during_validation() {
         let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -1950,8 +1957,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             counts,
-            vec![1, 1],
-            "current open validation should decode catchment geometry before the routing fix"
+            vec![0, 0],
+            "open validation should not decode full catchment geometry"
         );
     }
 
