@@ -2112,6 +2112,9 @@ mod tests {
 
     #[test]
     fn second_remote_open_uses_persistent_indexes_and_validation_sidecar() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());
@@ -2158,12 +2161,26 @@ mod tests {
                 .is_file()
         );
 
-        DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
+        reset_geometry_decode_counts_for_test();
+        let second_session = DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
         let second_ranged_gets = counting_store.ranged_get_calls() - first_ranged_gets;
+        let counts = [1_i64, 2]
+            .into_iter()
+            .map(|id| {
+                second_session
+                    .catchments()
+                    .geometry_decode_count_for_test(UnitId::new(id).unwrap())
+            })
+            .collect::<Vec<_>>();
 
         assert!(
             second_ranged_gets < first_ranged_gets,
             "second open should avoid parquet ID scans after persistent index hits"
+        );
+        assert_eq!(
+            counts,
+            vec![0, 0],
+            "sidecar-hit open should not decode full catchment geometry"
         );
     }
 
