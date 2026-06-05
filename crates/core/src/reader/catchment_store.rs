@@ -64,6 +64,29 @@ impl DecodedCatchmentGeometryRow {
     }
 }
 
+/// Scalar catchment row used for graph/catchment level validation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CatchmentIdLevelRow {
+    id: UnitId,
+    level: Level,
+}
+
+impl CatchmentIdLevelRow {
+    fn new(id: UnitId, level: Level) -> Self {
+        Self { id, level }
+    }
+
+    /// Return the catchment unit ID.
+    pub fn id(&self) -> UnitId {
+        self.id
+    }
+
+    /// Return the catchment level.
+    pub fn level(&self) -> Level {
+        self.level
+    }
+}
+
 /// Errors from geometry-only catchment queries.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CatchmentGeometryQueryError {
@@ -688,6 +711,91 @@ impl CatchmentStore {
         Ok(self.all_ids.clone())
     }
 
+    /// Read every catchment ID and level with a scalar-only Parquet projection.
+    ///
+    /// # Errors
+    ///
+    /// | Condition | Variant |
+    /// |---|---|
+    /// | Parquet decode error | [`SessionError::ParquetParse`] |
+    /// | Missing id or level column | [`SessionError::ParquetSchema`] |
+    /// | Null or invalid id/level value | [`SessionError::InvalidRow`] |
+    pub fn read_id_levels(&self) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
+        RT.block_on(self.read_id_levels_async())
+    }
+
+    async fn read_id_levels_async(&self) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
+        let builder = ParquetRecordBatchStreamBuilder::new(self.object_reader())
+            .await
+            .map_err(|e| SessionError::ParquetParse {
+                artifact: ARTIFACT,
+                source: e,
+            })?;
+        let metadata = builder.metadata().clone();
+        let num_row_groups = metadata.num_row_groups();
+        if num_row_groups == 0 {
+            return Ok(Vec::new());
+        }
+
+        let selected_row_groups: Vec<usize> = (0..num_row_groups).collect();
+        let rg_absolute_starts = absolute_row_starts(&metadata, &selected_row_groups);
+        let reader_metadata = ArrowReaderMetadata::try_new(metadata.clone(), Default::default())
+            .map_err(|e| SessionError::ParquetParse {
+                artifact: ARTIFACT,
+                source: e,
+            })?;
+        let parquet_schema = reader_metadata.parquet_schema();
+        let projection =
+            ProjectionMask::roots(parquet_schema, id_level_projection_indices(parquet_schema)?);
+
+        let mut rows = Vec::new();
+        for (row_group, absolute_start) in selected_row_groups.into_iter().zip(rg_absolute_starts) {
+            let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(
+                self.object_reader(),
+                reader_metadata.clone(),
+            );
+            let mut stream = builder
+                .with_projection(projection.clone())
+                .with_row_groups(vec![row_group])
+                .with_batch_size(8192)
+                .build()
+                .map_err(|e| SessionError::ParquetParse {
+                    artifact: ARTIFACT,
+                    source: e,
+                })?;
+
+            let mut offset_in_group = 0usize;
+            while let Some(reader) =
+                stream
+                    .next_row_group()
+                    .await
+                    .map_err(|e| SessionError::RowGroupReadError {
+                        artifact: ARTIFACT,
+                        row_group,
+                        source: e,
+                    })?
+            {
+                for batch_result in reader {
+                    let batch = batch_result.map_err(|e| SessionError::RowGroupReadError {
+                        artifact: ARTIFACT,
+                        row_group,
+                        source: parquet::errors::ParquetError::ArrowError(e.to_string()),
+                    })?;
+
+                    let absolute_row = absolute_start + offset_in_group;
+                    rows.extend(extract_id_levels_from_batch(
+                        &batch,
+                        absolute_row,
+                        ARTIFACT,
+                    )?);
+                    offset_in_group += batch.num_rows();
+                }
+            }
+        }
+
+        Ok(rows)
+    }
+
     /// Return whether an unit ID is present in the cached catchment index.
     pub(crate) fn contains_id(&self, id: UnitId) -> bool {
         self.id_row_groups.contains_key(&id)
@@ -946,6 +1054,43 @@ fn extract_units_from_batch(
     }
 
     Ok(units)
+}
+
+fn extract_id_levels_from_batch(
+    batch: &arrow::record_batch::RecordBatch,
+    row_offset: usize,
+    artifact: &'static str,
+) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
+    let schema = batch.schema();
+    let id_col = col_as::<Int64Array>(batch, &schema, "id", artifact)?;
+    let level_col = col_as::<Int16Array>(batch, &schema, "level", artifact)?;
+    let mut rows = Vec::with_capacity(batch.num_rows());
+
+    for i in 0..batch.num_rows() {
+        let global_i = row_offset + i;
+        if id_col.is_null(i) {
+            return Err(SessionError::invalid_row(
+                artifact,
+                global_i,
+                "null value in non-nullable column \"id\"",
+            ));
+        }
+        if level_col.is_null(i) {
+            return Err(SessionError::invalid_row(
+                artifact,
+                global_i,
+                "null value in non-nullable column \"level\"",
+            ));
+        }
+
+        let id = UnitId::new(id_col.value(i))
+            .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("id: {e}")))?;
+        let level = Level::new(level_col.value(i))
+            .map_err(|e| SessionError::invalid_row(artifact, global_i, format!("level: {e}")))?;
+        rows.push(CatchmentIdLevelRow::new(id, level));
+    }
+
+    Ok(rows)
 }
 
 fn extract_decoded_geometries_from_batch(
@@ -1554,6 +1699,15 @@ fn geometry_projection_indices(
     ])
 }
 
+fn id_level_projection_indices(
+    parquet_schema: &parquet::schema::types::SchemaDescriptor,
+) -> Result<[usize; 2], SessionError> {
+    Ok([
+        id_column_index(parquet_schema)?,
+        named_column_index(parquet_schema, "level")?,
+    ])
+}
+
 fn named_column_index(
     parquet_schema: &parquet::schema::types::SchemaDescriptor,
     name: &str,
@@ -1631,7 +1785,7 @@ fn optional_col_as<'a, T: 'static>(
 mod tests {
     use std::sync::Arc;
 
-    use arrow::array::{BinaryBuilder, Float32Builder, Int64Builder, RecordBatch};
+    use arrow::array::{BinaryBuilder, Float32Builder, Int16Builder, Int64Builder, RecordBatch};
     use arrow::datatypes::{DataType, Field, Schema};
     use geo::Area;
     use parquet::arrow::ArrowWriter;
@@ -1667,6 +1821,20 @@ mod tests {
     fn catchments_schema() -> Arc<Schema> {
         Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
+            Field::new("area_km2", DataType::Float32, false),
+            Field::new("up_area_km2", DataType::Float32, true),
+            Field::new("bbox_minx", DataType::Float32, false),
+            Field::new("bbox_miny", DataType::Float32, false),
+            Field::new("bbox_maxx", DataType::Float32, false),
+            Field::new("bbox_maxy", DataType::Float32, false),
+            Field::new("geometry", DataType::Binary, false),
+        ]))
+    }
+
+    fn catchments_schema_with_level() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("level", DataType::Int16, false),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
             Field::new("bbox_minx", DataType::Float32, false),
@@ -1725,6 +1893,72 @@ mod tests {
             schema,
             vec![
                 Arc::new(ids.finish()),
+                Arc::new(areas.finish()),
+                Arc::new(up_areas.finish()),
+                Arc::new(minxs.finish()),
+                Arc::new(minys.finish()),
+                Arc::new(maxxs.finish()),
+                Arc::new(maxys.finish()),
+                Arc::new(geoms.finish()),
+            ],
+        )
+        .unwrap();
+
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+    }
+
+    /// `units`: (id, level, area_km2, up_area_km2, [minx, miny, maxx, maxy])
+    fn write_fixture_with_levels(
+        path: &std::path::Path,
+        units: &[(i64, i16, f32, Option<f32>, [f32; 4])],
+        row_group_size: usize,
+    ) {
+        let schema = catchments_schema_with_level();
+        let props = WriterProperties::builder()
+            .set_max_row_group_row_count(Some(row_group_size))
+            .set_statistics_enabled(EnabledStatistics::Chunk)
+            .build();
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
+
+        let mut ids = Int64Builder::new();
+        let mut levels = Int16Builder::new();
+        let mut areas = Float32Builder::new();
+        let mut up_areas = Float32Builder::new();
+        let mut minxs = Float32Builder::new();
+        let mut minys = Float32Builder::new();
+        let mut maxxs = Float32Builder::new();
+        let mut maxys = Float32Builder::new();
+        let mut geoms = BinaryBuilder::new();
+
+        for &(id, level, area, up_area, bbox) in units {
+            ids.append_value(id);
+            levels.append_value(level);
+            areas.append_value(area);
+            match up_area {
+                Some(v) => up_areas.append_value(v),
+                None => up_areas.append_null(),
+            }
+            minxs.append_value(bbox[0]);
+            minys.append_value(bbox[1]);
+            maxxs.append_value(bbox[2]);
+            maxys.append_value(bbox[3]);
+            let wkb = minimal_wkb_polygon(
+                bbox[0] as f64,
+                bbox[1] as f64,
+                bbox[2] as f64,
+                bbox[3] as f64,
+            );
+            geoms.append_value(&wkb);
+        }
+
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(ids.finish()),
+                Arc::new(levels.finish()),
                 Arc::new(areas.finish()),
                 Arc::new(up_areas.finish()),
                 Arc::new(minxs.finish()),
@@ -1867,6 +2101,41 @@ mod tests {
                 .expect("queried IDs should be present");
             assert!((geometry.unsigned_area() - *area).abs() < f64::EPSILON);
         }
+    }
+
+    #[test]
+    fn test_read_id_levels_returns_expected_pairs() {
+        let tmp = NamedTempFile::new().unwrap();
+        let units = [
+            (1i64, 0i16, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
+            (2, 7, 20.0, None, [2.0, 0.0, 3.0, 1.0]),
+            (3, 2, 30.0, None, [4.0, 0.0, 5.0, 1.0]),
+        ];
+        write_fixture_with_levels(tmp.path(), &units, 2);
+
+        let store = CatchmentStore::open(tmp.path()).unwrap();
+        let rows = store.read_id_levels().unwrap();
+
+        let pairs: Vec<(i64, i16)> = rows
+            .iter()
+            .map(|row| (row.id().get(), row.level().get()))
+            .collect();
+        assert_eq!(pairs, vec![(1, 0), (2, 7), (3, 2)]);
+    }
+
+    #[test]
+    fn test_read_id_levels_rejects_missing_level_column() {
+        let tmp = NamedTempFile::new().unwrap();
+        let units = [(1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32])];
+        write_fixture(tmp.path(), &units, 1024);
+
+        let store = CatchmentStore::open(tmp.path()).unwrap();
+        let result = store.read_id_levels();
+
+        assert!(
+            matches!(result, Err(SessionError::ParquetSchema { ref reason, .. }) if reason.contains("missing column \"level\"")),
+            "expected missing-level ParquetSchema error, got: {result:?}"
+        );
     }
 
     #[test]
