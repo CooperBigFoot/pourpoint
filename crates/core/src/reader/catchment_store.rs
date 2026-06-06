@@ -53,6 +53,9 @@ static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, UnitId),
 static READ_ID_LEVEL_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
+static READ_ID_ONLY_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
 static READ_ID_LEVEL_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
@@ -173,6 +176,7 @@ pub struct CatchmentStore {
     total_rows: u64,
     all_ids: Vec<UnitId>,
     id_row_groups: HashMap<UnitId, usize>,
+    validation_levels_from_open: Option<HashMap<UnitId, Level>>,
     #[allow(dead_code)]
     bbox_col_indices: BboxColIndices,
     /// Optional column-chunk cache shared across all readers for this engine.
@@ -397,7 +401,7 @@ impl CatchmentStore {
             }
         }
 
-        let (all_ids, id_row_groups) = read_or_build_id_index(
+        let id_index = read_or_build_id_index(
             &store,
             &path,
             file_size,
@@ -408,6 +412,8 @@ impl CatchmentStore {
             id_index_path.as_deref(),
             &path_display,
         )?;
+        let all_ids = id_index.ids;
+        let id_row_groups = id_index.id_row_groups;
 
         debug!(
             total_rows,
@@ -428,6 +434,7 @@ impl CatchmentStore {
             total_rows,
             all_ids,
             id_row_groups,
+            validation_levels_from_open: id_index.validation_levels_from_open,
             bbox_col_indices: bbox_indices,
             parquet_cache,
             footer_cache,
@@ -746,7 +753,7 @@ impl CatchmentStore {
 
     async fn read_id_levels_async(&self) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
         #[cfg(test)]
-        READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+        record_read_id_level_scan_for_test();
 
         let started = Instant::now();
         let builder = ParquetRecordBatchStreamBuilder::new(self.object_reader())
@@ -811,6 +818,10 @@ impl CatchmentStore {
             "catchment id levels read"
         );
         Ok(rows)
+    }
+
+    pub(crate) fn validation_levels_from_open(&self) -> Option<&HashMap<UnitId, Level>> {
+        self.validation_levels_from_open.as_ref()
     }
 
     /// Return whether an unit ID is present in the cached catchment index.
@@ -1408,8 +1419,19 @@ pub(crate) fn read_id_level_scan_count_for_test() -> usize {
 }
 
 #[cfg(test)]
+pub(crate) fn read_id_only_scan_count_for_test() -> usize {
+    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+fn record_read_id_level_scan_for_test() {
+    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+}
+
+#[cfg(test)]
 pub(crate) fn reset_read_id_level_scan_count_for_test() {
     READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
+    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
 }
 
 #[cfg(test)]
@@ -1448,6 +1470,8 @@ async fn read_all_ids_with_row_groups_async(
     cache_ident: &Option<ArtifactIdent>,
 ) -> Result<(Vec<UnitId>, HashMap<UnitId, usize>), SessionError> {
     let _guard = StageGuard::enter(Stage::CatchmentIdIndex);
+    #[cfg(test)]
+    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
     record_path(path.as_ref());
     let started = Instant::now();
     let builder = ParquetRecordBatchStreamBuilder::new(cached_object_reader(
@@ -1529,6 +1553,135 @@ async fn read_all_ids_with_row_groups_async(
         "id index built"
     );
     Ok((ids, id_row_groups))
+}
+
+#[derive(Debug)]
+struct IdIndexBuildResult {
+    ids: Vec<UnitId>,
+    id_row_groups: HashMap<UnitId, usize>,
+    validation_levels_from_open: Option<HashMap<UnitId, Level>>,
+}
+
+#[instrument(skip(store))]
+async fn read_ids_levels_with_row_groups_async(
+    store: &Arc<dyn ObjectStore>,
+    path: &ObjectPath,
+    file_size: u64,
+    parquet_cache: &Option<Arc<ParquetRowGroupCache>>,
+    footer_cache: &Option<Arc<ParquetFooterCache>>,
+    cache_ident: &Option<ArtifactIdent>,
+) -> Result<IdIndexBuildResult, SessionError> {
+    let _guard = StageGuard::enter(Stage::CatchmentIdIndex);
+    #[cfg(test)]
+    record_read_id_level_scan_for_test();
+    record_path(path.as_ref());
+    let started = Instant::now();
+    let builder = ParquetRecordBatchStreamBuilder::new(cached_object_reader(
+        store,
+        path,
+        file_size,
+        parquet_cache,
+        footer_cache,
+        cache_ident,
+    ))
+    .await
+    .map_err(|e| SessionError::ParquetParse {
+        artifact: ARTIFACT,
+        source: e,
+    })?;
+    let metadata = builder.metadata().clone();
+    let num_row_groups = metadata.num_row_groups();
+    debug!(
+        num_row_groups,
+        projected_columns = "id,level",
+        concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
+        "building catchment id index and validation levels"
+    );
+    if num_row_groups == 0 {
+        return Ok(IdIndexBuildResult {
+            ids: Vec::new(),
+            id_row_groups: HashMap::new(),
+            validation_levels_from_open: Some(HashMap::new()),
+        });
+    }
+
+    let reader_metadata = ArrowReaderMetadata::try_new(metadata.clone(), Default::default())
+        .map_err(|e| SessionError::ParquetParse {
+            artifact: ARTIFACT,
+            source: e,
+        })?;
+    let parquet_schema = reader_metadata.parquet_schema();
+    let projection =
+        ProjectionMask::roots(parquet_schema, id_level_projection_indices(parquet_schema)?);
+    let selected_row_groups: Vec<usize> = (0..num_row_groups).collect();
+    let rg_absolute_starts = absolute_row_starts(&metadata, &selected_row_groups);
+
+    let row_group_results = stream::iter(selected_row_groups.into_iter().zip(rg_absolute_starts))
+        .map(|(row_group, absolute_start)| {
+            let store = Arc::clone(store);
+            let path = path.clone();
+            let reader_metadata = reader_metadata.clone();
+            let projection = projection.clone();
+            let parquet_cache = parquet_cache.clone();
+            let footer_cache = footer_cache.clone();
+            let cache_ident = cache_ident.clone();
+            async move {
+                let rows = read_id_level_row_group_async(
+                    cached_object_reader(
+                        &store,
+                        &path,
+                        file_size,
+                        &parquet_cache,
+                        &footer_cache,
+                        &cache_ident,
+                    ),
+                    reader_metadata,
+                    projection,
+                    row_group,
+                    absolute_start,
+                )
+                .await?;
+                Ok::<_, SessionError>((row_group, rows))
+            }
+        })
+        .buffered(ID_INDEX_ROW_GROUP_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+
+    let mut ids = Vec::new();
+    let mut id_row_groups = HashMap::new();
+    let mut validation_levels = HashMap::new();
+    for row_group_result in row_group_results {
+        let (row_group, rows) = row_group_result?;
+        for row in rows {
+            let unit_id = row.id();
+            ids.push(unit_id);
+            if let Some(previous_row_group) = id_row_groups.insert(unit_id, row_group) {
+                return Err(SessionError::integrity(format!(
+                    "duplicate catchment id {} found in row groups {} and {}",
+                    unit_id.get(),
+                    previous_row_group,
+                    row_group,
+                )));
+            }
+            validation_levels.insert(unit_id, row.level());
+        }
+    }
+
+    info!(
+        num_ids = ids.len(),
+        num_rows = validation_levels.len(),
+        num_row_groups,
+        projected_columns = "id,level",
+        concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
+        elapsed_ms = started.elapsed().as_millis(),
+        "id index and validation levels built"
+    );
+    Ok(IdIndexBuildResult {
+        ids,
+        id_row_groups,
+        validation_levels_from_open: Some(validation_levels),
+    })
 }
 
 async fn read_id_row_group_async(
@@ -1622,6 +1775,24 @@ fn read_all_ids_with_row_groups(
     ))
 }
 
+fn read_ids_levels_with_row_groups(
+    store: &Arc<dyn ObjectStore>,
+    path: &ObjectPath,
+    file_size: u64,
+    parquet_cache: &Option<Arc<ParquetRowGroupCache>>,
+    footer_cache: &Option<Arc<ParquetFooterCache>>,
+    cache_ident: &Option<ArtifactIdent>,
+) -> Result<IdIndexBuildResult, SessionError> {
+    RT.block_on(read_ids_levels_with_row_groups_async(
+        store,
+        path,
+        file_size,
+        parquet_cache,
+        footer_cache,
+        cache_ident,
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn read_or_build_id_index(
     store: &Arc<dyn ObjectStore>,
@@ -1633,7 +1804,7 @@ fn read_or_build_id_index(
     cache_ident: &Option<ArtifactIdent>,
     id_index_path: Option<&Path>,
     path_display: &str,
-) -> Result<(Vec<UnitId>, HashMap<UnitId, usize>), SessionError> {
+) -> Result<IdIndexBuildResult, SessionError> {
     if let (Some(index_path), Some(etag)) = (id_index_path, file_etag) {
         match IdIndex::load_from_path(index_path, file_size, Some(etag)) {
             Ok(Some(index)) => {
@@ -1643,7 +1814,11 @@ fn read_or_build_id_index(
                         ids = index.ids.len(),
                         "loaded catchment id index from cache"
                     );
-                    return Ok((index.ids, id_row_groups));
+                    return Ok(IdIndexBuildResult {
+                        ids: index.ids,
+                        id_row_groups,
+                        validation_levels_from_open: None,
+                    });
                 }
                 debug!(
                     path = %index_path.display(),
@@ -1666,19 +1841,35 @@ fn read_or_build_id_index(
         );
     }
 
-    let (ids, id_row_groups) = read_all_ids_with_row_groups(
-        store,
-        path,
-        file_size,
-        parquet_cache,
-        footer_cache,
-        cache_ident,
-    )?;
+    let built = if id_index_path.is_some() && file_etag.is_some() {
+        read_ids_levels_with_row_groups(
+            store,
+            path,
+            file_size,
+            parquet_cache,
+            footer_cache,
+            cache_ident,
+        )?
+    } else {
+        let (ids, id_row_groups) = read_all_ids_with_row_groups(
+            store,
+            path,
+            file_size,
+            parquet_cache,
+            footer_cache,
+            cache_ident,
+        )?;
+        IdIndexBuildResult {
+            ids,
+            id_row_groups,
+            validation_levels_from_open: None,
+        }
+    };
 
     if let (Some(index_path), Some(etag)) = (id_index_path, file_etag) {
         let index = IdIndex {
-            ids: ids.clone(),
-            id_row_groups: Some(id_row_groups.clone()),
+            ids: built.ids.clone(),
+            id_row_groups: Some(built.id_row_groups.clone()),
         };
         if let Err(error) = index.write_to_path(index_path, file_size, Some(etag)) {
             warn!(
@@ -1689,7 +1880,7 @@ fn read_or_build_id_index(
         }
     }
 
-    Ok((ids, id_row_groups))
+    Ok(built)
 }
 
 #[derive(Debug, Clone, Copy)]

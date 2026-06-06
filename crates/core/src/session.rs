@@ -1022,16 +1022,16 @@ fn validate_graph_catchments(
     }
 
     debug!("verifying graph ↔ catchment referential integrity");
-    let catchment_id_level_rows = catchments.read_id_levels()?;
-    let catchment_ids = catchment_id_level_rows
-        .iter()
-        .map(|row| row.id())
-        .collect::<Vec<_>>();
+    let catchment_ids = catchments.read_all_ids()?;
     let catchment_id_set: HashSet<UnitId> = catchment_ids.iter().copied().collect();
-    let catchment_levels = catchment_id_level_rows
-        .iter()
-        .map(|row| (row.id(), row.level()))
-        .collect::<HashMap<_, _>>();
+    let catchment_levels = match catchments.validation_levels_from_open() {
+        Some(levels) => levels.clone(),
+        None => catchments
+            .read_id_levels()?
+            .iter()
+            .map(|row| (row.id(), row.level()))
+            .collect::<HashMap<_, _>>(),
+    };
 
     if graph.len() != catchment_ids.len() {
         return Err(SessionError::GraphReferentialIntegrity {
@@ -1301,9 +1301,9 @@ mod tests {
     use std::ops::Range;
     use std::path::{Path, PathBuf};
     use std::pin::Pin;
-    use std::time::Instant;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
+    use std::time::Instant;
 
     use arrow::array::{
         BinaryBuilder, Float32Builder, Int16Builder, Int64Array, Int64Builder, ListBuilder,
@@ -1325,8 +1325,8 @@ mod tests {
     use tracing::field::{Field as TracingField, Visit};
     use tracing::span::{Attributes, Id, Record};
     use tracing::{Event, Metadata, Subscriber};
-    use tracing_subscriber::prelude::*;
     use tracing_core::span::Current;
+    use tracing_subscriber::prelude::*;
     use url::Url;
 
     use super::{
@@ -1336,7 +1336,8 @@ mod tests {
     use crate::parquet_cache::{ParquetFooterCache, ParquetRowGroupCache};
     use crate::reader::catchment_store::{
         GEOMETRY_DECODE_TEST_LOCK, read_id_level_scan_count_for_test,
-        reset_geometry_decode_counts_for_test, reset_read_id_level_scan_count_for_test,
+        read_id_only_scan_count_for_test, reset_geometry_decode_counts_for_test,
+        reset_read_id_level_scan_count_for_test,
     };
     use crate::reader::snap_store::{
         reset_snap_geometry_decode_rows_for_test, reset_snap_membership_rows_for_test,
@@ -1344,13 +1345,12 @@ mod tests {
     };
     use crate::runtime::RT;
     use crate::source::DatasetSource;
-    use crate::testutil::DatasetBuilder;
     use crate::telemetry::jsonl::JsonlLayer;
+    use crate::testutil::DatasetBuilder;
     use hfx_core::{BoundingBox, SnapId, UnitId};
 
     static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
-    const REAL_GRIT_V200_URL: &str =
-        "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
+    const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
     const REAL_MEASUREMENT_ENV: &str = "SHED_R2_SNAP_OPEN_REAL_MEASURE";
     const LOCAL_MERIT_GLOBAL: &str =
         "/Users/nicolaslazaro/Desktop/merit-hfx-v2/planetary/merit-hfx-global";
@@ -1930,7 +1930,7 @@ mod tests {
         .unwrap();
 
         let cursor = Cursor::new(Vec::new());
-        let props = writer_properties_with_metadata(metadata);
+        let props = writer_properties_with_metadata(metadata, None);
         let mut writer = ArrowWriter::try_new(cursor, schema, props).unwrap();
         writer.write(&batch).unwrap();
         writer.into_inner().unwrap().into_inner()
@@ -1974,6 +1974,14 @@ mod tests {
     fn catchments_bytes_with_levels_and_metadata(
         levels: [i16; 2],
         metadata: Option<&str>,
+    ) -> Vec<u8> {
+        catchments_bytes_with_levels_metadata_and_row_group_size(levels, metadata, None)
+    }
+
+    fn catchments_bytes_with_levels_metadata_and_row_group_size(
+        levels: [i16; 2],
+        metadata: Option<&str>,
+        row_group_size: Option<usize>,
     ) -> Vec<u8> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
@@ -2024,6 +2032,7 @@ mod tests {
                 Arc::new(geom_b.finish()),
             ],
             metadata,
+            row_group_size,
         )
     }
 
@@ -2077,6 +2086,7 @@ mod tests {
                 Arc::new(geom_b.finish()),
             ],
             None,
+            None,
         )
     }
 
@@ -2084,24 +2094,35 @@ mod tests {
         schema: Arc<Schema>,
         columns: Vec<Arc<dyn arrow::array::Array>>,
         metadata: Option<&str>,
+        row_group_size: Option<usize>,
     ) -> Vec<u8> {
         let batch = RecordBatch::try_new(schema.clone(), columns).unwrap();
         let cursor = Cursor::new(Vec::new());
-        let props = writer_properties_with_metadata(metadata);
+        let props = writer_properties_with_metadata(metadata, row_group_size);
         let mut writer = ArrowWriter::try_new(cursor, schema, props).unwrap();
         writer.write(&batch).unwrap();
         writer.into_inner().unwrap().into_inner()
     }
 
-    fn writer_properties_with_metadata(metadata: Option<&str>) -> Option<WriterProperties> {
-        metadata.map(|value| {
-            WriterProperties::builder()
-                .set_key_value_metadata(Some(vec![KeyValue {
-                    key: "shed-test-token".to_owned(),
-                    value: Some(value.to_owned()),
-                }]))
-                .build()
-        })
+    fn writer_properties_with_metadata(
+        metadata: Option<&str>,
+        row_group_size: Option<usize>,
+    ) -> Option<WriterProperties> {
+        if metadata.is_none() && row_group_size.is_none() {
+            return None;
+        }
+
+        let mut builder = WriterProperties::builder();
+        if let Some(value) = metadata {
+            builder = builder.set_key_value_metadata(Some(vec![KeyValue {
+                key: "shed-test-token".to_owned(),
+                value: Some(value.to_owned()),
+            }]));
+        }
+        if let Some(row_group_size) = row_group_size {
+            builder = builder.set_max_row_group_row_count(Some(row_group_size));
+        }
+        Some(builder.build())
     }
 
     #[test]
@@ -2481,11 +2502,15 @@ mod tests {
     }
 
     fn put_remote_catchments(store: &Arc<InMemory>, root: &ObjectPath) {
+        put_remote_catchments_bytes(store, root, catchments_bytes());
+    }
+
+    fn put_remote_catchments_bytes(store: &Arc<InMemory>, root: &ObjectPath, catchments: Vec<u8>) {
         RT.block_on(async {
             store
                 .put(
                     &root.clone().join("catchments.parquet"),
-                    PutPayload::from(catchments_bytes()),
+                    PutPayload::from(catchments),
                 )
                 .await
                 .unwrap();
@@ -2637,12 +2662,123 @@ mod tests {
     }
 
     #[test]
+    fn cold_remote_id_index_miss_merges_catchment_id_and_level_pass() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        put_remote_manifest_and_graph(&store, &root, false);
+        put_remote_catchments_bytes(
+            &store,
+            &root,
+            catchments_bytes_with_levels_metadata_and_row_group_size([0, 0], None, Some(1)),
+        );
+        let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        reset_geometry_decode_counts_for_test();
+        reset_read_id_level_scan_count_for_test();
+        let session = DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
+
+        assert_eq!(
+            read_id_only_scan_count_for_test(),
+            0,
+            "cold persisted id-index miss should not run a separate [id] pass"
+        );
+        assert_eq!(
+            read_id_level_scan_count_for_test(),
+            1,
+            "cold persisted id-index miss should run one merged [id, level] pass"
+        );
+        let counts = [1_i64, 2]
+            .into_iter()
+            .map(|id| {
+                session
+                    .catchments()
+                    .geometry_decode_count_for_test(UnitId::new(id).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            counts,
+            vec![0, 0],
+            "merged cold open should not decode catchment geometry"
+        );
+        assert!(
+            cache_dir
+                .path()
+                .join("testfabric")
+                .join("test-v1")
+                .join("catchments.idindex.arrow")
+                .is_file(),
+            "merged cold pass should still persist the id-index sidecar"
+        );
+    }
+
+    #[test]
+    fn cached_id_index_token_miss_fallback_scans_levels_and_rejects_mismatch() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        put_remote_manifest_and_graph(&store, &root, false);
+        put_remote_catchments_bytes(
+            &store,
+            &root,
+            catchments_bytes_with_levels_metadata_and_row_group_size([0, 0], None, Some(1)),
+        );
+        let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
+        std::fs::remove_file(
+            cache_dir
+                .path()
+                .join("testfabric")
+                .join("test-v1")
+                .join("graph.parquet"),
+        )
+        .unwrap();
+        let graph_path = root.clone().join("graph.parquet");
+        RT.block_on(async {
+            store
+                .put(
+                    &graph_path,
+                    PutPayload::from(graph_bytes_with_levels_and_metadata(
+                        [1, 0],
+                        Some("graph-level-mismatch"),
+                    )),
+                )
+                .await
+                .unwrap();
+        });
+
+        reset_read_id_level_scan_count_for_test();
+        let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
+
+        assert_graph_level_mismatch(err);
+        assert_eq!(
+            read_id_only_scan_count_for_test(),
+            0,
+            "cached id-index token miss should not rebuild the [id] index"
+        );
+        assert_eq!(
+            read_id_level_scan_count_for_test(),
+            1,
+            "cached id-index token miss should run exactly one fallback [id, level] pass"
+        );
+    }
+
+    #[test]
     #[ignore = "network and large-cache measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
     fn measure_real_grit_warm_snap_open_reuse() {
         if !real_snap_open_measurements_enabled() {
-            println!(
-                "skipping real GRIT warm snap-open measurement; set {REAL_MEASUREMENT_ENV}=1"
-            );
+            println!("skipping real GRIT warm snap-open measurement; set {REAL_MEASUREMENT_ENV}=1");
             return;
         }
 
@@ -2693,10 +2829,22 @@ mod tests {
             }),
         );
 
-        assert_eq!(snap_validation_scans, 0, "warm token hit should skip snap validation");
-        assert_eq!(snap_membership_rows, 0, "warm token hit should skip snap membership reads");
-        assert_eq!(snap_geometry_decode_rows, 0, "warm token hit should skip snap geometry decode");
-        assert_eq!(catchment_level_scans, 0, "warm token hit should skip catchment validation scans");
+        assert_eq!(
+            snap_validation_scans, 0,
+            "warm token hit should skip snap validation"
+        );
+        assert_eq!(
+            snap_membership_rows, 0,
+            "warm token hit should skip snap membership reads"
+        );
+        assert_eq!(
+            snap_geometry_decode_rows, 0,
+            "warm token hit should skip snap geometry decode"
+        );
+        assert_eq!(
+            catchment_level_scans, 0,
+            "warm token hit should skip catchment validation scans"
+        );
         // 12 s tracks the measured cache-I/O floor plus variance margin, with validation still skipped.
         assert!(
             elapsed_ms < 12000.0,
@@ -2708,9 +2856,7 @@ mod tests {
     #[ignore = "network and large-cache measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
     fn measure_real_grit_cold_snap_membership_open() {
         if !real_snap_open_measurements_enabled() {
-            println!(
-                "skipping real GRIT cold snap-open measurement; set {REAL_MEASUREMENT_ENV}=1"
-            );
+            println!("skipping real GRIT cold snap-open measurement; set {REAL_MEASUREMENT_ENV}=1");
             return;
         }
 
@@ -2783,9 +2929,7 @@ mod tests {
     #[ignore = "large local measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
     fn measure_local_merit_global_snap_membership_open() {
         if !real_snap_open_measurements_enabled() {
-            println!(
-                "skipping local MERIT snap-open measurement; set {REAL_MEASUREMENT_ENV}=1"
-            );
+            println!("skipping local MERIT snap-open measurement; set {REAL_MEASUREMENT_ENV}=1");
             return;
         }
 
@@ -2793,7 +2937,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let root = PathBuf::from(LOCAL_MERIT_GLOBAL);
-        assert!(root.is_dir(), "local MERIT HFX path must exist: {}", root.display());
+        assert!(
+            root.is_dir(),
+            "local MERIT HFX path must exist: {}",
+            root.display()
+        );
         let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
         let trace_path = trace_dir.path().join("local-merit-open.jsonl");
 
