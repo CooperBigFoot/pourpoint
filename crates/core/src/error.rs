@@ -232,8 +232,8 @@ pub enum SessionError {
         reason: String,
     },
 
-    /// Fired when a snap `stem_role` value is not one of `mainstem`,
-    /// `tributary`, `distributary`, or `unknown`.
+    /// Fired when a queried snap candidate has a `stem_role` value that is not
+    /// one of `mainstem`, `tributary`, `distributary`, or `unknown`.
     #[error("invalid stem_role {value:?} at snap row {row}")]
     InvalidStemRole {
         /// Zero-based row index within the snap artifact.
@@ -267,7 +267,8 @@ pub enum SessionError {
         mode: &'static str,
     },
 
-    /// Fired when a snap geometry is neither a WKB Point nor a WKB LineString.
+    /// Fired when a queried snap candidate geometry cannot be decoded as WKB
+    /// Point or WKB LineString.
     #[error("invalid snap geometry at row {row}: {reason}")]
     SnapGeometryInvalid {
         /// Zero-based row index within the snap artifact.

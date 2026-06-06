@@ -1116,7 +1116,11 @@ fn validate_graph_catchments(
     Ok(catchment_levels)
 }
 
-/// Validate snap/catchment referential integrity.
+/// Validate shed-owned snap referential integrity.
+///
+/// Ensures each snap `unit_id` exists in the loaded catchment set and that the
+/// referenced unit level is declared in the snap entry's `references_levels`.
+/// HFX validation owns snap geometry and `stem_role` value validity.
 ///
 /// Changing open-time referential validation semantics requires bumping
 /// `validation_logic_version`.

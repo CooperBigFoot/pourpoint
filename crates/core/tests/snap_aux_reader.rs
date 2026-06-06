@@ -245,7 +245,7 @@ fn snap_aux_accepts_absent_stem_role_column_and_absent_bbox_columns() {
 }
 
 #[test]
-fn snap_aux_invalid_stem_role_is_typed() {
+fn snap_aux_trusts_hfx_for_stem_role_values_at_open() {
     let (_dir, root) = DatasetBuilder::new(1).with_snap().build();
     write_snap_fixture(
         &root,
@@ -260,15 +260,9 @@ fn snap_aux_invalid_stem_role_is_typed() {
         true,
     );
 
-    let err = DatasetSession::open_path(&root).unwrap_err();
+    let session = DatasetSession::open_path(&root).unwrap();
 
-    assert!(matches!(
-        err,
-        SessionError::InvalidStemRole {
-            row: 0,
-            ref value
-        } if value == "channel-boss"
-    ));
+    assert!(session.snap().is_some());
 }
 
 #[test]
@@ -329,7 +323,7 @@ fn snap_aux_references_levels_mismatch_reports_real_snap_id() {
 }
 
 #[test]
-fn snap_aux_rejects_non_point_or_linestring_wkb() {
+fn snap_aux_trusts_hfx_for_snap_geometry_type_at_open() {
     let (_dir, root) = DatasetBuilder::new(1).with_snap().build();
     write_snap_fixture(
         &root,
@@ -344,7 +338,30 @@ fn snap_aux_rejects_non_point_or_linestring_wkb() {
         true,
     );
 
-    let err = DatasetSession::open_path(&root).unwrap_err();
+    let session = DatasetSession::open_path(&root).unwrap();
+
+    assert!(session.snap().is_some());
+}
+
+#[test]
+fn snap_aux_malformed_geometry_fails_lazily_at_query_time() {
+    let (_dir, root) = DatasetBuilder::new(1).with_snap().build();
+    write_snap_fixture(
+        &root,
+        &[SnapFixtureRow {
+            id: 88,
+            unit_id: 1,
+            weight: 1.0,
+            stem_role: Some("mainstem"),
+            geometry: polygon_wkb(),
+        }],
+        true,
+        true,
+    );
+
+    let session = DatasetSession::open_path(&root).unwrap();
+    let bbox = BoundingBox::new(88.0, 0.0, 88.25, 0.25).unwrap();
+    let err = session.snap().unwrap().query_by_bbox(&bbox).unwrap_err();
 
     assert!(matches!(
         err,

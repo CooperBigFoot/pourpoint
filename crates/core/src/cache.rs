@@ -59,7 +59,7 @@ pub(crate) struct SidecarFormatVersion(pub(crate) u32);
 pub(crate) struct ValidationLogicVersion(pub(crate) String);
 
 /// Bump when open-time referential validation semantics change.
-pub(crate) const VALIDATION_LOGIC_VERSION: &str = "r2-open-reuse-v1";
+pub(crate) const VALIDATION_LOGIC_VERSION: &str = "r2-snap-membership-v2";
 const TOKEN_FORMAT_VERSION: SidecarFormatVersion = SidecarFormatVersion(2);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -464,6 +464,15 @@ mod tests {
         let (manifest, graph, catchments, snaps) = token_inputs();
         let mut sidecar = sidecar_with_two_snaps();
         sidecar.validation_logic_version = ValidationLogicVersion("different-logic".into());
+
+        assert!(!sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+    }
+
+    #[test]
+    fn validation_sidecar_old_open_reuse_logic_version_fails_closed() {
+        let (manifest, graph, catchments, snaps) = token_inputs();
+        let mut sidecar = sidecar_with_two_snaps();
+        sidecar.validation_logic_version = ValidationLogicVersion("r2-open-reuse-v1".into());
 
         assert!(!sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
     }
