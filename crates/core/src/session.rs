@@ -12,7 +12,7 @@ use futures_util::StreamExt;
 use geo::Rect;
 use hfx_core::{DrainageGraph, Level, Manifest, Topology, UnitId};
 use object_store::path::Path as ObjectPath;
-use object_store::{ObjectStore, ObjectStoreExt};
+use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
 use tracing::{debug, info, instrument};
 use url::Url;
 
@@ -29,7 +29,7 @@ use crate::raster_cache::RemoteRasterCache;
 use crate::reader;
 use crate::reader::catchment_store::CatchmentStore;
 use crate::reader::manifest::{AuxDeclarations, SnapDecl};
-use crate::reader::snap_store::SnapStore;
+use crate::reader::snap_store::{SnapOpenMode, SnapStore};
 use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
 use crate::source::{DatasetSource, shed_get_ranges_concurrency};
@@ -449,37 +449,20 @@ impl DatasetSession {
             Some(catchments_id_index_path),
         )?;
 
-        let snap_stores = aux_declarations
+        let catchments_meta = catchments.artifact_meta();
+        let snap_heads = aux_declarations
             .snaps
             .iter()
             .map(|decl| {
                 let snap_path = remote_artifact_path(root, &decl.snap);
-                let snap_id_index_path =
-                    cache.id_index_path(&fabric_name, &adapter_version, &decl.snap);
-                Ok(DeclaredSnapStore {
-                    decl: decl.clone(),
-                    store: SnapStore::open_remote_with_caches(
-                        store.clone(),
-                        snap_path.clone(),
-                        snap_path.as_ref().to_string(),
-                        fabric_name.clone(),
-                        adapter_version.clone(),
-                        parquet_cache.clone(),
-                        footer_cache.clone(),
-                        Some(snap_id_index_path),
-                    )?,
-                })
+                let head_meta = remote_object_meta(store.as_ref(), &snap_path, "snap.parquet")?;
+                Ok((decl.clone(), snap_path, head_meta))
             })
             .collect::<Result<Vec<_>, SessionError>>()?;
-
-        let catchments_meta = catchments.artifact_meta();
-        let snap_meta = snap_stores
+        let snap_meta = snap_heads
             .iter()
-            .map(|declared_snap| {
-                declared_snap
-                    .store
-                    .artifact_meta()
-                    .map(|meta| meta.with_path(declared_snap.decl.snap.clone()))
+            .map(|(decl, _path, meta)| {
+                ArtifactMeta::from_parts(&decl.snap, meta.e_tag.as_deref(), meta.size)
             })
             .collect::<Option<Vec<_>>>();
         let validation_inputs = ValidationSidecarInputs {
@@ -498,6 +481,39 @@ impl DatasetSession {
                 adapter_version, "remote validation sidecar matched current artifact metadata"
             );
         } else {
+            debug!(
+                fabric = fabric_name,
+                adapter_version,
+                "remote validation sidecar missing or stale before snap store open"
+            );
+        }
+
+        let snap_open_mode = if validation_hit {
+            SnapOpenMode::LazyMetadata
+        } else {
+            SnapOpenMode::ColdMembershipValidation
+        };
+        let snap_stores = snap_heads
+            .into_iter()
+            .map(|(decl, snap_path, head_meta)| {
+                Ok(DeclaredSnapStore {
+                    decl,
+                    store: SnapStore::open_remote_with_caches(
+                        store.clone(),
+                        snap_path.clone(),
+                        snap_path.as_ref().to_string(),
+                        fabric_name.clone(),
+                        adapter_version.clone(),
+                        parquet_cache.clone(),
+                        footer_cache.clone(),
+                        Some(head_meta),
+                        snap_open_mode,
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>, SessionError>>()?;
+
+        if !validation_hit {
             let t = std::time::Instant::now();
             debug!(
                 fabric = fabric_name,
@@ -1194,21 +1210,29 @@ fn remote_artifact_meta(
     path: &ObjectPath,
     artifact: &'static str,
 ) -> Option<ArtifactMeta> {
-    let meta = RT
-        .block_on(async { store.head(path).await })
-        .map_err(|source| {
-            debug!(
-                artifact,
-                path = %path,
-                error = %source,
-                "remote artifact metadata unavailable for validation sidecar token"
-            );
-            source
-        });
+    let meta = remote_object_meta(store, path, artifact).map_err(|source| {
+        debug!(
+            artifact,
+            path = %path,
+            error = %source,
+            "remote artifact metadata unavailable for validation sidecar token"
+        );
+        source
+    });
     let Ok(meta) = meta else {
         return None;
     };
     ArtifactMeta::from_parts(artifact, meta.e_tag.as_deref(), meta.size)
+}
+
+fn remote_object_meta(
+    store: &dyn ObjectStore,
+    path: &ObjectPath,
+    artifact: &'static str,
+) -> Result<ObjectMeta, SessionError> {
+    let path_display = path.as_ref().to_string();
+    RT.block_on(async { store.head(path).await })
+        .map_err(|source| SessionError::remote_artifact_read(artifact, path_display, source))
 }
 
 fn remote_artifact_ranges(size: u64, concurrency: usize) -> Vec<Range<u64>> {
@@ -1616,6 +1640,124 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct NoEtagHeadStore {
+        inner: Arc<dyn ObjectStore>,
+    }
+
+    impl NoEtagHeadStore {
+        fn new(inner: Arc<dyn ObjectStore>) -> Self {
+            Self { inner }
+        }
+    }
+
+    impl fmt::Display for NoEtagHeadStore {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "NoEtagHeadStore({})", self.inner)
+        }
+    }
+
+    impl ObjectStore for NoEtagHeadStore {
+        fn put_opts<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            payload: PutPayload,
+            opts: PutOptions,
+        ) -> Pin<Box<dyn Future<Output = Result<PutResult>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.put_opts(location, payload, opts).await })
+        }
+
+        fn put_multipart_opts<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            opts: PutMultipartOptions,
+        ) -> Pin<Box<dyn Future<Output = Result<Box<dyn MultipartUpload>>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.put_multipart_opts(location, opts).await })
+        }
+
+        fn get_opts<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            options: GetOptions,
+        ) -> Pin<Box<dyn Future<Output = Result<GetResult>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move {
+                let is_head = options.head;
+                let mut result = self.inner.get_opts(location, options).await?;
+                if is_head {
+                    result.meta.e_tag = None;
+                }
+                Ok(result)
+            })
+        }
+
+        fn get_ranges<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            ranges: &'life2 [Range<u64>],
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<Bytes>>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.get_ranges(location, ranges).await })
+        }
+
+        fn delete_stream(
+            &self,
+            locations: BoxStream<'static, Result<ObjectPath>>,
+        ) -> BoxStream<'static, Result<ObjectPath>> {
+            self.inner.delete_stream(locations)
+        }
+
+        fn list(&self, prefix: Option<&ObjectPath>) -> BoxStream<'static, Result<ObjectMeta>> {
+            self.inner.list(prefix)
+        }
+
+        fn list_with_delimiter<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            prefix: Option<&'life1 ObjectPath>,
+        ) -> Pin<Box<dyn Future<Output = Result<ListResult>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.list_with_delimiter(prefix).await })
+        }
+
+        fn copy_opts<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            from: &'life1 ObjectPath,
+            to: &'life2 ObjectPath,
+            options: CopyOptions,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.copy_opts(from, to, options).await })
+        }
+    }
+
     fn manifest_bytes_with_rasters(snap: bool, rasters: bool) -> String {
         let snap_paths = if snap { &["snap.parquet"][..] } else { &[] };
         manifest_bytes_with_snap_paths_and_rasters(snap_paths, rasters)
@@ -1805,6 +1947,10 @@ mod tests {
     }
 
     fn snap_bytes() -> Vec<u8> {
+        snap_bytes_with_unit_id(1)
+    }
+
+    fn snap_bytes_with_unit_id(unit_id: i64) -> Vec<u8> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1827,7 +1973,7 @@ mod tests {
         let mut maxy_b = Float32Builder::new();
         let mut geom_b = BinaryBuilder::new();
         id_b.append_value(1);
-        unit_id_b.append_value(1);
+        unit_id_b.append_value(unit_id);
         weight_b.append_value(1.0);
         stem_role_b.append_value("mainstem");
         minx_b.append_value(1.1);
@@ -2316,14 +2462,6 @@ mod tests {
                 .path()
                 .join("testfabric")
                 .join("test-v1")
-                .join("snap.idindex.arrow")
-                .is_file()
-        );
-        assert!(
-            cache_dir
-                .path()
-                .join("testfabric")
-                .join("test-v1")
                 .join("validated.json")
                 .is_file()
         );
@@ -2391,11 +2529,16 @@ mod tests {
             0,
             "valid two-snap token should skip snap validation scans"
         );
-        assert!(
-            snap_geometry_decode_rows_for_test() > 0,
-            "current warm two-snap token open still decodes snap geometry; Step 3 flips this to zero"
+        assert_eq!(
+            snap_membership_rows_for_test(),
+            0,
+            "valid two-snap token should skip snap membership reads"
         );
-        let _membership_rows = snap_membership_rows_for_test();
+        assert_eq!(
+            snap_geometry_decode_rows_for_test(),
+            0,
+            "valid two-snap token open should not decode snap geometry"
+        );
 
         let sidecar_path = cache_dir
             .path()
@@ -2413,6 +2556,35 @@ mod tests {
     }
 
     #[test]
+    fn remote_open_missing_etag_does_not_write_validation_sidecar() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let base_store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        let snap_paths = ["aux/snap.parquet"];
+        put_remote_manifest_and_graph_with_snap_paths(&base_store, &root, &snap_paths);
+        put_remote_catchments(&base_store, &root);
+        put_remote_snaps(&base_store, &root, &snap_paths);
+        let object_store = Arc::new(NoEtagHeadStore::new(base_store)) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
+
+        assert!(
+            !cache_dir
+                .path()
+                .join("testfabric")
+                .join("test-v1")
+                .join("validated.json")
+                .is_file(),
+            "missing ETags must fail closed and avoid writing a size-only validation token"
+        );
+    }
+
+    #[test]
     fn cold_open_with_snap_decodes_geometry() {
         let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
             .lock()
@@ -2424,10 +2596,101 @@ mod tests {
         DatasetSession::open_path(&root).unwrap();
 
         assert!(
-            snap_geometry_decode_rows_for_test() > 0,
-            "current cold snap open should decode geometry before the lean membership pass exists"
+            snap_membership_rows_for_test() > 0,
+            "cold snap open should read lean membership rows"
         );
-        let _membership_rows = snap_membership_rows_for_test();
+        assert_eq!(
+            snap_geometry_decode_rows_for_test(),
+            0,
+            "cold snap open should not decode snap geometry"
+        );
+    }
+
+    #[test]
+    fn snap_token_change_revalidates_with_lean_membership_read() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        let snap_paths = ["aux/snap.parquet"];
+        put_remote_manifest_and_graph_with_snap_paths(&store, &root, &snap_paths);
+        put_remote_catchments(&store, &root);
+        put_remote_snaps(&store, &root, &snap_paths);
+        let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
+        let snap_path = ObjectPath::from(format!("{}/{}", root.as_ref(), "aux/snap.parquet"));
+        RT.block_on(async {
+            store
+                .put(&snap_path, PutPayload::from(snap_bytes_with_unit_id(2)))
+                .await
+                .unwrap();
+        });
+
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
+        DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
+
+        assert!(
+            snap_membership_rows_for_test() > 0,
+            "stale snap token should re-enter lean membership validation"
+        );
+        assert_eq!(
+            snap_geometry_decode_rows_for_test(),
+            0,
+            "stale snap token revalidation should not decode snap geometry"
+        );
+    }
+
+    #[test]
+    fn snap_token_change_rejects_bad_membership() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        let snap_paths = ["aux/snap.parquet"];
+        put_remote_manifest_and_graph_with_snap_paths(&store, &root, &snap_paths);
+        put_remote_catchments(&store, &root);
+        put_remote_snaps(&store, &root, &snap_paths);
+        let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
+        let snap_path = ObjectPath::from(format!("{}/{}", root.as_ref(), "aux/snap.parquet"));
+        RT.block_on(async {
+            store
+                .put(&snap_path, PutPayload::from(snap_bytes_with_unit_id(999)))
+                .await
+                .unwrap();
+        });
+
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
+        let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
+
+        assert!(
+            snap_membership_rows_for_test() > 0,
+            "bad stale snap token should re-enter lean membership validation"
+        );
+        assert_eq!(
+            snap_geometry_decode_rows_for_test(),
+            0,
+            "bad stale snap token validation should not decode snap geometry"
+        );
+        assert!(
+            matches!(
+                err,
+                SessionError::SnapReferentialIntegrity { unit_id: 999, .. }
+            ),
+            "expected SnapReferentialIntegrity for mutated snap unit_id, got {err:?}"
+        );
     }
 
     #[test]

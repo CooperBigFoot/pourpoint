@@ -1,6 +1,6 @@
 //! SnapStore — lazy parquet reader for snap targets.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,7 +14,7 @@ use geo::{BoundingRect, Geometry};
 use hfx_core::{BoundingBox, SnapId, SnapTarget, StemRole, UnitId, Weight, WkbGeometry};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
-use object_store::{ObjectStore, ObjectStoreExt};
+use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::async_reader::{
@@ -22,9 +22,7 @@ use parquet::arrow::async_reader::{
 };
 use tracing::{Instrument, debug, info, instrument, warn};
 
-use super::id_index::IdIndex;
 use crate::algo::wkb::decode_wkb;
-use crate::cache::ArtifactMeta;
 use crate::error::SessionError;
 use crate::parquet_cache::{
     ArtifactIdent, CachingReader, ParquetFooterCache, ParquetRowGroupCache,
@@ -124,18 +122,6 @@ struct RowGroupBbox {
 }
 
 #[derive(Clone)]
-struct UnitIdRowGroupReadContext {
-    store: Arc<dyn ObjectStore>,
-    path: ObjectPath,
-    file_size: u64,
-    reader_metadata: ArrowReaderMetadata,
-    mask: ProjectionMask,
-    parquet_cache: Option<Arc<ParquetRowGroupCache>>,
-    footer_cache: Option<Arc<ParquetFooterCache>>,
-    cache_ident: Option<ArtifactIdent>,
-}
-
-#[derive(Clone)]
 struct SnapMembershipRowGroupReadContext {
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
@@ -165,7 +151,6 @@ pub(crate) struct SnapUnitRef {
     pub(crate) unit_id: UnitId,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SnapOpenMode {
     LazyMetadata,
@@ -174,28 +159,8 @@ pub(crate) enum SnapOpenMode {
 
 #[derive(Debug)]
 enum SnapRefsState {
-    #[cfg_attr(not(test), allow(dead_code))]
     NotLoaded,
     Loaded(Vec<SnapUnitRef>),
-}
-
-#[derive(Debug, Default)]
-struct SnapValidationReadStats {
-    refs: Vec<SnapUnitRef>,
-    batches_read: usize,
-    rows_validated: usize,
-    stem_role_values_parsed: usize,
-    geometry_rows_validated: usize,
-}
-
-impl SnapValidationReadStats {
-    fn extend(&mut self, row_group_stats: SnapValidationReadStats) {
-        self.refs.extend(row_group_stats.refs);
-        self.batches_read += row_group_stats.batches_read;
-        self.rows_validated += row_group_stats.rows_validated;
-        self.stem_role_values_parsed += row_group_stats.stem_role_values_parsed;
-        self.geometry_rows_validated += row_group_stats.geometry_rows_validated;
-    }
 }
 
 #[derive(Debug, Default)]
@@ -219,7 +184,6 @@ pub struct SnapStore {
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
     file_size: u64,
-    file_etag: Option<String>,
     row_groups: Vec<RowGroupBbox>,
     groups_without_stats: Vec<usize>,
     total_rows: u64,
@@ -257,7 +221,7 @@ impl SnapStore {
             None,
             None,
             None,
-            None,
+            SnapOpenMode::ColdMembershipValidation,
         )
     }
 
@@ -278,7 +242,7 @@ impl SnapStore {
             None,
             None,
             None,
-            None,
+            SnapOpenMode::ColdMembershipValidation,
         )
     }
 
@@ -302,6 +266,7 @@ impl SnapStore {
             parquet_cache,
             None,
             None,
+            SnapOpenMode::ColdMembershipValidation,
         )
     }
 
@@ -316,7 +281,8 @@ impl SnapStore {
         adapter_version: String,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
-        id_index_path: Option<PathBuf>,
+        head_meta: Option<ObjectMeta>,
+        mode: SnapOpenMode,
     ) -> Result<Self, SessionError> {
         Self::open_object(
             store,
@@ -326,12 +292,12 @@ impl SnapStore {
             Some((fabric_name, adapter_version)),
             parquet_cache,
             footer_cache,
-            id_index_path,
-            None,
+            head_meta,
+            mode,
         )
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn open_with_mode(
         store: Arc<dyn ObjectStore>,
@@ -352,7 +318,7 @@ impl SnapStore {
             parquet_cache,
             footer_cache,
             None,
-            Some(mode),
+            mode,
         )
     }
 
@@ -365,12 +331,15 @@ impl SnapStore {
         fabric_info: Option<(String, String)>,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
-        id_index_path: Option<PathBuf>,
-        mode: Option<SnapOpenMode>,
+        head_meta: Option<ObjectMeta>,
+        mode: SnapOpenMode,
     ) -> Result<Self, SessionError> {
         let _guard = StageGuard::enter(Stage::SnapStoreOpen);
         record_path(&path_display);
-        let head_meta = head_object_meta(store.as_ref(), &path, &path_display, head_error_mode)?;
+        let head_meta = match head_meta {
+            Some(meta) => meta,
+            None => head_object_meta(store.as_ref(), &path, &path_display, head_error_mode)?,
+        };
         let file_size = head_meta.size;
         let last_modified = head_meta.last_modified;
 
@@ -459,43 +428,18 @@ impl SnapStore {
         }
 
         let snap_refs = match mode {
-            None => SnapRefsState::Loaded(read_or_build_id_index(
-                &store,
-                &path,
-                file_size,
-                head_meta.e_tag.as_deref(),
-                parquet_cache.clone(),
-                footer_cache.clone(),
-                cache_ident.clone(),
-                id_index_path.as_deref(),
-                &path_display,
-            )?),
-            Some(SnapOpenMode::LazyMetadata) => SnapRefsState::NotLoaded,
-            Some(SnapOpenMode::ColdMembershipValidation) => {
-                let refs = if id_index_path.is_some() {
-                    read_or_build_id_index(
-                        &store,
-                        &path,
-                        file_size,
-                        head_meta.e_tag.as_deref(),
-                        parquet_cache.clone(),
-                        footer_cache.clone(),
-                        cache_ident.clone(),
-                        id_index_path.as_deref(),
-                        &path_display,
-                    )?
-                } else {
-                    let _guard = StageGuard::enter(Stage::SnapIdIndex);
-                    record_path(&path_display);
-                    read_all_snap_membership_refs_from_store(
-                        &store,
-                        &path,
-                        file_size,
-                        parquet_cache.clone(),
-                        footer_cache.clone(),
-                        cache_ident.clone(),
-                    )?
-                };
+            SnapOpenMode::LazyMetadata => SnapRefsState::NotLoaded,
+            SnapOpenMode::ColdMembershipValidation => {
+                let _guard = StageGuard::enter(Stage::SnapIdIndex);
+                record_path(&path_display);
+                let refs = read_all_snap_membership_refs_from_store(
+                    &store,
+                    &path,
+                    file_size,
+                    parquet_cache.clone(),
+                    footer_cache.clone(),
+                    cache_ident.clone(),
+                )?;
                 SnapRefsState::Loaded(refs)
             }
         };
@@ -515,7 +459,6 @@ impl SnapStore {
             store,
             path,
             file_size,
-            file_etag: head_meta.e_tag,
             row_groups,
             groups_without_stats,
             total_rows,
@@ -667,14 +610,6 @@ impl SnapStore {
         self.total_rows
     }
 
-    pub(crate) fn artifact_meta(&self) -> Option<ArtifactMeta> {
-        ArtifactMeta::from_parts(
-            self.path.as_ref(),
-            self.file_etag.as_deref(),
-            self.file_size,
-        )
-    }
-
     fn object_reader(&self) -> Box<dyn AsyncFileReader> {
         object_reader_with_cache(
             &self.store,
@@ -685,24 +620,6 @@ impl SnapStore {
             self.cache_ident.clone(),
         )
     }
-}
-
-fn read_all_snap_refs_from_store(
-    store: &Arc<dyn ObjectStore>,
-    path: &ObjectPath,
-    file_size: u64,
-    parquet_cache: Option<Arc<ParquetRowGroupCache>>,
-    footer_cache: Option<Arc<ParquetFooterCache>>,
-    cache_ident: Option<ArtifactIdent>,
-) -> Result<Vec<SnapUnitRef>, SessionError> {
-    RT.block_on(read_all_snap_refs_from_store_async(
-        store,
-        path,
-        file_size,
-        parquet_cache,
-        footer_cache,
-        cache_ident,
-    ))
 }
 
 fn read_all_snap_membership_refs_from_store(
@@ -721,79 +638,6 @@ fn read_all_snap_membership_refs_from_store(
         footer_cache,
         cache_ident,
     ))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn read_or_build_id_index(
-    store: &Arc<dyn ObjectStore>,
-    path: &ObjectPath,
-    file_size: u64,
-    file_etag: Option<&str>,
-    parquet_cache: Option<Arc<ParquetRowGroupCache>>,
-    footer_cache: Option<Arc<ParquetFooterCache>>,
-    cache_ident: Option<ArtifactIdent>,
-    id_index_path: Option<&Path>,
-    path_display: &str,
-) -> Result<Vec<SnapUnitRef>, SessionError> {
-    if let (Some(index_path), Some(etag)) = (id_index_path, file_etag) {
-        match IdIndex::load_from_path(index_path, file_size, Some(etag)) {
-            Ok(Some(index)) if index.id_row_groups.is_none() => {
-                debug!(
-                    path = %index_path.display(),
-                    ids = index.ids.len(),
-                    "cached snap id index lacks snap ids; rebuilding"
-                );
-            }
-            Ok(Some(_)) => {
-                debug!(
-                    path = %index_path.display(),
-                    "cached snap id index has row groups; rebuilding"
-                );
-            }
-            Ok(None) => {}
-            Err(error) => {
-                warn!(
-                    path = %index_path.display(),
-                    error = %error,
-                    "failed to read snap id index; rebuilding"
-                );
-            }
-        }
-    } else if id_index_path.is_some() {
-        debug!(
-            path = %path_display,
-            "not caching snap id index because object metadata lacks ETag"
-        );
-    }
-
-    let ids = {
-        let _guard = StageGuard::enter(Stage::SnapIdIndex);
-        record_path(path_display);
-        read_all_snap_refs_from_store(
-            store,
-            path,
-            file_size,
-            parquet_cache,
-            footer_cache,
-            cache_ident,
-        )?
-    };
-
-    if let (Some(index_path), Some(etag)) = (id_index_path, file_etag) {
-        let index = IdIndex {
-            ids: ids.iter().map(|snap_ref| snap_ref.unit_id).collect(),
-            id_row_groups: None,
-        };
-        if let Err(error) = index.write_to_path(index_path, file_size, Some(etag)) {
-            warn!(
-                path = %index_path.display(),
-                error = %error,
-                "failed to write snap id index cache"
-            );
-        }
-    }
-
-    Ok(ids)
 }
 
 #[instrument(skip(store, parquet_cache, footer_cache, cache_ident), fields(path = %path))]
@@ -975,244 +819,6 @@ async fn read_snap_membership_refs_row_group_async(
                         format!("invalid unit_id: {e}"),
                     )
                 })?;
-                stats.refs.push(SnapUnitRef { snap_id, unit_id });
-            }
-            offset_in_group += batch.num_rows();
-        }
-    }
-
-    Ok(stats)
-}
-
-#[instrument(skip(store, parquet_cache, footer_cache, cache_ident), fields(path = %path))]
-async fn read_all_snap_refs_from_store_async(
-    store: &Arc<dyn ObjectStore>,
-    path: &ObjectPath,
-    file_size: u64,
-    parquet_cache: Option<Arc<ParquetRowGroupCache>>,
-    footer_cache: Option<Arc<ParquetFooterCache>>,
-    cache_ident: Option<ArtifactIdent>,
-) -> Result<Vec<SnapUnitRef>, SessionError> {
-    let started = Instant::now();
-    let builder = ParquetRecordBatchStreamBuilder::new(object_reader_with_cache(
-        store,
-        path,
-        file_size,
-        parquet_cache.clone(),
-        footer_cache.clone(),
-        cache_ident.clone(),
-    ))
-    .await
-    .map_err(|e| SessionError::ParquetParse {
-        artifact: ARTIFACT,
-        source: e,
-    })?;
-    let metadata = builder.metadata().clone();
-    let num_row_groups = metadata.num_row_groups();
-    debug!(num_row_groups, "indexing ids");
-
-    let reader_metadata = ArrowReaderMetadata::try_new(metadata.clone(), Default::default())
-        .map_err(|e| SessionError::ParquetParse {
-            artifact: ARTIFACT,
-            source: e,
-        })?;
-    let parquet_schema = reader_metadata.parquet_schema();
-    let id_col_idx = parquet_schema
-        .columns()
-        .iter()
-        .position(|c| c.name() == "id")
-        .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "missing column \"id\""))?;
-    let unit_id_col_idx = parquet_schema
-        .columns()
-        .iter()
-        .position(|c| c.name() == "unit_id")
-        .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "missing column \"unit_id\""))?;
-    let geometry_col_idx = parquet_schema
-        .columns()
-        .iter()
-        .position(|c| c.name() == "geometry")
-        .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "missing column \"geometry\""))?;
-    let stem_role_col_idx = parquet_schema
-        .columns()
-        .iter()
-        .position(|c| c.name() == "stem_role");
-
-    let mut projection = vec![id_col_idx, unit_id_col_idx, geometry_col_idx];
-    if let Some(stem_role_col_idx) = stem_role_col_idx {
-        projection.push(stem_role_col_idx);
-    }
-    let mask = ProjectionMask::roots(parquet_schema, projection);
-    let selected_row_groups: Vec<usize> = (0..num_row_groups).collect();
-    let rg_absolute_starts = absolute_row_starts(&metadata, &selected_row_groups);
-    let read_context = UnitIdRowGroupReadContext {
-        store: Arc::clone(store),
-        path: path.clone(),
-        file_size,
-        reader_metadata,
-        mask,
-        parquet_cache,
-        footer_cache,
-        cache_ident,
-    };
-    debug!(
-        num_row_groups,
-        concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
-        "reading snap refs for cold validation"
-    );
-    let row_group_results =
-        stream::iter(selected_row_groups.into_iter().zip(rg_absolute_starts))
-            .map(|(row_group, absolute_start)| {
-                let read_context = read_context.clone();
-                async move {
-                    read_snap_refs_row_group_async(read_context, row_group, absolute_start).await
-                }
-            })
-            .buffered(ID_INDEX_ROW_GROUP_CONCURRENCY)
-            .collect::<Vec<_>>()
-            .await;
-
-    let mut stats = SnapValidationReadStats::default();
-    // Mirrors `catchment_store::read_all_ids_with_row_groups_async`. Keep both in sync.
-    // DO NOT construct ParquetRecordBatchStreamBuilder::new inside this loop.
-    for row_group_result in row_group_results {
-        stats.extend(row_group_result?);
-    }
-    info!(
-        snap_refs = stats.refs.len(),
-        num_row_groups,
-        concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
-        batches_read = stats.batches_read,
-        rows_validated = stats.rows_validated,
-        stem_role_values_parsed = stats.stem_role_values_parsed,
-        geometry_rows_validated = stats.geometry_rows_validated,
-        elapsed_ms = started.elapsed().as_millis(),
-        "cold snap validation read complete"
-    );
-    Ok(stats.refs)
-}
-
-async fn read_snap_refs_row_group_async(
-    context: UnitIdRowGroupReadContext,
-    row_group: usize,
-    absolute_start: usize,
-) -> Result<SnapValidationReadStats, SessionError> {
-    let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(
-        object_reader_with_cache(
-            &context.store,
-            &context.path,
-            context.file_size,
-            context.parquet_cache,
-            context.footer_cache,
-            context.cache_ident,
-        ),
-        context.reader_metadata,
-    );
-    let mut stream = builder
-        .with_projection(context.mask)
-        .with_row_groups(vec![row_group])
-        .with_batch_size(8192)
-        .build()
-        .map_err(|e| SessionError::ParquetParse {
-            artifact: ARTIFACT,
-            source: e,
-        })?;
-
-    let mut stats = SnapValidationReadStats::default();
-    let mut offset_in_group = 0usize;
-    while let Some(reader) =
-        stream
-            .next_row_group()
-            .await
-            .map_err(|e| SessionError::RowGroupReadError {
-                artifact: ARTIFACT,
-                row_group,
-                source: e,
-            })?
-    {
-        for batch_result in reader {
-            let batch = batch_result.map_err(|e| SessionError::RowGroupReadError {
-                artifact: ARTIFACT,
-                row_group,
-                source: parquet::errors::ParquetError::ArrowError(e.to_string()),
-            })?;
-            let absolute_row = absolute_start + offset_in_group;
-            let id_col = batch
-                .column_by_name("id")
-                .and_then(|column| column.as_any().downcast_ref::<arrow::array::Int64Array>())
-                .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "id column is not Int64"))?;
-            let unit_id_col = batch
-                .column_by_name("unit_id")
-                .and_then(|column| column.as_any().downcast_ref::<arrow::array::Int64Array>())
-                .ok_or_else(|| {
-                    SessionError::parquet_schema(ARTIFACT, "unit_id column is not Int64")
-                })?;
-            let stem_role_col = batch
-                .column_by_name("stem_role")
-                .map(|column| {
-                    column
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .ok_or_else(|| {
-                            SessionError::parquet_schema(ARTIFACT, "stem_role column is not Utf8")
-                        })
-                })
-                .transpose()?;
-            let geometry_col = batch.column_by_name("geometry").ok_or_else(|| {
-                SessionError::parquet_schema(ARTIFACT, "geometry column is missing")
-            })?;
-            stats.batches_read += 1;
-            stats.rows_validated += batch.num_rows();
-            for i in 0..batch.num_rows() {
-                if id_col.is_null(i) {
-                    return Err(SessionError::invalid_row(
-                        ARTIFACT,
-                        absolute_row + i,
-                        "null id",
-                    ));
-                }
-                if unit_id_col.is_null(i) {
-                    return Err(SessionError::invalid_row(
-                        ARTIFACT,
-                        absolute_row + i,
-                        "null unit_id",
-                    ));
-                }
-                if geometry_col.is_null(i) {
-                    return Err(SessionError::invalid_row(
-                        ARTIFACT,
-                        absolute_row + i,
-                        "null geometry",
-                    ));
-                }
-                let snap_id = SnapId::new(id_col.value(i)).map_err(|e| {
-                    SessionError::invalid_row(
-                        ARTIFACT,
-                        absolute_row + i,
-                        format!("invalid id: {e}"),
-                    )
-                })?;
-                let unit_id = hfx_core::UnitId::new(unit_id_col.value(i)).map_err(|e| {
-                    SessionError::invalid_row(
-                        ARTIFACT,
-                        absolute_row + i,
-                        format!("invalid unit_id: {e}"),
-                    )
-                })?;
-                if let Some(stem_role_col) = stem_role_col
-                    && !stem_role_col.is_null(i)
-                {
-                    let value = stem_role_col.value(i);
-                    value
-                        .parse::<StemRole>()
-                        .map_err(|_| SessionError::InvalidStemRole {
-                            row: absolute_row + i,
-                            value: value.to_string(),
-                        })?;
-                    stats.stem_role_values_parsed += 1;
-                }
-                let geometry = geometry_from_array(geometry_col, i, absolute_row + i)?;
-                validate_snap_geometry(&geometry, absolute_row + i)?;
-                stats.geometry_rows_validated += 1;
                 stats.refs.push(SnapUnitRef { snap_id, unit_id });
             }
             offset_in_group += batch.num_rows();

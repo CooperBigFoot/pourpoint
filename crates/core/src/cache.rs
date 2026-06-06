@@ -81,11 +81,6 @@ impl ArtifactMeta {
             size,
         })
     }
-
-    pub(crate) fn with_path(mut self, path: impl Into<String>) -> Self {
-        self.path = path.into();
-        self
-    }
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
