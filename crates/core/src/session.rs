@@ -1293,14 +1293,15 @@ fn validation_sidecar_for_current_metadata(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::ffi::OsString;
     use std::fmt;
     use std::future::Future;
     use std::io::Cursor;
     use std::ops::Range;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::pin::Pin;
+    use std::time::Instant;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -1324,6 +1325,7 @@ mod tests {
     use tracing::field::{Field as TracingField, Visit};
     use tracing::span::{Attributes, Id, Record};
     use tracing::{Event, Metadata, Subscriber};
+    use tracing_subscriber::prelude::*;
     use tracing_core::span::Current;
     use url::Url;
 
@@ -1341,10 +1343,17 @@ mod tests {
         snap_geometry_decode_rows_for_test, snap_membership_rows_for_test,
     };
     use crate::runtime::RT;
+    use crate::source::DatasetSource;
     use crate::testutil::DatasetBuilder;
+    use crate::telemetry::jsonl::JsonlLayer;
     use hfx_core::{BoundingBox, SnapId, UnitId};
 
     static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
+    const REAL_GRIT_V200_URL: &str =
+        "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
+    const REAL_MEASUREMENT_ENV: &str = "SHED_R2_SNAP_OPEN_REAL_MEASURE";
+    const LOCAL_MERIT_GLOBAL: &str =
+        "/Users/nicolaslazaro/Desktop/merit-hfx-v2/planetary/merit-hfx-global";
 
     #[derive(Debug, Default)]
     struct StageNestingState {
@@ -1470,6 +1479,74 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn real_snap_open_measurements_enabled() -> bool {
+        std::env::var_os(REAL_MEASUREMENT_ENV).is_some()
+    }
+
+    fn run_with_trace<T>(
+        trace_path: &Path,
+        f: impl FnOnce() -> Result<T, SessionError>,
+    ) -> Result<T, SessionError> {
+        let (layer, guard) =
+            JsonlLayer::from_path(trace_path).expect("measurement trace should open");
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let result = tracing::subscriber::with_default(subscriber, f);
+        drop(guard);
+        result
+    }
+
+    fn stage_duration_sums(trace_path: &Path) -> BTreeMap<String, f64> {
+        let mut stages = BTreeMap::new();
+        let bytes = std::fs::read(trace_path).expect("measurement trace should read");
+        for line in bytes.split(|byte| *byte == b'\n') {
+            if line.is_empty() {
+                continue;
+            }
+            let record: serde_json::Value =
+                serde_json::from_slice(line).expect("measurement trace line should parse");
+            if record["kind"] != "stage" {
+                continue;
+            }
+            let Some(stage) = record["stage"].as_str() else {
+                continue;
+            };
+            let duration_ms = record["duration_ms"].as_f64().unwrap_or_default();
+            *stages.entry(stage.to_owned()).or_insert(0.0) += duration_ms;
+        }
+        stages
+    }
+
+    fn stage_ms(stages: &BTreeMap<String, f64>, stage: &str) -> f64 {
+        stages.get(stage).copied().unwrap_or_default()
+    }
+
+    fn parsed_remote_source(input: &str) -> (Arc<dyn ObjectStore>, ObjectPath, Url) {
+        match DatasetSource::parse(input).expect("real remote source should parse") {
+            DatasetSource::Remote {
+                store, root, url, ..
+            } => (store, root, url),
+            DatasetSource::Local(_) => panic!("real GRIT URL should parse as remote"),
+        }
+    }
+
+    fn measure_cached_graph_parse_floor(url: &Url, root: &ObjectPath) -> f64 {
+        let cache = crate::cache::RemoteArtifactCache::configured()
+            .expect("configured cache should be available");
+        let started = Instant::now();
+        let cached = cache
+            .read_entry_for_source(url, root)
+            .expect("cached manifest and graph should read");
+        assert!(
+            cached.is_some(),
+            "warm measurement requires cached manifest and graph"
+        );
+        started.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn print_measurement(label: &str, value: serde_json::Value) {
+        println!("{label}={value}");
     }
 
     #[derive(Debug, Default)]
@@ -2557,6 +2634,212 @@ mod tests {
             .map(|snap| snap["path"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(snap_paths_in_token, snap_paths);
+    }
+
+    #[test]
+    #[ignore = "network and large-cache measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
+    fn measure_real_grit_warm_snap_open_reuse() {
+        if !real_snap_open_measurements_enabled() {
+            println!(
+                "skipping real GRIT warm snap-open measurement; set {REAL_MEASUREMENT_ENV}=1"
+            );
+            return;
+        }
+
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let (store, root, url) = parsed_remote_source(REAL_GRIT_V200_URL);
+
+        DatasetSession::open_remote(store.clone(), &root, &url, None)
+            .expect("first real GRIT open should create or refresh validation token");
+
+        reset_read_id_level_scan_count_for_test();
+        super::reset_snap_validation_scan_count_for_test();
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
+
+        let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
+        let trace_path = trace_dir.path().join("warm-open.jsonl");
+        let started = Instant::now();
+        let session = run_with_trace(&trace_path, || {
+            DatasetSession::open_remote(store, &root, &url, None)
+        })
+        .expect("second real GRIT open should succeed");
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let stages = stage_duration_sums(&trace_path);
+        let graph_parse_floor_ms = measure_cached_graph_parse_floor(&url, &root);
+
+        let snap_membership_rows = snap_membership_rows_for_test();
+        let snap_geometry_decode_rows = snap_geometry_decode_rows_for_test();
+        let snap_validation_scans = super::snap_validation_scan_count_for_test();
+        let catchment_level_scans = read_id_level_scan_count_for_test();
+        print_measurement(
+            "real_grit_warm_snap_open",
+            serde_json::json!({
+                "url": REAL_GRIT_V200_URL,
+                "elapsed_ms": elapsed_ms,
+                "target_ms": 12000.0,
+                "graph_parse_floor_ms": graph_parse_floor_ms,
+                "snap_store_open_ms": stage_ms(&stages, "snap_store_open"),
+                "snap_membership_rows": snap_membership_rows,
+                "snap_geometry_decode_rows": snap_geometry_decode_rows,
+                "snap_validation_scans": snap_validation_scans,
+                "catchment_level_scans": catchment_level_scans,
+                "token_hit": snap_validation_scans == 0
+                    && snap_membership_rows == 0
+                    && snap_geometry_decode_rows == 0,
+                "units": session.graph().len(),
+            }),
+        );
+
+        assert_eq!(snap_validation_scans, 0, "warm token hit should skip snap validation");
+        assert_eq!(snap_membership_rows, 0, "warm token hit should skip snap membership reads");
+        assert_eq!(snap_geometry_decode_rows, 0, "warm token hit should skip snap geometry decode");
+        assert_eq!(catchment_level_scans, 0, "warm token hit should skip catchment validation scans");
+        // 12 s tracks the measured cache-I/O floor plus variance margin, with validation still skipped.
+        assert!(
+            elapsed_ms < 12000.0,
+            "warm real GRIT open should be below 12 s including snaps; measured {elapsed_ms:.1} ms"
+        );
+    }
+
+    #[test]
+    #[ignore = "network and large-cache measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
+    fn measure_real_grit_cold_snap_membership_open() {
+        if !real_snap_open_measurements_enabled() {
+            println!(
+                "skipping real GRIT cold snap-open measurement; set {REAL_MEASUREMENT_ENV}=1"
+            );
+            return;
+        }
+
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().expect("cold measurement cache tempdir");
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let (store, root, url) = parsed_remote_source(REAL_GRIT_V200_URL);
+        let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
+        let trace_path = trace_dir.path().join("cold-open.jsonl");
+
+        reset_read_id_level_scan_count_for_test();
+        super::reset_snap_validation_scan_count_for_test();
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
+        let started = Instant::now();
+        let session = run_with_trace(&trace_path, || {
+            DatasetSession::open_remote(store, &root, &url, None)
+        })
+        .expect("cold real GRIT open should succeed");
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let stages = stage_duration_sums(&trace_path);
+        let graph_parse_floor_ms = measure_cached_graph_parse_floor(&url, &root);
+
+        let snap_membership_rows = snap_membership_rows_for_test();
+        let snap_geometry_decode_rows = snap_geometry_decode_rows_for_test();
+        let snap_membership_ms = stage_ms(&stages, "snap_id_index");
+        print_measurement(
+            "real_grit_cold_snap_open",
+            serde_json::json!({
+                "url": REAL_GRIT_V200_URL,
+                "cache_method": "temporary HFX_CACHE_DIR",
+                "cache_dir": cache_dir.path(),
+                "elapsed_ms": elapsed_ms,
+                "snap_membership_ms": snap_membership_ms,
+                "snap_membership_target_ms": 35000.0,
+                "snap_membership_escalation_ms": 45000.0,
+                "catchment_id_index_ms": stage_ms(&stages, "catchment_id_index"),
+                "catchment_validate_ms": stage_ms(&stages, "validate_graph_catchments"),
+                "graph_fetch_and_parse_ms": stage_ms(&stages, "graph_fetch"),
+                "graph_parse_floor_ms": graph_parse_floor_ms,
+                "snap_store_open_ms": stage_ms(&stages, "snap_store_open"),
+                "validate_snap_refs_ms": stage_ms(&stages, "validate_snap_refs"),
+                "snap_membership_rows": snap_membership_rows,
+                "expected_grit_snap_rows_reference": 22_337_300usize,
+                "snap_geometry_decode_rows": snap_geometry_decode_rows,
+                "snap_validation_scans": super::snap_validation_scan_count_for_test(),
+                "catchment_level_scans": read_id_level_scan_count_for_test(),
+                "token_miss": true,
+                "units": session.graph().len(),
+            }),
+        );
+
+        assert!(
+            snap_membership_rows > 0,
+            "cold token miss should read lean snap membership"
+        );
+        assert_eq!(
+            snap_geometry_decode_rows, 0,
+            "cold token miss should not decode snap geometry at open"
+        );
+        assert!(
+            snap_membership_ms < 45_000.0,
+            "cold real GRIT snap membership exceeded escalation threshold: {snap_membership_ms:.1} ms"
+        );
+    }
+
+    #[test]
+    #[ignore = "large local measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
+    fn measure_local_merit_global_snap_membership_open() {
+        if !real_snap_open_measurements_enabled() {
+            println!(
+                "skipping local MERIT snap-open measurement; set {REAL_MEASUREMENT_ENV}=1"
+            );
+            return;
+        }
+
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root = PathBuf::from(LOCAL_MERIT_GLOBAL);
+        assert!(root.is_dir(), "local MERIT HFX path must exist: {}", root.display());
+        let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
+        let trace_path = trace_dir.path().join("local-merit-open.jsonl");
+
+        reset_read_id_level_scan_count_for_test();
+        super::reset_snap_validation_scan_count_for_test();
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
+        let started = Instant::now();
+        let session = run_with_trace(&trace_path, || DatasetSession::open_path(&root))
+            .expect("local MERIT global open should succeed");
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let stages = stage_duration_sums(&trace_path);
+        let snap_membership_ms = stage_ms(&stages, "snap_id_index");
+        let snap_membership_rows = snap_membership_rows_for_test();
+        let snap_geometry_decode_rows = snap_geometry_decode_rows_for_test();
+
+        print_measurement(
+            "local_merit_global_snap_open",
+            serde_json::json!({
+                "path": LOCAL_MERIT_GLOBAL,
+                "elapsed_ms": elapsed_ms,
+                "snap_membership_ms": snap_membership_ms,
+                "snap_membership_target_ms": 2500.0,
+                "catchment_validate_ms": stage_ms(&stages, "validate_graph_catchments"),
+                "snap_store_open_ms": stage_ms(&stages, "snap_store_open"),
+                "validate_snap_refs_ms": stage_ms(&stages, "validate_snap_refs"),
+                "snap_membership_rows": snap_membership_rows,
+                "snap_geometry_decode_rows": snap_geometry_decode_rows,
+                "snap_validation_scans": super::snap_validation_scan_count_for_test(),
+                "catchment_level_scans": read_id_level_scan_count_for_test(),
+                "units": session.graph().len(),
+            }),
+        );
+
+        assert!(
+            snap_membership_rows > 0,
+            "local validation-bearing open should read lean snap membership"
+        );
+        assert_eq!(
+            snap_geometry_decode_rows, 0,
+            "local validation-bearing open should not decode snap geometry at open"
+        );
+        assert!(
+            snap_membership_ms < 2500.0,
+            "local MERIT snap membership should be below 2.5 s; measured {snap_membership_ms:.1} ms"
+        );
     }
 
     #[test]
