@@ -7,10 +7,13 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
-## [0.2.1] - TBD
+## [0.2.1] - 2026-06-06
 
-- perf: large-dataset open no longer reads full catchment geometry for
-  referential validation; cold open drops from minutes to sub-second. No API or
+- perf: dataset open no longer reads the full catchment `geometry` column for
+  referential validation (id/level-only projection). Cold open on large datasets
+  is substantially faster — e.g. ~17s → ~9s on a 2.9M-unit local dataset, and a
+  larger proportional win on remote datasets where the geometry column is many GB.
+  The remaining open cost is the (still uncached) id-index build. No API or
   input-contract change; requires HFX v0.2.1 datasets (unchanged from 0.2.0).
 
 ## [0.2.0] - 2026-06-05
