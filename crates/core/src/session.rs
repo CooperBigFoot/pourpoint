@@ -89,7 +89,9 @@ impl RasterPaths {
 ///
 /// Created via [`DatasetSession::open`] or [`DatasetSession::open_with_cache`].
 /// Holds the manifest and drainage graph in memory. Catchment and snap data
-/// are read on demand via row-group bbox pruning.
+/// are read on demand via row-group bbox pruning. Catchment levels are scanned
+/// only during cold referential validation and are discarded before the session
+/// is built; query-time levels come from the drainage graph.
 #[derive(Debug)]
 pub struct DatasetSession {
     root: PathBuf,
@@ -982,6 +984,11 @@ const RANGE_GET_CHUNK_TARGET_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Validate graph/catchment referential integrity.
 ///
+/// Reads catchment `(id, level)` rows to prove equality with graph levels on
+/// cold or token-invalidated opens. The returned level map is only validation
+/// scratch data for downstream snap-reference checks and must not become the
+/// session's query-time level source.
+///
 /// Changing open-time referential validation semantics requires bumping
 /// `validation_logic_version`.
 fn validate_graph_catchments(
@@ -1284,6 +1291,8 @@ mod tests {
         Result,
     };
     use parquet::arrow::ArrowWriter;
+    use parquet::file::metadata::KeyValue;
+    use parquet::file::properties::WriterProperties;
     use tracing::field::{Field as TracingField, Visit};
     use tracing::span::{Attributes, Id, Record};
     use tracing::{Event, Metadata, Subscriber};
@@ -1649,6 +1658,10 @@ mod tests {
     }
 
     fn graph_bytes() -> Vec<u8> {
+        graph_bytes_with_levels_and_metadata([0, 0], None)
+    }
+
+    fn graph_bytes_with_levels_and_metadata(levels: [i16; 2], metadata: Option<&str>) -> Vec<u8> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("level", DataType::Int16, false),
@@ -1664,7 +1677,7 @@ mod tests {
         ]));
 
         let id_arr = Int64Array::from(vec![1_i64, 2]);
-        let level_arr = arrow::array::Int16Array::from(vec![0_i16, 0]);
+        let level_arr = arrow::array::Int16Array::from(levels.to_vec());
         let mut list_builder = ListBuilder::new(Int64Builder::new());
         list_builder.append(true);
         list_builder.values().append_value(1);
@@ -1690,7 +1703,8 @@ mod tests {
         .unwrap();
 
         let cursor = Cursor::new(Vec::new());
-        let mut writer = ArrowWriter::try_new(cursor, schema, None).unwrap();
+        let props = writer_properties_with_metadata(metadata);
+        let mut writer = ArrowWriter::try_new(cursor, schema, props).unwrap();
         writer.write(&batch).unwrap();
         writer.into_inner().unwrap().into_inner()
     }
@@ -1727,6 +1741,13 @@ mod tests {
     }
 
     fn catchments_bytes() -> Vec<u8> {
+        catchments_bytes_with_levels_and_metadata([0, 0], None)
+    }
+
+    fn catchments_bytes_with_levels_and_metadata(
+        levels: [i16; 2],
+        metadata: Option<&str>,
+    ) -> Vec<u8> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("level", DataType::Int16, false),
@@ -1748,11 +1769,11 @@ mod tests {
         let mut maxx_b = Float32Builder::new();
         let mut maxy_b = Float32Builder::new();
         let mut geom_b = BinaryBuilder::new();
-        for i in 1..=2_i64 {
+        for (index, i) in (1..=2_i64).enumerate() {
             let minx = i as f32;
             let maxx = minx + 0.5;
             id_b.append_value(i);
-            level_b.append_value(0);
+            level_b.append_value(levels[index]);
             area_b.append_value(1.0);
             up_area_b.append_null();
             minx_b.append_value(minx);
@@ -1775,6 +1796,7 @@ mod tests {
                 Arc::new(maxy_b.finish()),
                 Arc::new(geom_b.finish()),
             ],
+            metadata,
         )
     }
 
@@ -1823,15 +1845,32 @@ mod tests {
                 Arc::new(maxy_b.finish()),
                 Arc::new(geom_b.finish()),
             ],
+            None,
         )
     }
 
-    fn parquet_bytes(schema: Arc<Schema>, columns: Vec<Arc<dyn arrow::array::Array>>) -> Vec<u8> {
+    fn parquet_bytes(
+        schema: Arc<Schema>,
+        columns: Vec<Arc<dyn arrow::array::Array>>,
+        metadata: Option<&str>,
+    ) -> Vec<u8> {
         let batch = RecordBatch::try_new(schema.clone(), columns).unwrap();
         let cursor = Cursor::new(Vec::new());
-        let mut writer = ArrowWriter::try_new(cursor, schema, None).unwrap();
+        let props = writer_properties_with_metadata(metadata);
+        let mut writer = ArrowWriter::try_new(cursor, schema, props).unwrap();
         writer.write(&batch).unwrap();
         writer.into_inner().unwrap().into_inner()
+    }
+
+    fn writer_properties_with_metadata(metadata: Option<&str>) -> Option<WriterProperties> {
+        metadata.map(|value| {
+            WriterProperties::builder()
+                .set_key_value_metadata(Some(vec![KeyValue {
+                    key: "shed-test-token".to_owned(),
+                    value: Some(value.to_owned()),
+                }]))
+                .build()
+        })
     }
 
     #[test]
@@ -2360,6 +2399,118 @@ mod tests {
             .map(|snap| snap["path"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(snap_paths_in_token, snap_paths);
+    }
+
+    #[test]
+    fn catchments_token_change_revalidates_graph_level_equality() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        put_remote_manifest_and_graph(&store, &root, false);
+        put_remote_catchments(&store, &root);
+        let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
+        let catchments_path = root.clone().join("catchments.parquet");
+        let valid_size = remote_object_size(&store, &catchments_path);
+        RT.block_on(async {
+            store
+                .put(
+                    &catchments_path,
+                    PutPayload::from(catchments_bytes_with_levels_and_metadata(
+                        [1, 0],
+                        Some("catchments-level-mismatch"),
+                    )),
+                )
+                .await
+                .unwrap();
+        });
+        assert_ne!(remote_object_size(&store, &catchments_path), valid_size);
+
+        reset_read_id_level_scan_count_for_test();
+        let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
+
+        assert_graph_level_mismatch(err);
+        assert!(
+            read_id_level_scan_count_for_test() > 0,
+            "catchments token change must re-enter the real id/level validation scan"
+        );
+    }
+
+    #[test]
+    fn graph_token_change_after_cached_graph_eviction_revalidates_level_equality() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let _cache_env = CacheEnv::set(cache_dir.path());
+        let store = Arc::new(InMemory::new());
+        let root = ObjectPath::from("dataset/root");
+        put_remote_manifest_and_graph(&store, &root, false);
+        put_remote_catchments(&store, &root);
+        let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
+        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+
+        DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
+        let validation_sidecar_path = cache_dir
+            .path()
+            .join("testfabric")
+            .join("test-v1")
+            .join("validated.json");
+        assert!(validation_sidecar_path.is_file());
+        std::fs::remove_file(
+            cache_dir
+                .path()
+                .join("testfabric")
+                .join("test-v1")
+                .join("graph.parquet"),
+        )
+        .unwrap();
+
+        let graph_path = root.clone().join("graph.parquet");
+        let valid_size = remote_object_size(&store, &graph_path);
+        RT.block_on(async {
+            store
+                .put(
+                    &graph_path,
+                    PutPayload::from(graph_bytes_with_levels_and_metadata(
+                        [1, 0],
+                        Some("graph-level-mismatch"),
+                    )),
+                )
+                .await
+                .unwrap();
+        });
+        assert_ne!(remote_object_size(&store, &graph_path), valid_size);
+
+        reset_read_id_level_scan_count_for_test();
+        let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
+
+        assert_graph_level_mismatch(err);
+        assert!(
+            read_id_level_scan_count_for_test() > 0,
+            "graph token change must re-enter the real id/level validation scan"
+        );
+        assert!(validation_sidecar_path.is_file());
+    }
+
+    fn remote_object_size(store: &Arc<InMemory>, path: &ObjectPath) -> u64 {
+        RT.block_on(async { store.head(path).await.unwrap().size })
+    }
+
+    fn assert_graph_level_mismatch(err: SessionError) {
+        let SessionError::GraphReferentialIntegrity { reason } = err else {
+            panic!("expected graph referential integrity error");
+        };
+        assert!(
+            reason.contains("differs from catchment level"),
+            "unexpected graph referential integrity reason: {reason}"
+        );
     }
 
     #[test]
