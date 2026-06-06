@@ -1308,6 +1308,10 @@ mod tests {
         GEOMETRY_DECODE_TEST_LOCK, read_id_level_scan_count_for_test,
         reset_geometry_decode_counts_for_test, reset_read_id_level_scan_count_for_test,
     };
+    use crate::reader::snap_store::{
+        reset_snap_geometry_decode_rows_for_test, reset_snap_membership_rows_for_test,
+        snap_geometry_decode_rows_for_test, snap_membership_rows_for_test,
+    };
     use crate::runtime::RT;
     use crate::testutil::DatasetBuilder;
     use hfx_core::{BoundingBox, SnapId, UnitId};
@@ -2373,6 +2377,8 @@ mod tests {
 
         reset_read_id_level_scan_count_for_test();
         super::reset_snap_validation_scan_count_for_test();
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
         DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
 
         assert_eq!(
@@ -2385,6 +2391,11 @@ mod tests {
             0,
             "valid two-snap token should skip snap validation scans"
         );
+        assert!(
+            snap_geometry_decode_rows_for_test() > 0,
+            "current warm two-snap token open still decodes snap geometry; Step 3 flips this to zero"
+        );
+        let _membership_rows = snap_membership_rows_for_test();
 
         let sidecar_path = cache_dir
             .path()
@@ -2399,6 +2410,24 @@ mod tests {
             .map(|snap| snap["path"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(snap_paths_in_token, snap_paths);
+    }
+
+    #[test]
+    fn cold_open_with_snap_decodes_geometry() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let (_dir, root) = DatasetBuilder::new(2).with_snap().build();
+
+        reset_snap_geometry_decode_rows_for_test();
+        reset_snap_membership_rows_for_test();
+        DatasetSession::open_path(&root).unwrap();
+
+        assert!(
+            snap_geometry_decode_rows_for_test() > 0,
+            "current cold snap open should decode geometry before the lean membership pass exists"
+        );
+        let _membership_rows = snap_membership_rows_for_test();
     }
 
     #[test]

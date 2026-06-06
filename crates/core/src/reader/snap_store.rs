@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use arrow::array::{Array, BinaryArray, Float32Array, Int64Array, LargeBinaryArray, StringArray};
@@ -85,6 +87,32 @@ fn snap_bbox(
 const ARTIFACT: &str = "snap.parquet";
 const ID_INDEX_ROW_GROUP_CONCURRENCY: usize = 16;
 const SNAP_BBOX_ROW_GROUP_CONCURRENCY: usize = 8;
+
+#[cfg(test)]
+static SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+static SNAP_MEMBERSHIP_ROWS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(crate) fn snap_geometry_decode_rows_for_test() -> usize {
+    SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_snap_geometry_decode_rows_for_test() {
+    SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST.store(0, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(crate) fn snap_membership_rows_for_test() -> usize {
+    SNAP_MEMBERSHIP_ROWS_FOR_TEST.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_snap_membership_rows_for_test() {
+    SNAP_MEMBERSHIP_ROWS_FOR_TEST.store(0, Ordering::SeqCst);
+}
 
 /// Row-group bounding box with metadata for pruning.
 #[derive(Debug, Clone)]
@@ -1140,6 +1168,9 @@ fn geometry_from_array(
     row: usize,
     absolute_row: usize,
 ) -> Result<WkbGeometry, SessionError> {
+    #[cfg(test)]
+    SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+
     let geom_bytes: Vec<u8> =
         if let Some(arr) = geometry_col_array.as_any().downcast_ref::<BinaryArray>() {
             arr.value(row).to_vec()
