@@ -125,6 +125,25 @@ pub(crate) struct SnapUnitRef {
     pub(crate) unit_id: UnitId,
 }
 
+#[derive(Debug, Default)]
+struct SnapValidationReadStats {
+    refs: Vec<SnapUnitRef>,
+    batches_read: usize,
+    rows_validated: usize,
+    stem_role_values_parsed: usize,
+    geometry_rows_validated: usize,
+}
+
+impl SnapValidationReadStats {
+    fn extend(&mut self, row_group_stats: SnapValidationReadStats) {
+        self.refs.extend(row_group_stats.refs);
+        self.batches_read += row_group_stats.batches_read;
+        self.rows_validated += row_group_stats.rows_validated;
+        self.stem_role_values_parsed += row_group_stats.stem_role_values_parsed;
+        self.geometry_rows_validated += row_group_stats.geometry_rows_validated;
+    }
+}
+
 /// Lazy reader for snap.parquet with row-group bbox pruning.
 #[derive(Debug)]
 pub struct SnapStore {
@@ -688,6 +707,11 @@ async fn read_all_snap_refs_from_store_async(
         footer_cache,
         cache_ident,
     };
+    debug!(
+        num_row_groups,
+        concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
+        "reading snap refs for cold validation"
+    );
     let row_group_results =
         stream::iter(selected_row_groups.into_iter().zip(rg_absolute_starts))
             .map(|(row_group, absolute_start)| {
@@ -700,27 +724,31 @@ async fn read_all_snap_refs_from_store_async(
             .collect::<Vec<_>>()
             .await;
 
-    let mut refs = Vec::new();
+    let mut stats = SnapValidationReadStats::default();
     // Mirrors `catchment_store::read_all_ids_with_row_groups_async`. Keep both in sync.
     // DO NOT construct ParquetRecordBatchStreamBuilder::new inside this loop.
     for row_group_result in row_group_results {
-        let row_group_refs = row_group_result?;
-        refs.extend(row_group_refs);
+        stats.extend(row_group_result?);
     }
     info!(
-        num_ids = refs.len(),
+        snap_refs = stats.refs.len(),
         num_row_groups,
+        concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
+        batches_read = stats.batches_read,
+        rows_validated = stats.rows_validated,
+        stem_role_values_parsed = stats.stem_role_values_parsed,
+        geometry_rows_validated = stats.geometry_rows_validated,
         elapsed_ms = started.elapsed().as_millis(),
-        "id index built"
+        "cold snap validation read complete"
     );
-    Ok(refs)
+    Ok(stats.refs)
 }
 
 async fn read_snap_refs_row_group_async(
     context: UnitIdRowGroupReadContext,
     row_group: usize,
     absolute_start: usize,
-) -> Result<Vec<SnapUnitRef>, SessionError> {
+) -> Result<SnapValidationReadStats, SessionError> {
     let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(
         object_reader_with_cache(
             &context.store,
@@ -742,7 +770,7 @@ async fn read_snap_refs_row_group_async(
             source: e,
         })?;
 
-    let mut refs = Vec::new();
+    let mut stats = SnapValidationReadStats::default();
     let mut offset_in_group = 0usize;
     while let Some(reader) =
         stream
@@ -785,6 +813,8 @@ async fn read_snap_refs_row_group_async(
             let geometry_col = batch.column_by_name("geometry").ok_or_else(|| {
                 SessionError::parquet_schema(ARTIFACT, "geometry column is missing")
             })?;
+            stats.batches_read += 1;
+            stats.rows_validated += batch.num_rows();
             for i in 0..batch.num_rows() {
                 if id_col.is_null(i) {
                     return Err(SessionError::invalid_row(
@@ -831,16 +861,18 @@ async fn read_snap_refs_row_group_async(
                             row: absolute_row + i,
                             value: value.to_string(),
                         })?;
+                    stats.stem_role_values_parsed += 1;
                 }
                 let geometry = geometry_from_array(geometry_col, i, absolute_row + i)?;
                 validate_snap_geometry(&geometry, absolute_row + i)?;
-                refs.push(SnapUnitRef { snap_id, unit_id });
+                stats.geometry_rows_validated += 1;
+                stats.refs.push(SnapUnitRef { snap_id, unit_id });
             }
             offset_in_group += batch.num_rows();
         }
     }
 
-    Ok(refs)
+    Ok(stats)
 }
 
 async fn read_snap_bbox_row_group_async(
