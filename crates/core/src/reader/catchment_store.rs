@@ -53,6 +53,12 @@ static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, UnitId),
 static READ_ID_LEVEL_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
+static READ_ID_LEVEL_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+static READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
 pub(crate) static GEOMETRY_DECODE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// Decoded geometry-only catchment row used on the assembly/refinement hot path.
@@ -742,6 +748,7 @@ impl CatchmentStore {
         #[cfg(test)]
         READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
 
+        let started = Instant::now();
         let builder = ParquetRecordBatchStreamBuilder::new(self.object_reader())
             .await
             .map_err(|e| SessionError::ParquetParse {
@@ -750,6 +757,11 @@ impl CatchmentStore {
             })?;
         let metadata = builder.metadata().clone();
         let num_row_groups = metadata.num_row_groups();
+        debug!(
+            num_row_groups,
+            concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
+            "reading catchment id levels"
+        );
         if num_row_groups == 0 {
             return Ok(Vec::new());
         }
@@ -765,51 +777,39 @@ impl CatchmentStore {
         let projection =
             ProjectionMask::roots(parquet_schema, id_level_projection_indices(parquet_schema)?);
 
+        let row_group_results =
+            stream::iter(selected_row_groups.into_iter().zip(rg_absolute_starts))
+                .map(|(row_group, absolute_start)| {
+                    let object_reader = self.object_reader();
+                    let reader_metadata = reader_metadata.clone();
+                    let projection = projection.clone();
+                    async move {
+                        read_id_level_row_group_async(
+                            object_reader,
+                            reader_metadata,
+                            projection,
+                            row_group,
+                            absolute_start,
+                        )
+                        .await
+                    }
+                })
+                .buffered(ID_INDEX_ROW_GROUP_CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
+
         let mut rows = Vec::new();
-        for (row_group, absolute_start) in selected_row_groups.into_iter().zip(rg_absolute_starts) {
-            let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(
-                self.object_reader(),
-                reader_metadata.clone(),
-            );
-            let mut stream = builder
-                .with_projection(projection.clone())
-                .with_row_groups(vec![row_group])
-                .with_batch_size(8192)
-                .build()
-                .map_err(|e| SessionError::ParquetParse {
-                    artifact: ARTIFACT,
-                    source: e,
-                })?;
-
-            let mut offset_in_group = 0usize;
-            while let Some(reader) =
-                stream
-                    .next_row_group()
-                    .await
-                    .map_err(|e| SessionError::RowGroupReadError {
-                        artifact: ARTIFACT,
-                        row_group,
-                        source: e,
-                    })?
-            {
-                for batch_result in reader {
-                    let batch = batch_result.map_err(|e| SessionError::RowGroupReadError {
-                        artifact: ARTIFACT,
-                        row_group,
-                        source: parquet::errors::ParquetError::ArrowError(e.to_string()),
-                    })?;
-
-                    let absolute_row = absolute_start + offset_in_group;
-                    rows.extend(extract_id_levels_from_batch(
-                        &batch,
-                        absolute_row,
-                        ARTIFACT,
-                    )?);
-                    offset_in_group += batch.num_rows();
-                }
-            }
+        for row_group_result in row_group_results {
+            rows.extend(row_group_result?);
         }
 
+        info!(
+            num_rows = rows.len(),
+            num_row_groups,
+            concurrency = ID_INDEX_ROW_GROUP_CONCURRENCY,
+            elapsed_ms = started.elapsed().as_millis(),
+            "catchment id levels read"
+        );
         Ok(rows)
     }
 
@@ -1295,6 +1295,97 @@ async fn read_geometry_row_group_async(
     Ok(rows)
 }
 
+async fn read_id_level_row_group_async(
+    object_reader: Box<dyn AsyncFileReader>,
+    reader_metadata: ArrowReaderMetadata,
+    projection: ProjectionMask,
+    row_group: usize,
+    absolute_start: usize,
+) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
+    #[cfg(test)]
+    let _in_flight = ReadIdLevelInFlightForTest::enter();
+    #[cfg(test)]
+    tokio::task::yield_now().await;
+
+    let builder =
+        ParquetRecordBatchStreamBuilder::new_with_metadata(object_reader, reader_metadata);
+    let mut stream = builder
+        .with_projection(projection)
+        .with_row_groups(vec![row_group])
+        .with_batch_size(8192)
+        .build()
+        .map_err(|e| SessionError::ParquetParse {
+            artifact: ARTIFACT,
+            source: e,
+        })?;
+
+    let mut rows = Vec::new();
+    let mut offset_in_group = 0usize;
+    while let Some(reader) =
+        stream
+            .next_row_group()
+            .await
+            .map_err(|e| SessionError::RowGroupReadError {
+                artifact: ARTIFACT,
+                row_group,
+                source: e,
+            })?
+    {
+        for batch_result in reader {
+            let batch = batch_result.map_err(|e| SessionError::RowGroupReadError {
+                artifact: ARTIFACT,
+                row_group,
+                source: parquet::errors::ParquetError::ArrowError(e.to_string()),
+            })?;
+
+            let absolute_row = absolute_start + offset_in_group;
+            rows.extend(extract_id_levels_from_batch(
+                &batch,
+                absolute_row,
+                ARTIFACT,
+            )?);
+            offset_in_group += batch.num_rows();
+        }
+    }
+
+    Ok(rows)
+}
+
+#[cfg(test)]
+struct ReadIdLevelInFlightForTest;
+
+#[cfg(test)]
+impl ReadIdLevelInFlightForTest {
+    fn enter() -> Self {
+        let current = READ_ID_LEVEL_IN_FLIGHT_FOR_TEST.fetch_add(1, Ordering::SeqCst) + 1;
+        record_read_id_level_max_in_flight_for_test(current);
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for ReadIdLevelInFlightForTest {
+    fn drop(&mut self) {
+        READ_ID_LEVEL_IN_FLIGHT_FOR_TEST.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+fn record_read_id_level_max_in_flight_for_test(current: usize) {
+    let mut observed = READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.load(Ordering::SeqCst);
+    while current > observed {
+        match READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.compare_exchange(
+            observed,
+            current,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => break,
+            Err(actual) => observed = actual,
+        }
+    }
+}
+
 #[cfg(test)]
 fn record_geometry_decode_for_test(path: &str, unit_id: UnitId) {
     let mut counts = GEOMETRY_DECODE_COUNTS_FOR_TEST
@@ -1319,6 +1410,17 @@ pub(crate) fn read_id_level_scan_count_for_test() -> usize {
 #[cfg(test)]
 pub(crate) fn reset_read_id_level_scan_count_for_test() {
     READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(crate) fn read_id_level_max_in_flight_for_test() -> usize {
+    READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_read_id_level_max_in_flight_for_test() {
+    READ_ID_LEVEL_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
+    READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
 }
 
 fn geometry_type_name(geom: &Geometry<f64>) -> &'static str {
@@ -2156,6 +2258,45 @@ mod tests {
             .map(|row| (row.id().get(), row.level().get()))
             .collect();
         assert_eq!(pairs, vec![(1, 0), (2, 7), (3, 2)]);
+    }
+
+    #[test]
+    fn test_read_id_levels_overlaps_row_group_reads() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reset_read_id_level_max_in_flight_for_test();
+
+        let tmp = NamedTempFile::new().unwrap();
+        let units: Vec<_> = (1..=32)
+            .map(|id| {
+                let x = id as f32;
+                (
+                    id,
+                    (id % 8) as i16,
+                    x,
+                    None,
+                    [x, 0.0f32, x + 0.5f32, 0.5f32],
+                )
+            })
+            .collect();
+        write_fixture_with_levels(tmp.path(), &units, 1);
+
+        let store = CatchmentStore::open(tmp.path()).unwrap();
+        reset_read_id_level_max_in_flight_for_test();
+        let rows = store.read_id_levels().unwrap();
+
+        let pairs: Vec<(i64, i16)> = rows
+            .iter()
+            .map(|row| (row.id().get(), row.level().get()))
+            .collect();
+        let expected_pairs: Vec<_> = units.iter().map(|unit| (unit.0, unit.1)).collect();
+        assert_eq!(pairs, expected_pairs);
+        assert!(
+            read_id_level_max_in_flight_for_test() > 1,
+            "read_id_levels_async should overlap row-group reads; max in-flight was {}",
+            read_id_level_max_in_flight_for_test()
+        );
     }
 
     #[test]
