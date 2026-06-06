@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(test)]
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
@@ -46,6 +48,9 @@ const GEOMETRY_QUERY_ROW_GROUP_CONCURRENCY: usize = 16;
 #[cfg(test)]
 static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, UnitId), usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(test)]
+static READ_ID_LEVEL_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
 pub(crate) static GEOMETRY_DECODE_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -734,6 +739,9 @@ impl CatchmentStore {
     }
 
     async fn read_id_levels_async(&self) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
+        #[cfg(test)]
+        READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+
         let builder = ParquetRecordBatchStreamBuilder::new(self.object_reader())
             .await
             .map_err(|e| SessionError::ParquetParse {
@@ -1297,6 +1305,16 @@ pub(crate) fn reset_geometry_decode_counts_for_test() {
         .lock()
         .expect("geometry decode count mutex poisoned")
         .clear();
+}
+
+#[cfg(test)]
+pub(crate) fn read_id_level_scan_count_for_test() -> usize {
+    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_read_id_level_scan_count_for_test() {
+    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
 }
 
 fn geometry_type_name(geom: &Geometry<f64>) -> &'static str {

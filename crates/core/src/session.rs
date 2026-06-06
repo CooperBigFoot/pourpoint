@@ -94,7 +94,6 @@ pub struct DatasetSession {
     manifest: Manifest,
     aux_declarations: AuxDeclarations,
     graph: hfx_core::DrainageGraph,
-    catchment_levels: HashMap<UnitId, Level>,
     catchments: CatchmentStore,
     snap_stores: Vec<DeclaredSnapStore>,
     raster_paths: Option<RasterPaths>,
@@ -291,7 +290,6 @@ impl DatasetSession {
             manifest,
             aux_declarations,
             graph,
-            catchment_levels,
             catchments,
             snap_stores,
             raster_paths,
@@ -452,21 +450,18 @@ impl DatasetSession {
                 snap_meta.as_ref(),
             );
 
-        let catchment_levels = if validation_hit {
-            // Phase-B/Wave-2: keep validation stages free of nested ID-index spans.
-            // A validated sidecar skips membership validation, but the session still
-            // materializes catchment IDs for query-time checks outside validation.
+        if validation_hit {
             debug!(
                 fabric = fabric_name,
                 adapter_version, "remote validation sidecar matched current artifact metadata"
             );
-            catchments
-                .read_id_levels()?
-                .iter()
-                .map(|row| (row.id(), row.level()))
-                .collect::<HashMap<_, _>>()
         } else {
             let t = std::time::Instant::now();
+            debug!(
+                fabric = fabric_name,
+                adapter_version,
+                "remote validation sidecar missing or stale; validating referential integrity"
+            );
             let catchment_levels = {
                 let _guard = StageGuard::enter(Stage::ValidateGraphCatchments);
                 validate_graph_catchments(&manifest, &graph, &catchments)?
@@ -495,14 +490,10 @@ impl DatasetSession {
                     "not caching validation sidecar because artifact metadata lacks ETag"
                 );
             }
-            catchment_levels
-        };
+        }
 
         if validation_hit {
-            debug!(
-                catchment_ids = catchment_levels.len(),
-                "skipped remote referential validation"
-            );
+            debug!("skipped remote referential validation");
         }
 
         let raster_paths = aux_declarations.d8_rasters.first().map(|decl| RasterPaths {
@@ -524,7 +515,6 @@ impl DatasetSession {
             manifest,
             aux_declarations,
             graph,
-            catchment_levels,
             catchments,
             snap_stores,
             raster_paths,
@@ -569,14 +559,15 @@ impl DatasetSession {
 
     /// Return the validated HFX level for a drainage unit.
     pub fn level_of(&self, unit_id: UnitId) -> Option<Level> {
-        self.catchment_levels.get(&unit_id).copied()
+        self.graph.get(unit_id).map(|row| row.level())
     }
 
     /// Return the sorted set of HFX levels present in the loaded dataset.
     pub fn levels(&self) -> Vec<Level> {
-        self.catchment_levels
-            .values()
-            .copied()
+        self.graph
+            .rows()
+            .iter()
+            .map(|row| row.level())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
@@ -584,7 +575,7 @@ impl DatasetSession {
 
     /// Return the finest HFX level present in the loaded dataset.
     pub fn max_level(&self) -> Option<Level> {
-        self.catchment_levels.values().copied().max()
+        self.graph.rows().iter().map(|row| row.level()).max()
     }
 
     /// Return a reference to the catchment store for on-demand queries.
@@ -1215,7 +1206,8 @@ mod tests {
     use crate::error::SessionError;
     use crate::parquet_cache::{ParquetFooterCache, ParquetRowGroupCache};
     use crate::reader::catchment_store::{
-        GEOMETRY_DECODE_TEST_LOCK, reset_geometry_decode_counts_for_test,
+        GEOMETRY_DECODE_TEST_LOCK, read_id_level_scan_count_for_test,
+        reset_geometry_decode_counts_for_test, reset_read_id_level_scan_count_for_test,
     };
     use crate::runtime::RT;
     use crate::testutil::DatasetBuilder;
@@ -2162,8 +2154,10 @@ mod tests {
         );
 
         reset_geometry_decode_counts_for_test();
+        reset_read_id_level_scan_count_for_test();
         let second_session = DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
         let second_ranged_gets = counting_store.ranged_get_calls() - first_ranged_gets;
+        let read_id_level_scans = read_id_level_scan_count_for_test();
         let counts = [1_i64, 2]
             .into_iter()
             .map(|id| {
@@ -2181,6 +2175,10 @@ mod tests {
             counts,
             vec![0, 0],
             "sidecar-hit open should not decode full catchment geometry"
+        );
+        assert_eq!(
+            read_id_level_scans, 0,
+            "sidecar-hit open should not scan catchment id/level rows"
         );
     }
 
