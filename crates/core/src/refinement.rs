@@ -36,7 +36,7 @@ pub trait TerminalRefinementStrategy: Send + Sync {
 pub struct TerminalRefinementInput<'a> {
     /// Terminal drainage-unit ID.
     pub terminal_unit: UnitId,
-    /// Pre-merge whole-terminal geometry decoded by the M3 staged path.
+    /// Pre-merge whole-terminal geometry decoded by the staged path.
     pub terminal_geometry: &'a MultiPolygon<f64>,
     /// Outlet resolved before refinement.
     pub resolved_outlet: GeoCoord,
@@ -44,11 +44,11 @@ pub struct TerminalRefinementInput<'a> {
     pub snap_threshold: SnapThreshold,
 }
 
-/// D8-specific pantry for M4 terminal refinement.
+/// D8-specific context for terminal refinement.
 ///
 /// This deliberately exposes only the dataset session and optional raster
 /// source needed by the built-in D8 path. General auxiliary binding and custom
-/// strategy authoring are deferred beyond M4.
+/// strategy authoring are outside the current runtime surface.
 #[derive(Clone, Copy)]
 pub struct D8RefinementPantry<'a> {
     /// Dataset session that owns declared HFX artifacts.

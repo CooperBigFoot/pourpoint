@@ -1,9 +1,7 @@
-//! Typed contract for the M3 finest-level staged delineation skeleton.
+//! Typed intermediates for finest-level staged delineation.
 //!
-//! This module names the intermediate values that the staged engine path will
-//! pass between phases. Step 1 intentionally defines the vocabulary and the
-//! independently callable method contract only; later M3 steps add the
-//! `Engine` method bodies.
+//! This module names the intermediate values that the staged engine path passes
+//! between independently callable `Engine` methods.
 //!
 //! ```rust,ignore
 //! pub fn select_level(&self, choice: LevelSelection) -> Result<SelectedLevel, EngineError>;
@@ -84,8 +82,8 @@ pub enum LevelSelection {
 /// Dataset-proven selected drainage-unit level.
 ///
 /// The wrapped [`Level`] is private so downstream stages cannot be called with
-/// an arbitrary raw level. Step 2 adds construction through
-/// `Engine::select_level` after consulting `DatasetSession`.
+/// an arbitrary raw level. Construction goes through `Engine::select_level`
+/// after consulting `DatasetSession`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectedLevel {
     level: Level,

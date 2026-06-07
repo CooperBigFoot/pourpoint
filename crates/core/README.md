@@ -8,12 +8,13 @@ Pure-Rust core library for the shed watershed extraction engine. It handles two 
 
 ## Staged Delineation Contract
 
-M3 fixes the delineation skeleton around typed intermediate outputs. Step 1 documents the method signatures as a contract; later M3 steps add the method bodies without changing the existing `Engine::delineate` result surface.
+Staged delineation is implemented around typed intermediate outputs while the
+stable `Engine::delineate` surface remains the public one-call API.
 
 Public delineation results are unit-named at the Rust API boundary:
 `terminal_unit_id()`, `upstream_unit_ids()`, `resolved_outlet()`,
 `resolution_method()`, and `geometry_wkb()` are the stable accessors consumed by
-downstream M5 export work.
+downstream export work.
 
 ```mermaid
 flowchart LR
@@ -68,6 +69,7 @@ pub fn compose_result(
     &self,
     resolved: LevelResolvedOutlet,
     upstream: SameLevelUpstreamUnits,
+    units: &PreMergeDrainageUnits,
     refinement: TerminalRefinement,
     dissolved: DissolvedWatershed,
 ) -> DelineationResult;
@@ -75,7 +77,7 @@ pub fn compose_result(
 
 `PreMergeDrainageUnit` is an inspection record for pristine upstream drainage
 units. The collection includes the whole terminal polygon before any terminal
-refinement. This R3 divergence is intentional: pre-merge drainage-unit records
+refinement. This distinction is intentional: pre-merge drainage-unit records
 are pristine inspection records and do not define final watershed output after
 refinement. Summing pre-merge `area` values does not define final `area_km2`,
 and unioning pre-merge geometries does not define final refined geometry. Final
@@ -83,10 +85,11 @@ geometry and area are produced only by the downstream dissolve/assemble stage.
 Export persistence, including future GeoParquet output, must consume the
 composed final result instead of treating pre-merge records as the final basin.
 
-M4 exposes the Rust terminal-refinement strategy seam with a deliberately
-D8-specific pantry: the strategy receives the `DatasetSession` plus the
+The Rust terminal-refinement strategy seam is exposed with a deliberately
+D8-specific context: the strategy receives the `DatasetSession` plus the
 engine-attached `RasterSource` needed by the built-in D8 path. Full custom
-auxiliary binding and general aux-to-strategy dispatch remain deferred.
+auxiliary binding and general auxiliary-to-strategy dispatch are outside the
+current runtime surface.
 
 ## Architecture
 
@@ -94,7 +97,7 @@ auxiliary binding and general aux-to-strategy dispatch remain deferred.
 graph TD
     session[DatasetSession\nsession.rs] --> reader[reader/]
     reader --> manifest[manifest.rs\nparse manifest.json]
-    reader --> graph[graph.rs\ndecode graph.arrow]
+    reader --> graph[graph.rs\ndecode graph.parquet]
     reader --> catchment[catchment_store.rs\nlazy Parquet reader]
     reader --> snap[snap_store.rs\nlazy Parquet reader]
     reader --> d8decl[hfx.aux.d8_raster.v1\nD8 declarations]
@@ -138,12 +141,13 @@ sequenceDiagram
     A->>A: WatershedGeometry pipeline → Polygon
 ```
 
-## M4 Refinement Scope
+## Terminal Refinement Scope
 
-M4 ships exactly one blessed terminal-refinement strategy: built-in D8 raster
-refinement. The current pantry is intentionally D8-only. Full auxiliary
-schema-to-strategy binding, reverse-DNS auxiliary parsing, Python-authored
-strategies, and additional blessed strategies are deferred.
+The engine currently ships exactly one built-in terminal-refinement strategy:
+D8 raster refinement. The current strategy context is intentionally D8-only.
+Full auxiliary schema-to-strategy binding, reverse-DNS auxiliary parsing,
+Python-authored strategies, and additional built-in strategies are outside the
+current runtime surface.
 
 The built-in D8 carve sequence is fixed as:
 
@@ -155,8 +159,8 @@ There is no vector clamp, intersection, or cleaning pass in the refinement
 algorithm. Final watershed assembly is always merge-after: preserve pristine
 pre-merge unit records for inspection, exclude the whole terminal from final
 assembly, insert the refined terminal geometry, and then dissolve/assemble. This
-is why the R3 disagreement is intentional: pre-merge terminal geometry and area
-can differ from the final refined geometry and `area_km2`.
+is why pristine pre-merge terminal geometry and area can differ from the final
+refined geometry and `area_km2`.
 
 D8 tile coverage uses inclusive rectangle semantics, so exact bbox equality and
 edge-touching count. This is only a rectangular-extent selection policy. It
@@ -166,9 +170,11 @@ per-Pfaf-02 D8 raster declarations fully cover the terminal bbox by rectangular
 extent. The MERIT adapter is correct; overlapping extents are expected Pfaf
 geometry with nodata outside each basin. shed correctly refuses to guess. A
 real-data carve for those terminals is deferred pending a nodata or
-basin-membership disambiguation policy.
+basin-membership disambiguation policy. Runnable examples that use affected
+MERIT terminals should set `refine=False`; GRIT examples can keep the default
+best-effort refinement because GRIT has no D8 raster declaration to disambiguate.
 
-Offline M4 gate:
+Regression gates for the D8 strategy seam and synthetic parity goldens:
 
 ```bash
 cargo build --workspace --exclude pyshed
@@ -185,9 +191,9 @@ Network-gated boundary proof:
 SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
 ```
 
-Release note: M4 verifies the offline D8 strategy seam and synthetic parity
-goldens. It does not verify successful real-data carve on overlapping-Pfaf
-terminals; it verifies only that the typed ambiguity boundary is surfaced.
+These gates do not verify successful real-data carving on overlapping-Pfaf
+terminals; they verify that the offline D8 path works and that the typed
+ambiguity boundary is surfaced for real MERIT coverage conflicts.
 
 ## Glossary
 
@@ -217,7 +223,7 @@ terminals; it verifies only that the typed ambiguity boundary is surfaced.
 |---|---|---|
 | `DatasetSession` | `session.rs` | Entry point — open an HFX dataset, validate layout, expose readers |
 | `RasterPaths` | `session.rs` | Validated paths to `flow_dir.tif` + `flow_acc.tif` (no GDAL handles) |
-| `TerminalRefinementStrategy` | `refinement.rs` | Object-safe terminal-refinement seam; M4's pantry is D8-only |
+| `TerminalRefinementStrategy` | `refinement.rs` | Object-safe terminal-refinement seam; the current strategy context is D8-only |
 | `CatchmentStore` | `reader/catchment_store.rs` | Lazy Parquet reader for `catchments.parquet` with bbox pruning |
 | `SnapStore` | `reader/snap_store.rs` | Lazy Parquet reader for `snap.parquet` with bbox pruning |
 | `SessionError` | `error.rs` | All dataset-open and read errors |

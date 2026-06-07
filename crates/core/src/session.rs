@@ -650,8 +650,8 @@ impl DatasetSession {
 
     /// Return the snap store whose declaration is selected for `level`.
     ///
-    /// M3 deliberately uses a narrow deterministic rule instead of a general
-    /// strategy binding: among `hfx.aux.snap.v1` declarations whose
+    /// Uses a narrow deterministic rule instead of a general strategy binding:
+    /// among `hfx.aux.snap.v1` declarations whose
     /// `references_levels` contains `level`, sort by metadata `name` ascending,
     /// then artifact `snap` path ascending, and use the first declaration.
     pub(crate) fn snap_for_level(&self, level: Level) -> Option<&SnapStore> {

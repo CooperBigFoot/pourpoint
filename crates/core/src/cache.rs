@@ -92,7 +92,8 @@ struct SourceIndexEntry {
 }
 
 impl RemoteArtifactCache {
-    /// Return the configured cache rooted at `HFX_CACHE_DIR` or `~/.cache/hfx`.
+    /// Return the configured cache rooted at `HFX_CACHE_DIR` or the platform
+    /// cache directory joined with `hfx`.
     pub(crate) fn configured() -> Result<Self, SessionError> {
         let root = match std::env::var_os(CACHE_ENV) {
             Some(path) => PathBuf::from(path),
