@@ -7,6 +7,14 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+## [0.2.3] - TBD
+
+- fix: `bench_trace` now flushes trace output on exit.
+- typing: added `bench_trace` to the packaged type stubs.
+- docs: README/API corrected to HFX v0.2.1 reality (grit/2.0.0, honest cold/warm
+  open performance, `HFX_CACHE_DIR` + reuse-the-Engine guidance, geometry vs
+  area-only delineation).
+
 ## [0.2.2] - 2026-06-06
 
 - perf: rebuild against the core validation sidecar and id-index reuse fix, so a
