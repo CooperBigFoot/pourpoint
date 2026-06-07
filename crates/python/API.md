@@ -13,6 +13,7 @@ The `pyshed` package exports these names:
 - `DelineationResult`
 - `DelineationUnitMetadata`
 - `AreaOnlyResult`
+- `LevelSelection`
 - `SelectedLevel`
 - `ResolvedOutlet`
 - `UpstreamUnits`
@@ -26,6 +27,7 @@ The `pyshed` package exports these names:
 - `DatasetError`
 - `ResolutionError`
 - `AssemblyError`
+- `bench_trace`
 - `set_log_level`
 - `__version__`
 
@@ -52,6 +54,22 @@ users see output without calling `logging.basicConfig`.
 
 Set `PYSHED_LOG` to one of the same level names to opt in at import time.
 
+## bench_trace
+
+```python
+bench_trace(path: os.PathLike[str] | str) -> Iterator[None]
+```
+
+Context manager that writes Rust stage-span benchmark telemetry to `path` while
+the context is active.
+
+```python
+with bench_trace("trace.jsonl"):
+    result = engine.delineate(lat=47.3769, lon=8.5417)
+
+# trace.jsonl now contains JSONL records with kind == "stage".
+```
+
 ## Engine
 
 ### Constructor
@@ -73,8 +91,8 @@ Engine(
 
 Opens an HFX dataset and constructs a delineation engine.
 
-`dataset_path` must point to an HFX v0.2.1 dataset. HFX v0.1 datasets are not
-accepted by this release.
+`dataset_path` must point to an HFX v0.2.1 dataset. HFX v0.1 datasets
+hard-error as an unsupported format version.
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
@@ -208,12 +226,12 @@ wrong object type raises `TypeError`.
 | `dissolve(units, refinement)` | `DissolvedWatershed` | Produces the final merged geometry and area |
 | `compose_result(...)` | `DelineationResult` | Packages the same merged result shape returned by `delineate()` |
 
-`LevelSelection.FINEST` is the only valid selection in 0.2.0. Multi-level
-selection is on the roadmap.
+`LevelSelection.FINEST` is the only valid selection currently supported.
+Multi-level selection is on the roadmap.
 
-R3 note: `PreMergeDrainageUnits` contains whole source drainage units, including
-the whole terminal unit. When terminal refinement is applied, summing or
-unioning pre-merge units is not the same as the final merged `area_km2` or
+`PreMergeDrainageUnits` contains whole source drainage units, including the
+whole terminal unit. When terminal refinement is applied, summing or unioning
+pre-merge units is not the same as the final merged `area_km2` or
 `geometry_wkb`.
 
 ## DelineationResult

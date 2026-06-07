@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Callable, Literal, Mapping, TypedDict, overload
 
 __version__: str
@@ -8,12 +11,16 @@ __version__: str
 def set_log_level(level: str) -> None: ...
 
 
+@contextmanager
+def bench_trace(path: os.PathLike[str] | str) -> Iterator[None]: ...
+
+
 class _Outlet(TypedDict):
     lat: float
     lon: float
 
 
-class ProgressEvent(TypedDict, total=False):
+class _BatchProgressEvent(TypedDict, total=False):
     index: int
     total: int
     lat: float
@@ -24,7 +31,7 @@ class ProgressEvent(TypedDict, total=False):
     error: str  # only on failure
 
 
-ProgressCallback = Callable[[ProgressEvent], None]
+ProgressCallback = Callable[[_BatchProgressEvent], None]
 
 
 class ShedError(Exception): ...

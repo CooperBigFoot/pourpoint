@@ -2,10 +2,10 @@
 
 Python bindings for the `shed` watershed delineation engine. `pyshed` loads
 [HFX-format](https://github.com/CooperBigFoot/hfx) v0.2.1 datasets and returns
-watershed polygons from a `(lat, lon)` outlet. HFX v0.1 datasets no longer
-load. The full native stack (GDAL,
-PROJ, GEOS, libtiff, SQLite, and more) is bundled inside the wheel — no system
-install required.
+watershed polygons from a `(lat, lon)` outlet. Only HFX v0.2.1 datasets load;
+HFX v0.1 datasets hard-error as an unsupported format version. The full native
+stack (GDAL, PROJ, GEOS, libtiff, SQLite, and more) is bundled inside the wheel
+— no system install required.
 
 ## Install
 
@@ -13,7 +13,7 @@ install required.
 pip install pyshed
 ```
 
-**Platform support (v0.2.0):** Apple Silicon macOS only (`macosx_11_0_arm64`).
+**Platform support:** Apple Silicon macOS only (`macosx_11_0_arm64`).
 Linux, Intel macOS, and Windows wheels are not yet built — community
 contributions are welcome. See
 [CONTRIBUTING.md](https://github.com/CooperBigFoot/shed/blob/main/CONTRIBUTING.md)
@@ -51,20 +51,28 @@ r2_engine = pyshed.Engine(
     "https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine"
 )
 public_r2_engine = pyshed.Engine(
-    "https://basin-delineations-public.upstream.tech/global/hfx"
+    "https://basin-delineations-public.upstream.tech/grit/2.0.0/"
 )
 ```
 
-Remote dataset sessions cache `manifest.json` and `graph.arrow` under
-`~/.cache/hfx/<fabric_name>/<adapter_version>/` by default. Set
-`HFX_CACHE_DIR=/path/to/cache` before constructing `pyshed.Engine(...)` to use a
-different cache root. Parquet artifacts are read with object-store range reads;
-they are not copied into the cache wholesale.
+Remote dataset sessions cache persistent metadata and validation sidecars under
+`HFX_CACHE_DIR` when set, otherwise under the OS cache directory (`~/Library/Caches/hfx`
+on macOS, usually `$XDG_CACHE_HOME/hfx` or `/home/<user>/.cache/hfx` on Linux).
+HFX roots contain `manifest.json`, `catchments.parquet`, and `graph.parquet`;
+Parquet data is read with object-store range reads rather than copied wholesale.
+This persistent remote-artifact cache is separate from the per-engine
+in-memory Parquet row-group cache described below.
 
 GDAL raster URI and configuration plumbing is wired through the Python engine,
 but public Cloudflare R2 raster access still depends on the target bucket,
 credentials, and GDAL driver behavior. Verify the specific remote raster dataset
 you plan to use.
+
+The public GRIT `2.0.0` dataset has no D8 raster auxiliary, so the default
+best-effort refinement safely skips terminal raster refinement. For D8-specific
+MERIT experiments, use `https://basin-delineations-public.upstream.tech/merit/0.2.0/`
+with `refine=False` when documenting or running examples that would otherwise
+hit overlapping-Pfaf `AmbiguousD8Coverage`.
 
 ### Verbose mode
 
@@ -74,7 +82,7 @@ Enable structured log output from both the Python and Rust layers:
 import pyshed
 
 pyshed.set_log_level("info")
-engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/global/hfx")
+engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/2.0.0/")
 # INFO lines stream during manifest/graph/catchment loading
 result = engine.delineate(lat=47.3769, lon=8.5417)
 ```
@@ -90,7 +98,7 @@ across overlapping watersheds:
 
 ```python
 engine = pyshed.Engine(
-    "https://basin-delineations-public.upstream.tech/global/hfx",
+    "https://basin-delineations-public.upstream.tech/grit/2.0.0/",
     parquet_cache=True,
     parquet_cache_max_mb=512,
 )
@@ -98,7 +106,24 @@ engine = pyshed.Engine(
 
 The cache is enabled by default for remote dataset URLs and disabled by default
 for local paths. `parquet_cache_max_mb` defaults to `512` when caching is
-enabled. Cache state is per-`Engine` instance and is not persisted to disk.
+enabled. This in-memory Parquet row-group cache is per-`Engine` instance and is
+not persisted to disk; it is distinct from the persistent remote
+metadata/validation cache under `HFX_CACHE_DIR` or the OS cache directory.
+
+### Benchmark tracing
+
+Capture stage-span timing records for one process with `bench_trace`:
+
+```python
+import pyshed
+
+engine = pyshed.Engine("/path/to/hfx/dataset")
+
+with pyshed.bench_trace("trace.jsonl"):
+    result = engine.delineate(lat=47.3769, lon=8.5417)
+
+# trace.jsonl now contains JSONL records with kind == "stage".
+```
 
 ### Batch delineation with progress
 
@@ -108,7 +133,7 @@ import pyshed
 # tqdm is a user dependency — not bundled with pyshed
 from tqdm.auto import tqdm
 
-url = "https://basin-delineations-public.upstream.tech/global/hfx"
+url = "https://basin-delineations-public.upstream.tech/grit/2.0.0/"
 engine = pyshed.Engine(url)
 
 outlets = [
@@ -146,17 +171,17 @@ dissolved = engine.dissolve(units, refinement)
 result = engine.compose_result(outlet, upstream, units, refinement, dissolved)
 ```
 
-`LevelSelection.FINEST` is the only level selection in 0.2.0; multi-level
-selection is on the roadmap.
+`LevelSelection.FINEST` is the only level selection currently supported;
+multi-level selection is on the roadmap.
 
 `result` matches `engine.delineate(lat=47.3769, lon=8.5417)`. The merged result
 exposes final `geometry_wkb`, final `area_km2`, and light per-unit metadata
 (`id`, `level`, `area_km2`, `up_area_km2`, `outlet`). Whole per-unit geometry is
 available only on `PreMergeDrainageUnits.unit_geometry_wkb`.
 
-R3 note: pre-merge units are whole source drainage units, including the whole
-terminal unit. If terminal refinement is applied, summing or unioning those
-whole units is not the same as the merged `area_km2` or `geometry_wkb`.
+Pre-merge units are whole source drainage units, including the whole terminal
+unit. If terminal refinement is applied, summing or unioning those whole units
+is not the same as the final merged `area_km2` or `geometry_wkb`.
 
 ### GeoParquet export
 
