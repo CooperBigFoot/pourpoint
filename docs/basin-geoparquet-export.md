@@ -122,9 +122,12 @@ Writers must enable bbox column statistics so row-group pruning can use the outw
 | basin_id | delineation | geometry | outlet_lon | outlet_lat | area_km2 | bbox_minx | bbox_miny | bbox_maxx | bbox_maxy | adapter_version |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---|
 | `rhine-basel` | `grit/2.0.0/d8-best-effort` | WKB MultiPolygon | 7.589 | 47.5596 | 365000.0 | 5.80 | 45.80 | 10.60 | 48.90 | `hfx-grit-adapter/1.4.0` |
-| `rhine-basel` | `merit/2024.1/d8-carved` | WKB MultiPolygon | 7.589 | 47.5596 | 364200.0 | 5.81 | 45.81 | 10.58 | 48.88 | `hfx-merit-adapter/0.9.0` |
+| `rhine-basel` | `grit/2.0.0/no-refine` | WKB MultiPolygon | 7.589 | 47.5596 | 364200.0 | 5.81 | 45.81 | 10.58 | 48.88 | `hfx-grit-adapter/1.4.0` |
 
 The repeated `basin_id` is valid because the `delineation` values are distinct.
+For MERIT `merit/0.2.0`, overlapping Pfaf D8 rasters can make refinement
+ambiguous; runnable MERIT export examples should use an explicit `no-refine`
+method label when refinement is disabled for that reason.
 
 ## Reader Smoke
 
@@ -143,7 +146,12 @@ PY
 
 ## CLI Emission
 
-M5 does not add a `shed` CLI GeoParquet emit command. The current CLI has a `delineate` command with single-outlet flags and an `--outlets` CSV for GeoJSON output, but it does not define a basin export catalog shape. A CLI wrapper should be added only after that catalog contract is settled, so it can parse all `BasinId` values before delineation and call the core writer without inventing another input format.
+The current `shed delineate` CLI supports single-outlet flags and an `--outlets`
+CSV for GeoJSON output; `--format` currently accepts only `geojson`. It does not
+define a basin GeoParquet export catalog shape. A CLI wrapper should be added
+only after that catalog contract is settled, so it can parse all `BasinId`
+values before delineation and call the core writer without inventing another
+input format.
 
 ## Elevation Path
 

@@ -14,7 +14,7 @@ parallelism, or public API behavior.
 
 `--cache-dir` defaults to a temp/scratch parent under `std::env::temp_dir()`.
 The harness always sets `HFX_CACHE_DIR` to a run-specific child directory and
-never falls back to user `~/.cache/hfx`.
+does not use the user's normal OS cache directory.
 
 The harness does not enable `parquet_cache`; it opens datasets through
 `DatasetSession::open` so timings reflect the engine's existing default
@@ -25,10 +25,10 @@ behavior.
 Canonical remote runs:
 
 ```bash
-scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset r2 --outlet zurich --iterations 3 --out scratchpad/benchmarks/cold-r2-zurich.jsonl
-scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset r2 --outlet hammerfest --iterations 3 --out scratchpad/benchmarks/cold-r2-hammerfest.jsonl
-scripts/bench-delineate.sh --release --measure-rss --mode warm --dataset r2 --outlet zurich --iterations 5 --out scratchpad/benchmarks/warm-r2-zurich.jsonl
-scripts/bench-delineate.sh --release --measure-rss --mode hot --dataset r2 --outlet zurich --iterations 10 --out scratchpad/benchmarks/hot-r2-zurich.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet zurich --iterations 3 --out scratchpad/benchmarks/cold-grit-zurich.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet hammerfest --iterations 3 --out scratchpad/benchmarks/cold-grit-hammerfest.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode warm --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet zurich --iterations 5 --out scratchpad/benchmarks/warm-grit-zurich.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode hot --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet zurich --iterations 10 --out scratchpad/benchmarks/hot-grit-zurich.jsonl
 ```
 
 Local fixture smoke:
@@ -38,9 +38,10 @@ cargo run -p shed-core --features test-fixtures --bin bench_delineate -- \
   --mode hot --dataset local --outlet 0,0 --iterations 1 --out /tmp/shed-local-bench.jsonl
 ```
 
-`--dataset r2` expands to
-`https://basin-delineations-public.upstream.tech/grit/1.0.0/`. Any other
-dataset value is passed directly to `DatasetSession::open`.
+Do not use `--dataset r2` as a canonical example: the alias currently resolves
+to a stale GRIT v0.1 dataset and is tracked separately from this docs-only
+milestone. Any other dataset value is passed directly to `DatasetSession::open`,
+so examples should provide the current dataset URL explicitly.
 
 ## JSONL Output
 
