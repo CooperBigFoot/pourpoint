@@ -5,11 +5,11 @@ The watershed extraction engine that consumes compiled
 polygons for any `(lat, lon)` outlet.
 
 `shed` is fabric-agnostic by design: it reads the open HydroFabric Exchange
-contract (`manifest.json`, `catchments.parquet`, `graph.arrow`, plus optional
-`snap.parquet`, `flow_dir.tif`, and `flow_acc.tif`) and runs outlet
-resolution, upstream traversal, optional terminal raster refinement, and
-final geometry assembly without any source-fabric-specific logic in the hot
-path. The same engine works for any HFX-compliant dataset.
+contract (`manifest.json`, `catchments.parquet`, `graph.parquet`, plus
+manifest-declared snap and D8 raster auxiliaries) and runs outlet resolution,
+upstream traversal, optional terminal raster refinement, and final geometry
+assembly without any source-fabric-specific logic in the hot path. The same
+engine works for any HFX-compliant dataset.
 
 ## Use it from Python
 
@@ -18,8 +18,11 @@ on PyPI as a self-contained wheel with GDAL, PROJ, GEOS, and friends bundled
 inside — no system dependencies required.
 
 ```bash
-pip install pyshed   # macOS arm64 only in v0.1 — see CONTRIBUTING.md
+pip install pyshed
 ```
+
+Current PyPI wheels are Apple Silicon macOS only (`macosx_11_0_arm64`). See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for local builds and platform notes.
 
 ```python
 import pyshed
@@ -28,7 +31,7 @@ engine = pyshed.Engine("/path/to/hfx/dataset")
 result = engine.delineate(lat=47.3769, lon=8.5417)
 
 print(result.area_km2)        # geodesic area in km²
-print(result.terminal_atom_id)
+print(result.terminal_unit_id)
 geojson = result.to_geojson()
 ```
 
@@ -40,8 +43,9 @@ developer API reference.
 
 `shed` accepts local HFX dataset directories and remote object-store URLs for
 the dataset root. The root must contain the HFX artifacts described by the
-manifest: `manifest.json`, `catchments.parquet`, `graph.arrow`, and optional
-`snap.parquet`, `flow_dir.tif`, and `flow_acc.tif`.
+manifest: `manifest.json`, `catchments.parquet`, and `graph.parquet`.
+Optional snap and D8 raster artifacts are declared in `manifest.json`
+auxiliaries rather than fixed root filenames.
 
 Supported dataset path forms:
 
@@ -51,31 +55,34 @@ Supported dataset path forms:
 | Local file URL | `file:///data/hfx/rhine` |
 | Amazon S3 URL | `s3://bucket/path/to/hfx/rhine` |
 | Cloudflare R2 HTTPS URL | `https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine` |
-| Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/1.0.0/` |
+| Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/2.0.0/` |
 
-For remote datasets, `manifest.json` and `graph.arrow` are cached locally under
-`~/.cache/hfx/<fabric_name>/<adapter_version>/` by default. Set
-`HFX_CACHE_DIR=/path/to/cache` to override the cache root. Parquet artifacts are
-read through object-store range reads instead of being downloaded wholesale.
+For remote datasets, metadata and validation sidecars are cached under
+`HFX_CACHE_DIR` or the OS cache directory joined with `hfx` by default. On
+macOS that is typically `~/Library/Caches/hfx`; on Linux it is typically
+the user's XDG cache directory with an `hfx` child. Parquet artifacts such as
+`catchments.parquet` and `graph.parquet` are read through object-store range
+reads instead of being downloaded wholesale. The per-engine Parquet row-group
+cache defaults on for remote Python engines and off for local paths.
 
 Remote raster refinement uses COG window reads when raster artifacts are present:
 `shed` fetches TIFF metadata and only the compressed tile byte ranges needed for
 the terminal catchment. See [`docs/raster-cache.md`](docs/raster-cache.md) for
 details.
 
-### Canonical hosted dataset
+### Canonical Hosted Dataset
 
-The canonical public dataset for examples is global GRIT HFX v1.0.0:
+The canonical public dataset for examples is the GRIT HFX v0.2.1 fabric at:
 
 ```text
-https://basin-delineations-public.upstream.tech/grit/1.0.0/
+https://basin-delineations-public.upstream.tech/grit/2.0.0/
 ```
 
 CLI example:
 
 ```bash
 ./target/release/shed delineate \
-    --dataset https://basin-delineations-public.upstream.tech/grit/1.0.0/ \
+    --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ \
     --lat 47.3769 --lon 8.5417
 ```
 
@@ -85,11 +92,30 @@ Python example:
 import pyshed
 
 engine = pyshed.Engine(
-    "https://basin-delineations-public.upstream.tech/grit/1.0.0/"
+    "https://basin-delineations-public.upstream.tech/grit/2.0.0/"
 )
 result = engine.delineate(lat=47.3769, lon=8.5417)
-print(result.area_km2)
+print(result.terminal_unit_id, result.area_km2)
 ```
+
+These examples use the default `refine=True`. GRIT does not declare a D8
+raster auxiliary, so best-effort refinement safely skips with a
+`best_effort_no_d8_aux_declared` outcome.
+
+## Performance And Caching
+
+The first open of the global GRIT dataset over R2 is the expensive step: expect
+about 2 minutes for the roughly 42 GB global fabric because metadata,
+validation, and network round trips dominate. Warm repeat opens are much
+cheaper, about 10 seconds when validation sidecars can be reused. A local
+large-dataset open is also about 10 seconds.
+
+Once an engine is open, delineation is much faster: about 80 ms for a single
+outlet and about 10 ms per outlet when batched. Set `HFX_CACHE_DIR` to choose
+the persistent remote metadata/validation cache root; otherwise the default on
+macOS is typically `~/Library/Caches/hfx`. Remote Python engines also enable a
+per-engine Parquet row-group cache by default, while local paths leave that
+cache off unless requested.
 
 ## Use it from the CLI
 
