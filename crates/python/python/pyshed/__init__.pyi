@@ -20,7 +20,7 @@ class _Outlet(TypedDict):
     lon: float
 
 
-class _BatchProgressEvent(TypedDict, total=False):
+class ProgressEvent(TypedDict, total=False):
     index: int
     total: int
     lat: float
@@ -31,7 +31,7 @@ class _BatchProgressEvent(TypedDict, total=False):
     error: str  # only on failure
 
 
-ProgressCallback = Callable[[_BatchProgressEvent], None]
+ProgressCallback = Callable[[ProgressEvent], None]
 
 
 class ShedError(Exception): ...
