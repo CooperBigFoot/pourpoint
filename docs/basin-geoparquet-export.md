@@ -125,7 +125,8 @@ Writers must enable bbox column statistics so row-group pruning can use the outw
 | `rhine-basel` | `grit/2.0.0/no-refine` | WKB MultiPolygon | 7.589 | 47.5596 | 364200.0 | 5.81 | 45.81 | 10.58 | 48.88 | `hfx-grit-adapter/1.4.0` |
 
 The repeated `basin_id` is valid because the `delineation` values are distinct.
-For MERIT `merit/0.2.0`, overlapping Pfaf D8 rasters can make refinement
+For a locally compiled MERIT HFX dataset (built with the HFX `merit-v2`
+reference adapter), overlapping Pfaf D8 rasters can make refinement
 ambiguous; runnable MERIT export examples should use an explicit `no-refine`
 method label when refinement is disabled for that reason.
 

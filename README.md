@@ -153,6 +153,15 @@ Build instructions, coding conventions, and the open call for community
 wheel contributions (Linux / Intel macOS / Windows) live in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Acknowledgments
+
+Public hosting of the canonical GRIT HFX dataset at
+`https://basin-delineations-public.upstream.tech/grit/2.0.0/` is sponsored by
+[Upstream Tech](https://www.upstream.tech/), who provide the object-storage
+infrastructure as an in-kind contribution to the open HFX ecosystem. Upstream
+Tech is an infrastructure sponsor: `shed` is independent open-source software,
+and this acknowledgment implies no commercial relationship or endorsement.
+
 ## License
 
 `shed` and `pyshed` are MIT-licensed (see [`LICENSE`](LICENSE)). Bundled

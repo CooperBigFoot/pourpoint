@@ -13,15 +13,18 @@ through `object_store`, decodes the selected tiles locally, and writes an
 uncompressed cache-local GeoTIFF. `shed-gdal` then opens that local file through
 the existing refinement code.
 
-Real MERIT `merit/0.2.0` refinement can hit `AmbiguousD8Coverage` when
-overlapping Pfaf D8 rasters cover the same terminal extent. Runnable MERIT
+Refinement against a locally compiled MERIT HFX dataset (built with the HFX
+`merit-v2` reference adapter, `adapters/merit-v2/build_adapter.py` in the hfx
+repository) can hit `AmbiguousD8Coverage` when overlapping Pfaf D8 rasters
+cover the same terminal extent. Runnable MERIT
 examples affected by that overlap should use `refine=False`; GRIT datasets
 without D8 auxiliaries use the best-effort no-D8 skip, and single-raster local
 fixtures can exercise refinement normally.
 
 Unsupported remote TIFF layouts fail loudly rather than falling back to a
-multi-GB full download. The first supported layout is the published MERIT
-variant: one-band, 512x512 tiled COGs, `u8` flow direction and `f32` flow
+multi-GB full download. The first supported layout is the MERIT variant
+emitted by the hfx `merit-v2` adapter: one-band, 512x512 tiled COGs, `u8`
+flow direction and `f32` flow
 accumulation, with GeoTIFF scale/tiepoint metadata in EPSG:4326.
 
 Benchmark smoke output reports COG reads separately:
