@@ -1361,7 +1361,12 @@ mod tests {
     struct StageNestingState {
         next_id: u64,
         stages_by_id: HashMap<u64, String>,
-        stack: Vec<u64>,
+        // Per-thread stacks of entered span ids. A single shared stack is wrong:
+        // open_remote enters/exits stage spans across multiple runtime threads,
+        // so a global stack pops out of order. tracing guarantees enter/exit are
+        // balanced LIFO *per thread*, so keying by ThreadId restores a valid
+        // model and keeps contextual-parent detection accurate.
+        stacks: HashMap<std::thread::ThreadId, Vec<u64>>,
         nested_index_in_validation: Vec<(String, String)>,
     }
 
@@ -1397,13 +1402,18 @@ mod tests {
             let mut visitor = StageFieldVisitor { stage: None };
             span.record(&mut visitor);
 
+            let tid = std::thread::current().id();
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             state.next_id += 1;
             let id = state.next_id;
             if let Some(stage) = visitor.stage {
                 if matches!(stage.as_str(), "catchment_id_index" | "snap_id_index") {
+                    // Contextual parent chain = the spans currently entered on
+                    // THIS thread. Cloned to release the borrow on `state.stacks`
+                    // before reading `state.stages_by_id`.
+                    let parent_ids = state.stacks.get(&tid).cloned().unwrap_or_default();
                     let mut nested = Vec::new();
-                    for parent_id in &state.stack {
+                    for parent_id in &parent_ids {
                         if let Some(parent_stage) = state.stages_by_id.get(parent_id)
                             && matches!(
                                 parent_stage.as_str(),
@@ -1427,21 +1437,28 @@ mod tests {
         fn event(&self, _event: &Event<'_>) {}
 
         fn enter(&self, span: &Id) {
+            let tid = std::thread::current().id();
             self.state
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .stack
+                .stacks
+                .entry(tid)
+                .or_default()
                 .push(span.into_u64());
         }
 
         fn exit(&self, span: &Id) {
-            let popped = self
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .stack
-                .pop();
-            assert_eq!(popped, Some(span.into_u64()));
+            let tid = std::thread::current().id();
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(stack) = state.stacks.get_mut(&tid) {
+                // Remove this span from the current thread's stack. Never assert
+                // LIFO order or panic here: exit() runs inside a span-guard
+                // destructor, so a panic becomes a non-unwinding process abort.
+                let id = span.into_u64();
+                if let Some(pos) = stack.iter().rposition(|&s| s == id) {
+                    stack.remove(pos);
+                }
+            }
         }
 
         fn current_span(&self) -> Current {
@@ -2252,6 +2269,9 @@ mod tests {
 
     #[test]
     fn open_remote_fetches_manifest_graph_and_opens_catchments() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2301,6 +2321,9 @@ mod tests {
 
     #[test]
     fn local_open_does_not_allocate_parquet_caches() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let (_dir, root) = DatasetBuilder::new(2).build();
         let session = DatasetSession::open(root.to_str().unwrap()).unwrap();
 
@@ -2310,6 +2333,9 @@ mod tests {
 
     #[test]
     fn remote_default_open_enables_parquet_caches() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2327,6 +2353,9 @@ mod tests {
 
     #[test]
     fn explicit_none_caches_disable_remote_parquet_caches() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2369,6 +2398,9 @@ mod tests {
 
     #[test]
     fn repeated_remote_query_with_cache_avoids_second_range_reads() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());
@@ -2402,6 +2434,9 @@ mod tests {
 
     #[test]
     fn open_remote_uses_cached_manifest_and_graph_when_remote_is_empty() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2423,6 +2458,9 @@ mod tests {
 
     #[test]
     fn open_remote_does_not_use_cache_entry_from_different_source() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let root_a = ObjectPath::from("dataset/a");
@@ -2458,6 +2496,9 @@ mod tests {
 
     #[test]
     fn open_remote_reports_missing_manifest() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2477,6 +2518,9 @@ mod tests {
 
     #[test]
     fn open_remote_with_snap_opens_and_queries_snap_store() {
+        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());

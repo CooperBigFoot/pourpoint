@@ -1376,7 +1376,11 @@ struct ReadIdLevelInFlightForTest;
 #[cfg(test)]
 impl ReadIdLevelInFlightForTest {
     fn enter() -> Self {
-        let current = READ_ID_LEVEL_IN_FLIGHT_FOR_TEST.fetch_add(1, Ordering::SeqCst) + 1;
+        // saturating_add so a transiently corrupted gauge can never overflow-panic
+        // inside this hot instrumentation path.
+        let current = READ_ID_LEVEL_IN_FLIGHT_FOR_TEST
+            .fetch_add(1, Ordering::SeqCst)
+            .saturating_add(1);
         record_read_id_level_max_in_flight_for_test(current);
         Self
     }
@@ -1458,7 +1462,10 @@ pub(crate) fn read_id_level_max_in_flight_for_test() -> usize {
 
 #[cfg(test)]
 pub(crate) fn reset_read_id_level_max_in_flight_for_test() {
-    READ_ID_LEVEL_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
+    // Only reset the high-water mark. The live in-flight gauge must NEVER be
+    // force-zeroed: doing so while a parallel test still holds in-flight guards
+    // makes their Drop underflow the gauge to usize::MAX, which then overflows
+    // the next fetch_add. The gauge returns to 0 on its own as guards drop.
     READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
 }
 
@@ -2359,6 +2366,9 @@ mod tests {
 
     #[test]
     fn test_open_valid_catchments() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (
@@ -2378,6 +2388,9 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_matching() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         // Three spatially separated units
         let units = [
@@ -2397,6 +2410,9 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_empty_for_no_overlap() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2413,6 +2429,9 @@ mod tests {
 
     #[test]
     fn test_bbox_pruning_skips_row_groups() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         // 6 units in 3 row groups (size=2); spatially separated clusters
         let units = [
@@ -2439,6 +2458,9 @@ mod tests {
 
     #[test]
     fn test_query_by_ids() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2459,6 +2481,9 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2484,6 +2509,9 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_returns_expected_pairs() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 0i16, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2606,6 +2634,9 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_rejects_missing_level_column() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [(1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32])];
         write_fixture(tmp.path(), &units, 1024);
@@ -2621,6 +2652,9 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids_preserves_row_group_order_under_concurrency() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units: Vec<_> = (1..=40)
             .map(|id| {
@@ -2649,6 +2683,9 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids_ignores_unknown_ids() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2669,6 +2706,9 @@ mod tests {
 
     #[test]
     fn test_read_all_ids_uses_cached_index() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2692,6 +2732,9 @@ mod tests {
 
     #[test]
     fn test_nullable_up_area() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (
@@ -2718,12 +2761,18 @@ mod tests {
 
     #[test]
     fn test_missing_file() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let result = CatchmentStore::open(Path::new("/nonexistent/path/catchments.parquet"));
         assert!(matches!(result, Err(SessionError::Io { .. })));
     }
 
     #[test]
     fn test_wrong_schema() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         // Write a Parquet file with an incompatible schema (missing most columns)
         let schema = Arc::new(Schema::new(vec![Field::new(
@@ -2850,6 +2899,9 @@ mod tests {
 
     #[test]
     fn test_null_id_returns_error() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         write_fixture_with_null(tmp.path(), "id", 1);
 
@@ -2862,6 +2914,9 @@ mod tests {
 
     #[test]
     fn test_null_area_returns_error() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         write_fixture_with_null(tmp.path(), "area_km2", 0);
 
@@ -2876,6 +2931,9 @@ mod tests {
 
     #[test]
     fn test_null_geometry_returns_error() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         write_fixture_with_null(tmp.path(), "geometry", 2);
 
@@ -2890,6 +2948,9 @@ mod tests {
 
     #[test]
     fn test_read_all_ids() {
+        let _guard = GEOMETRY_DECODE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (10i64, 1.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
