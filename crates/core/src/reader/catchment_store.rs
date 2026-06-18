@@ -66,7 +66,7 @@ static READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 static READ_ID_LEVEL_ROW_GROUP_DELAY_MS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
-pub(crate) static GEOMETRY_DECODE_TEST_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) static READER_SESSION_INSTRUMENTATION_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// Decoded geometry-only catchment row used on the assembly/refinement hot path.
 #[derive(Debug, Clone, PartialEq)]
@@ -2366,7 +2366,7 @@ mod tests {
 
     #[test]
     fn test_open_valid_catchments() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2388,7 +2388,7 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_matching() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2410,7 +2410,7 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_empty_for_no_overlap() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2429,7 +2429,7 @@ mod tests {
 
     #[test]
     fn test_bbox_pruning_skips_row_groups() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2458,7 +2458,7 @@ mod tests {
 
     #[test]
     fn test_query_by_ids() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2481,7 +2481,7 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2509,7 +2509,7 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_returns_expected_pairs() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2532,7 +2532,7 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_overlaps_row_group_reads() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         reset_read_id_level_max_in_flight_for_test();
@@ -2578,7 +2578,7 @@ mod tests {
 
     #[test]
     fn test_read_ids_levels_with_row_groups_overlaps_row_group_reads() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         reset_read_id_level_max_in_flight_for_test();
@@ -2634,7 +2634,7 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_rejects_missing_level_column() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2652,7 +2652,7 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids_preserves_row_group_order_under_concurrency() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2683,7 +2683,7 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids_ignores_unknown_ids() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2706,7 +2706,7 @@ mod tests {
 
     #[test]
     fn test_read_all_ids_uses_cached_index() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2732,7 +2732,7 @@ mod tests {
 
     #[test]
     fn test_nullable_up_area() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2761,7 +2761,7 @@ mod tests {
 
     #[test]
     fn test_missing_file() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let result = CatchmentStore::open(Path::new("/nonexistent/path/catchments.parquet"));
@@ -2770,7 +2770,7 @@ mod tests {
 
     #[test]
     fn test_wrong_schema() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2899,7 +2899,7 @@ mod tests {
 
     #[test]
     fn test_null_id_returns_error() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2914,7 +2914,7 @@ mod tests {
 
     #[test]
     fn test_null_area_returns_error() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2931,7 +2931,7 @@ mod tests {
 
     #[test]
     fn test_null_geometry_returns_error() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2948,7 +2948,7 @@ mod tests {
 
     #[test]
     fn test_read_all_ids() {
-        let _guard = GEOMETRY_DECODE_TEST_LOCK
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
@@ -2971,6 +2971,9 @@ mod tests {
 
     #[test]
     fn test_open_rejects_duplicate_ids_across_row_groups() {
+        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),

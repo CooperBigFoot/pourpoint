@@ -1351,7 +1351,7 @@ mod tests {
     use crate::error::SessionError;
     use crate::parquet_cache::{ParquetFooterCache, ParquetRowGroupCache};
     use crate::reader::catchment_store::{
-        GEOMETRY_DECODE_TEST_LOCK, geometry_decode_rows_for_test,
+        READER_SESSION_INSTRUMENTATION_TEST_LOCK, geometry_decode_rows_for_test,
         read_id_level_max_in_flight_for_test, read_id_level_scan_count_for_test,
         read_id_only_scan_count_for_test, reset_geometry_decode_counts_for_test,
         reset_read_id_level_max_in_flight_for_test, reset_read_id_level_scan_count_for_test,
@@ -2285,7 +2285,7 @@ mod tests {
 
     #[test]
     fn open_remote_fetches_manifest_graph_and_opens_catchments() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2337,7 +2337,7 @@ mod tests {
 
     #[test]
     fn local_open_does_not_allocate_parquet_caches() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let (_dir, root) = DatasetBuilder::new(2).build();
@@ -2349,7 +2349,7 @@ mod tests {
 
     #[test]
     fn remote_default_open_enables_parquet_caches() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2369,7 +2369,7 @@ mod tests {
 
     #[test]
     fn explicit_none_caches_disable_remote_parquet_caches() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2389,7 +2389,7 @@ mod tests {
 
     #[test]
     fn open_does_not_decode_catchment_geometry_during_validation() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         reset_geometry_decode_counts_for_test();
@@ -2414,7 +2414,7 @@ mod tests {
 
     #[test]
     fn repeated_remote_query_with_cache_avoids_second_range_reads() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2450,7 +2450,7 @@ mod tests {
 
     #[test]
     fn open_remote_uses_cached_manifest_and_graph_when_remote_is_empty() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2474,7 +2474,7 @@ mod tests {
 
     #[test]
     fn open_remote_does_not_use_cache_entry_from_different_source() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2512,7 +2512,7 @@ mod tests {
 
     #[test]
     fn open_remote_reports_missing_manifest() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2534,7 +2534,7 @@ mod tests {
 
     #[test]
     fn open_remote_with_snap_opens_and_queries_snap_store() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2593,7 +2593,7 @@ mod tests {
 
     #[test]
     fn second_remote_open_uses_persistent_indexes_and_validation_sidecar() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2665,7 +2665,7 @@ mod tests {
 
     #[test]
     fn second_remote_open_with_two_snaps_uses_validation_sidecar() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2727,7 +2727,7 @@ mod tests {
 
     #[test]
     fn cold_remote_id_index_miss_merges_catchment_id_and_level_pass() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2783,7 +2783,7 @@ mod tests {
 
     #[test]
     fn cached_id_index_token_miss_fallback_scans_levels_and_rejects_mismatch() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -2846,7 +2846,7 @@ mod tests {
             return;
         }
 
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let (store, root, url) = parsed_remote_source(REAL_GRIT_V200_URL);
@@ -2929,7 +2929,7 @@ mod tests {
             return;
         }
 
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().expect("cold measurement cache tempdir");
@@ -3019,7 +3019,7 @@ mod tests {
             return;
         }
 
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let root = PathBuf::from(LOCAL_MERIT_GLOBAL);
@@ -3078,7 +3078,7 @@ mod tests {
 
     #[test]
     fn remote_open_missing_etag_does_not_write_validation_sidecar() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -3107,7 +3107,7 @@ mod tests {
 
     #[test]
     fn cold_open_with_snap_decodes_geometry() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let (_dir, root) = DatasetBuilder::new(2).with_snap().build();
@@ -3129,7 +3129,7 @@ mod tests {
 
     #[test]
     fn snap_token_change_revalidates_with_lean_membership_read() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -3169,7 +3169,7 @@ mod tests {
 
     #[test]
     fn snap_token_change_rejects_bad_membership() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -3216,7 +3216,7 @@ mod tests {
 
     #[test]
     fn catchments_token_change_revalidates_graph_level_equality() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -3257,7 +3257,7 @@ mod tests {
 
     #[test]
     fn graph_token_change_after_cached_graph_eviction_revalidates_level_equality() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
@@ -3328,6 +3328,9 @@ mod tests {
 
     #[test]
     fn remote_open_does_not_nest_id_index_stages_inside_validation_stages() {
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());

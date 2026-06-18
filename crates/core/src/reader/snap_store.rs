@@ -1376,7 +1376,7 @@ mod tests {
     use tracing_subscriber::prelude::*;
 
     use super::*;
-    use crate::reader::catchment_store::GEOMETRY_DECODE_TEST_LOCK;
+    use crate::reader::catchment_store::READER_SESSION_INSTRUMENTATION_TEST_LOCK;
 
     /// Minimal valid WKB LineString with two points.
     fn minimal_wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
@@ -1670,9 +1670,9 @@ mod tests {
 
     #[test]
     fn test_open_valid_snap() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(-10.0, -5.0, -9.0, -4.0);
         let rows = vec![
             SnapRow {
@@ -1706,9 +1706,9 @@ mod tests {
 
     #[test]
     fn test_read_all_unit_ids_uses_cached_index() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(-10.0, -5.0, -9.0, -4.0);
         let rows = vec![
             SnapRow {
@@ -1776,9 +1776,9 @@ mod tests {
 
     #[test]
     fn test_cold_membership_open_reads_refs_without_decoding_geometry() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         reset_snap_geometry_decode_rows_for_test();
         reset_snap_membership_rows_for_test();
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
@@ -1818,9 +1818,9 @@ mod tests {
 
     #[test]
     fn test_cold_membership_open_overlaps_row_group_reads() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         reset_snap_membership_max_in_flight_for_test();
         reset_snap_membership_rows_for_test();
         let _delay_guard = SnapMembershipDelayGuard::set(25);
@@ -1870,9 +1870,9 @@ mod tests {
 
     #[test]
     fn test_lazy_open_rejects_wrong_stem_role_column_type() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1907,9 +1907,9 @@ mod tests {
 
     #[test]
     fn test_lazy_open_rejects_missing_geometry_column() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1939,9 +1939,9 @@ mod tests {
 
     #[test]
     fn test_lazy_open_rejects_partial_bbox_columns() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1968,9 +1968,9 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_matching() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -2031,9 +2031,9 @@ mod tests {
 
     #[test]
     fn test_lazy_open_query_by_bbox_returns_matching() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -2074,9 +2074,9 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_preserves_row_group_order_under_concurrency() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let rows: Vec<_> = (1..=24)
             .map(|id| {
                 let x = id as f32;
@@ -2110,9 +2110,9 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_empty() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![SnapRow {
             id: 1,
@@ -2138,9 +2138,9 @@ mod tests {
 
     #[test]
     fn test_mainstem_and_tributary() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -2193,9 +2193,9 @@ mod tests {
 
     #[test]
     fn test_degenerate_bbox_point() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         // A snap target with a Point geometry: minx==maxx and miny==maxy.
         // The spec allows this; snap_bbox() must pad it instead of erroring.
         let geom = minimal_wkb_point(5.0, 10.0);
@@ -2224,9 +2224,9 @@ mod tests {
 
     #[test]
     fn test_degenerate_bbox_vertical_line() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         // A snap target where minx==maxx (vertical LineString), but miny < maxy.
         let geom = minimal_wkb_linestring(5.0, 9.0, 5.0, 11.0);
         let rows = vec![SnapRow {
@@ -2257,9 +2257,9 @@ mod tests {
 
     #[test]
     fn test_reversed_bbox_is_rejected() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![SnapRow {
             id: 1,
@@ -2292,9 +2292,9 @@ mod tests {
 
     #[test]
     fn test_null_id_returns_error() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         use arrow::array::Int64Builder;
 
         // Write a snap parquet where the id column is declared nullable and
@@ -2361,9 +2361,9 @@ mod tests {
 
     #[test]
     fn test_null_weight_returns_error() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         use arrow::array::Float32Builder as F32B;
 
         // Row 0 has a null weight column.
@@ -2431,15 +2431,18 @@ mod tests {
 
     #[test]
     fn test_missing_file() {
-        let _decode_guard = GEOMETRY_DECODE_TEST_LOCK
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
-            .expect("geometry decode test lock should not be poisoned");
+            .expect("reader/session instrumentation test lock should not be poisoned");
         let result = SnapStore::open(Path::new("/nonexistent/path/snap.parquet"));
         assert!(matches!(result, Err(SessionError::Io { .. })));
     }
 
     #[test]
     fn test_wrong_schema() {
+        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
+            .lock()
+            .expect("reader/session instrumentation test lock should not be poisoned");
         // Write a parquet file that's missing the 'weight' column.
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
