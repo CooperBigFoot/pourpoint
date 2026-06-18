@@ -71,8 +71,10 @@ you plan to use.
 The public GRIT `2.0.0` dataset has no D8 raster auxiliary, so the default
 best-effort refinement safely skips terminal raster refinement. For D8-specific
 MERIT experiments, use `https://basin-delineations-public.upstream.tech/merit/0.2.0/`
-with `refine=False` when documenting or running examples that would otherwise
-hit overlapping-Pfaf `AmbiguousD8Coverage`.
+with default refinement: terminals covered by multiple overlapping per-Pfaf-02
+D8 declarations now select the manifest-first covering tile (the overlapping
+entries are windows of one coherent fabric and agree in the overlap) and carve
+successfully.
 
 ### Verbose mode
 

@@ -163,16 +163,19 @@ is why pristine pre-merge terminal geometry and area can differ from the final
 refined geometry and `area_km2`.
 
 D8 tile coverage uses inclusive rectangle semantics, so exact bbox equality and
-edge-touching count. This is only a rectangular-extent selection policy. It
-cannot disambiguate overlapping irregular Pfaf basins: real MERIT-Hydro
-`merit/0.2.0` for `rhine_basel` surfaces `AmbiguousD8Coverage` because multiple
-per-Pfaf-02 D8 raster declarations fully cover the terminal bbox by rectangular
-extent. The MERIT adapter is correct; overlapping extents are expected Pfaf
-geometry with nodata outside each basin. shed correctly refuses to guess. A
-real-data carve for those terminals is deferred pending a nodata or
-basin-membership disambiguation policy. Runnable examples that use affected
-MERIT terminals should set `refine=False`; GRIT examples can keep the default
-best-effort refinement because GRIT has no D8 raster declaration to disambiguate.
+edge-touching count. This is a rectangular-extent selection policy. When more
+than one declaration fully covers the terminal bbox — the expected case for a
+per-Pfaf-02 partitioned D8 fabric, where irregular basins have overlapping
+rectangular extents — selection collapses to the manifest-first covering
+declaration and logs the discarded candidates at `warn`. This is sound because
+`hfx.aux.d8_raster.v1` requires overlapping entries to be windows of a single
+coherent D8 fabric (byte-identical values in the overlap), and the carve never
+reads outside the terminal bbox, so any covering tile yields the same carve.
+Real MERIT-Hydro `merit/0.2.0` for `rhine_basel` therefore carves successfully.
+[`SessionError::AmbiguousD8Coverage`] is retained for callers that need the
+un-collapsed candidate set or for fabrics whose overlap-agreement is not
+guaranteed. `TerminalSpansD8Tiles` (bbox straddles a boundary, no single tile
+fully covers it) and `NoCoveringD8Tile` still hard-error.
 
 Regression gates for the D8 strategy seam and synthetic parity goldens:
 

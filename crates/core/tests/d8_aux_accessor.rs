@@ -75,22 +75,23 @@ fn inclusive_containment_accepts_bbox_equal_to_raster_extent() {
 }
 
 #[test]
-fn ambiguous_d8_coverage_hard_errors() {
+fn multiple_covering_decls_select_manifest_first() {
+    // Two declarations fully cover the bbox (the expected case for a per-basin
+    // partitioned D8 fabric, where irregular basins have overlapping rectangular
+    // extents). hfx.aux.d8_raster.v1 requires overlapping entries to agree in the
+    // overlap, so selection collapses to the manifest-first covering declaration
+    // rather than erroring.
     let (_tmp, root) = copied_fixture();
     duplicate_committed_d8_decl(&root);
     let session = DatasetSession::open_path(&root).expect("temp fixture should open");
 
-    let err = session
+    let handle = session
         .select_d8_raster_for_bbox(synthetic_full_extent())
-        .expect_err("duplicate covering declarations should be ambiguous");
+        .expect("multiple covering declarations should select manifest-first, not error");
 
-    assert!(matches!(
-        err,
-        SessionError::AmbiguousD8Coverage {
-            declaration_indices,
-            ..
-        } if declaration_indices == vec![0, 1]
-    ));
+    assert_eq!(handle.declaration_index(), 0);
+    assert!(handle.flow_dir_uri().ends_with("flow_dir.tif"));
+    assert!(handle.flow_acc_uri().ends_with("flow_acc.tif"));
 }
 
 #[test]
