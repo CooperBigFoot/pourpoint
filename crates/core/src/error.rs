@@ -464,7 +464,14 @@ pub enum SessionError {
         max_y: f64,
     },
 
-    /// Fired when multiple D8 declarations fully cover a terminal bbox.
+    /// Carries the un-collapsed set of D8 declarations that fully cover a
+    /// terminal bbox.
+    ///
+    /// [`crate::session::DatasetSession::select_d8_raster_for_bbox`] no longer
+    /// returns this — multiple covering declarations collapse to the
+    /// manifest-first entry, since `hfx.aux.d8_raster.v1` requires overlapping
+    /// entries to agree. Retained for callers that need to inspect the full
+    /// candidate set or for fabrics whose overlap-agreement is not guaranteed.
     #[error(
         "ambiguous D8 coverage for terminal bbox [{min_x}, {min_y}, {max_x}, {max_y}]: declarations {declaration_indices:?}"
     )]

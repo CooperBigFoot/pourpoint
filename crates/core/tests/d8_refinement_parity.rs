@@ -139,7 +139,7 @@ fn applied_d8_carve_replaces_whole_terminal_in_final_dissolve() {
 
 #[test]
 #[ignore = "network-gated MERIT v0.2.0 D8 refinement readiness proof; set SHED_HFX_V02_REAL_D8_REFINEMENT=1"]
-fn merit_v020_d8_refinement_surfaces_overlapping_pfaf_ambiguity() {
+fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
     if std::env::var(REAL_D8_ENV).as_deref() != Ok("1") {
         println!(
             "skipping real MERIT v0.2.0 D8 refinement readiness proof; set {REAL_D8_ENV}=1 to enable"
@@ -147,11 +147,13 @@ fn merit_v020_d8_refinement_surfaces_overlapping_pfaf_ambiguity() {
         return;
     }
 
-    // This ignored proof documents a known M4 boundary. Real MERIT-Hydro D8
-    // rasters are per-Pfaf-02 basin windows with nodata outside each irregular
-    // basin. Rectangular extents can legitimately overlap, so M4 must surface
-    // typed ambiguity instead of guessing. A future nodata/basin-membership
-    // tile-selection policy should upgrade this to assert a successful carve.
+    // Real MERIT-Hydro D8 rasters are per-Pfaf-02 basin windows. Irregular
+    // basins have overlapping rectangular extents, so a terminal near a basin
+    // boundary is fully covered by more than one declaration. hfx.aux.d8_raster.v1
+    // requires overlapping entries to be windows of a single coherent D8 fabric
+    // (identical values in the overlap), so selection collapses to the
+    // manifest-first covering declaration and the carve proceeds rather than
+    // surfacing AmbiguousD8Coverage.
     let _bench_net = ScopedEnvVar::set("PYSHED_BENCH_NET", "1");
 
     let probe_session =
@@ -192,28 +194,21 @@ fn merit_v020_d8_refinement_surfaces_overlapping_pfaf_ambiguity() {
         "PYSHED_BENCH_NET should expose remote request counters"
     );
 
-    let declaration_indices = match session.select_d8_raster_for_bbox(terminal_bbox) {
-        Ok(handle) => panic!(
-            "real MERIT rhine_basel must not silently select D8 declaration {}; overlapping Pfaf selection policy is deferred",
-            handle.declaration_index()
-        ),
+    let selected_index = match session.select_d8_raster_for_bbox(terminal_bbox) {
+        Ok(handle) => handle.declaration_index(),
         Err(SessionError::TerminalSpansD8Tiles {
             declaration_indices,
             ..
         }) => panic!(
-            "ESCALATE: rhine_basel spans MERIT v0.2.0 D8 declarations {declaration_indices:?}; M4 does not define mosaicking"
+            "ESCALATE: rhine_basel spans MERIT v0.2.0 D8 declarations {declaration_indices:?}; mosaicking is not implemented"
         ),
-        Err(SessionError::AmbiguousD8Coverage {
-            declaration_indices,
-            ..
-        }) => declaration_indices,
         Err(err) => {
-            panic!("real MERIT D8 declaration selection should reach typed ambiguity: {err}")
+            panic!("real MERIT rhine_basel D8 selection should pick a covering tile: {err}")
         }
     };
     assert!(
-        declaration_indices.len() >= 2,
-        "ambiguity should name the overlapping Pfaf D8 declarations"
+        selected_index < EXPECTED_REAL_MERIT_D8_DECLS,
+        "selected declaration index should be within the declared D8 set"
     );
 
     let after_selection = session
@@ -225,25 +220,31 @@ fn merit_v020_d8_refinement_surfaces_overlapping_pfaf_ambiguity() {
     let engine = Engine::builder(session)
         .with_raster_source(LocalTiffRasterSource)
         .build();
-    let engine_err = engine
+    let result = engine
         .delineate(real_merit_rhine_basel_outlet(), &options)
-        .expect_err("real MERIT rhine_basel should stop at typed D8 ambiguity");
-    let shed_core::EngineError::D8Selection { source, .. } = engine_err else {
-        panic!("expected engine D8Selection wrapper, got {engine_err:?}");
+        .expect("real MERIT rhine_basel should carve after manifest-first D8 selection");
+    let RefinementOutcome::Applied { provenance, .. } = result.refinement() else {
+        panic!(
+            "expected applied D8 refinement, got {:?}",
+            result.refinement()
+        );
     };
-    let SessionError::AmbiguousD8Coverage {
-        declaration_indices: engine_declaration_indices,
-        ..
-    } = source
-    else {
-        panic!("expected wrapped AmbiguousD8Coverage, got {source:?}");
-    };
-    assert_eq!(engine_declaration_indices, declaration_indices);
+    assert!(matches!(
+        provenance,
+        RefinementProvenance::Applied {
+            strategy: RefinementStrategyName::BuiltInD8,
+            ..
+        }
+    ));
+    assert!(
+        !result.geometry().0.is_empty(),
+        "carved watershed geometry should be non-empty"
+    );
 
     println!(
-        "real_merit_d8_boundary declaration_count={} ambiguous_declaration_indices={:?} bounded_d8_header_bytes={} refinement=AmbiguousD8Coverage",
+        "real_merit_d8_boundary declaration_count={} selected_declaration_index={} bounded_d8_header_bytes={} refinement=Applied",
         EXPECTED_REAL_MERIT_D8_DECLS,
-        engine_declaration_indices,
+        selected_index,
         d8_bytes_in(&after_selection)
     );
 }

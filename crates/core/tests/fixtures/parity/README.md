@@ -132,18 +132,20 @@ expects format version `0.2.1`, 60 `hfx.aux.d8_raster.v1` declarations under
 `aux/d8/pfaf_NN/flow_{dir,acc}.tif`, and one snap declaration. It resolves the
 `rhine_basel` terminal bbox, proves D8 selection uses bounded extent-header
 reads rather than legacy root `flow_dir.tif`/`flow_acc.tif` downloads, and then
-asserts that shed surfaces typed `AmbiguousD8Coverage` for overlapping Pfaf
-declarations instead of silently choosing a tile. D8 coverage uses inclusive
-rectangle semantics, so exact bbox equality and edge-touching count. This is a
-known M4 boundary: MERIT-Hydro D8 rasters are per-Pfaf-02 basin windows with
-nodata outside each irregular basin, so rectangular extents can legitimately
-overlap. The merit adapter is correct; this is a shed consumer-side selection
-gap. Real-data D8 carve on such terminals is deferred until shed has a nodata or
-basin-membership tile-selection policy. When that policy lands, upgrade this
-proof to assert a successful contained carve.
+asserts that shed selects the manifest-first covering declaration and carves
+successfully for overlapping Pfaf declarations. D8 coverage uses inclusive
+rectangle semantics, so exact bbox equality and edge-touching count. MERIT-Hydro
+D8 rasters are per-Pfaf-02 basin windows; irregular basins have overlapping
+rectangular extents, so a boundary terminal is fully covered by more than one
+declaration. `hfx.aux.d8_raster.v1` requires overlapping entries to be windows
+of a single coherent D8 fabric (identical values in the overlap), so the
+manifest-first covering tile is selected deterministically and the carve never
+reads outside the terminal bbox. The merit adapter is correct; selection is no
+longer a consumer-side gap.
 
-Release note: successful real-data carve on overlapping-Pfaf terminals was not
-verified in M4. The network proof verifies only the typed ambiguity boundary.
+Release note: real-data carve on overlapping-Pfaf terminals is now exercised by
+the network proof, which asserts an applied contained carve rather than a typed
+ambiguity boundary.
 
 GDAL parity proof command:
 

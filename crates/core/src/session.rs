@@ -13,7 +13,7 @@ use geo::Rect;
 use hfx_core::{DrainageGraph, Level, Manifest, Topology, UnitId};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 use url::Url;
 
 use crate::cache::{ArtifactMeta, RemoteArtifactCache, ValidationSidecar};
@@ -682,10 +682,19 @@ impl DatasetSession {
         self.http_stats.as_ref().map(HttpStatsHandle::snapshot)
     }
 
-    /// Select the single blessed-D8 declaration whose raster extents cover `bbox`.
+    /// Select a blessed-D8 declaration whose raster extents cover `bbox`.
     ///
     /// Coverage uses inclusive closed rectangles so equality and edge-touching
     /// count as intersection/containment.
+    ///
+    /// When more than one declaration fully covers `bbox` — the expected case
+    /// for a per-basin partitioned D8 fabric, where irregular basins have
+    /// overlapping rectangular extents — the manifest-first covering
+    /// declaration is selected and the discarded candidates are logged. This is
+    /// sound because `hfx.aux.d8_raster.v1` requires overlapping entries to be
+    /// windows of a single coherent D8 fabric (identical values in the overlap),
+    /// and the carve never reads outside `bbox`. [`SessionError::AmbiguousD8Coverage`]
+    /// is retained for callers that need the un-collapsed candidate set.
     pub fn select_d8_raster_for_bbox(
         &self,
         bbox: Rect<f64>,
@@ -714,16 +723,23 @@ impl DatasetSession {
 
         match covering.len() {
             1 => Ok(covering.remove(0)),
-            n if n > 1 => Err(SessionError::AmbiguousD8Coverage {
-                min_x: bbox.min().x,
-                min_y: bbox.min().y,
-                max_x: bbox.max().x,
-                max_y: bbox.max().y,
-                declaration_indices: covering
+            n if n > 1 => {
+                let selected = covering.remove(0);
+                let discarded: Vec<usize> = covering
                     .iter()
                     .map(D8RasterHandle::declaration_index)
-                    .collect(),
-            }),
+                    .collect();
+                warn!(
+                    selected_declaration = selected.declaration_index(),
+                    discarded_declarations = ?discarded,
+                    min_x = bbox.min().x,
+                    min_y = bbox.min().y,
+                    max_x = bbox.max().x,
+                    max_y = bbox.max().y,
+                    "multiple D8 declarations cover terminal bbox; selecting manifest-first (overlapping entries must agree per hfx.aux.d8_raster.v1)"
+                );
+                Ok(selected)
+            }
             _ if intersecting.len() > 1 => Err(SessionError::TerminalSpansD8Tiles {
                 min_x: bbox.min().x,
                 min_y: bbox.min().y,
