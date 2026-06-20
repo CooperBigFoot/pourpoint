@@ -7,6 +7,15 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-18
+
+- fix: terminals covered by multiple overlapping per-Pfaf-02 D8 raster
+  declarations (e.g. the MERIT v0.2.x global fabric) now select the
+  manifest-first covering tile and carve under default refinement, instead of
+  failing with `AmbiguousD8Coverage`. Overlapping declarations are windows of a
+  single coherent D8 fabric and agree in the overlap, so the choice is
+  immaterial.
+
 ## [0.2.3] - 2026-06-07
 
 - fix: `bench_trace` now flushes trace output on exit.

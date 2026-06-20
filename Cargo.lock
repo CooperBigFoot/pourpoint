@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "pyshed"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "gdal",
  "gdal-sys",
