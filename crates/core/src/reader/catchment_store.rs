@@ -1,5 +1,7 @@
 //! CatchmentStore — parquet reader with row-group bbox pruning and eager ID indexing.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -51,10 +53,10 @@ static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, UnitId),
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(test)]
-static READ_ID_LEVEL_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-static READ_ID_ONLY_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    static READ_ID_LEVEL_SCAN_COUNT_FOR_TEST: Cell<usize> = const { Cell::new(0) };
+    static READ_ID_ONLY_SCAN_COUNT_FOR_TEST: Cell<usize> = const { Cell::new(0) };
+}
 
 #[cfg(test)]
 static READ_ID_LEVEL_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
@@ -757,6 +759,7 @@ impl CatchmentStore {
 
     async fn read_id_levels_async(&self) -> Result<Vec<CatchmentIdLevelRow>, SessionError> {
         #[cfg(test)]
+        // Thread-scoped counter must increment at fn entry before the first await on the block_on caller thread.
         record_read_id_level_scan_for_test();
 
         let started = Instant::now();
@@ -1436,23 +1439,23 @@ pub(crate) fn geometry_decode_rows_for_test() -> usize {
 
 #[cfg(test)]
 pub(crate) fn read_id_level_scan_count_for_test() -> usize {
-    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.load(Ordering::SeqCst)
+    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.with(|c| c.get())
 }
 
 #[cfg(test)]
 pub(crate) fn read_id_only_scan_count_for_test() -> usize {
-    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.load(Ordering::SeqCst)
+    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.with(|c| c.get())
 }
 
 #[cfg(test)]
 fn record_read_id_level_scan_for_test() {
-    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.with(|c| c.set(c.get() + 1));
 }
 
 #[cfg(test)]
 pub(crate) fn reset_read_id_level_scan_count_for_test() {
-    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
-    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
+    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.with(|c| c.set(0));
+    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.with(|c| c.set(0));
 }
 
 #[cfg(test)]
@@ -1510,7 +1513,8 @@ async fn read_all_ids_with_row_groups_async(
 ) -> Result<(Vec<UnitId>, HashMap<UnitId, usize>), SessionError> {
     let _guard = StageGuard::enter(Stage::CatchmentIdIndex);
     #[cfg(test)]
-    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+    // Thread-scoped counter must increment at fn entry before the first await on the block_on caller thread.
+    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.with(|c| c.set(c.get() + 1));
     record_path(path.as_ref());
     let started = Instant::now();
     let builder = ParquetRecordBatchStreamBuilder::new(cached_object_reader(
@@ -1612,6 +1616,7 @@ async fn read_ids_levels_with_row_groups_async(
 ) -> Result<IdIndexBuildResult, SessionError> {
     let _guard = StageGuard::enter(Stage::CatchmentIdIndex);
     #[cfg(test)]
+    // Thread-scoped counter must increment at fn entry before the first await on the block_on caller thread.
     record_read_id_level_scan_for_test();
     record_path(path.as_ref());
     let started = Instant::now();
