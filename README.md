@@ -6,8 +6,12 @@ polygons for any `(lat, lon)` outlet.
 
 `shed` is fabric-agnostic by design: it reads the open HydroFabric Exchange
 contract (`manifest.json`, `catchments.parquet`, `graph.parquet`, plus
-manifest-declared snap and D8 raster auxiliaries) and runs outlet resolution,
-upstream traversal, optional terminal raster refinement, and final geometry
+manifest-declared snap and D8 raster auxiliaries — a D8 raster is the
+eight-direction flow model in which each grid cell drains to whichever of its
+eight neighbors lies steepest downhill) and runs outlet resolution (matching the
+requested point to the drainage unit it falls in), upstream traversal, optional
+terminal raster refinement (using the D8 flow grid to carve the precise
+watershed boundary inside the outlet's own terminal unit), and final geometry
 assembly without any source-fabric-specific logic in the hot path. The same
 engine works for any HFX-compliant dataset.
 
