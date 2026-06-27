@@ -22,7 +22,7 @@ if you want to help port the build.
 ## Zero-download quickstart (no local dataset)
 
 `pyshed` delineates directly against a remote HFX dataset over the network —
-nothing is downloaded or copied to disk first. Point the `Engine` at the live
+the dataset payload is not downloaded or copied to disk first. Point the `Engine` at the live
 public GRIT dataset on Cloudflare R2 and delineate straight away:
 
 ```python
