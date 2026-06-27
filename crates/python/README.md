@@ -19,6 +19,28 @@ contributions are welcome. See
 [CONTRIBUTING.md](https://github.com/CooperBigFoot/shed/blob/main/CONTRIBUTING.md)
 if you want to help port the build.
 
+## Zero-download quickstart (no local dataset)
+
+`pyshed` delineates directly against a remote HFX dataset over the network —
+nothing is downloaded or copied to disk first. Point the `Engine` at the live
+public GRIT dataset on Cloudflare R2 and delineate straight away:
+
+```python
+import pyshed
+
+# No local dataset: this reads the hosted GRIT dataset over the network.
+engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/2.0.0/")
+result = engine.delineate(lat=47.3769, lon=8.5417)
+print(result.area_km2)
+```
+
+The engine fetches only the bytes it needs through object-store range reads
+(reading byte ranges over HTTP instead of downloading the whole file), so the
+full remote dataset never lands on your machine. This is a mechanism, not a
+menu: point it at any HFX dataset URL and it delineates against that dataset.
+GRIT `2.0.0` is the one public dataset hosted today; more may follow. You swap
+datasets by swapping the URL — nothing else in your code changes.
+
 ## Quickstart
 
 ```python
@@ -61,20 +83,32 @@ on macOS, usually `$XDG_CACHE_HOME/hfx` or `/home/<user>/.cache/hfx` on Linux).
 HFX roots contain `manifest.json`, `catchments.parquet`, and `graph.parquet`;
 Parquet data is read with object-store range reads rather than copied wholesale.
 This persistent remote-artifact cache is separate from the per-engine
-in-memory Parquet row-group cache described below.
+in-memory Parquet row-group cache described below (Parquet stores rows in
+horizontal blocks called row groups, each carrying its own column statistics;
+the cache keeps recently read row groups in memory so overlapping watersheds
+avoid re-fetching the same bytes).
 
 GDAL raster URI and configuration plumbing is wired through the Python engine,
 but public Cloudflare R2 raster access still depends on the target bucket,
 credentials, and GDAL driver behavior. Verify the specific remote raster dataset
 you plan to use.
 
-The public GRIT `2.0.0` dataset has no D8 raster auxiliary, so the default
-best-effort refinement safely skips terminal raster refinement. For D8-specific
-MERIT experiments, use `https://basin-delineations-public.upstream.tech/merit/0.2.0/`
-with default refinement: terminals covered by multiple overlapping per-Pfaf-02
-D8 declarations now select the manifest-first covering tile (the overlapping
-entries are windows of one coherent fabric and agree in the overlap) and carve
-successfully.
+The public GRIT `2.0.0` dataset ships no D8 raster — the D8 flow model routes
+each grid cell to whichever of its 8 neighbours is steepest-downhill, stored as
+a pair of rasters (`flow_dir.tif` for the per-cell direction, `flow_acc.tif` for
+accumulated upstream cells). With no D8 raster present, the default best-effort
+refinement safely skips terminal raster refinement (sharpening the outlet's own
+boundary unit by tracing those flow directions through it) and returns whole
+source units instead.
+
+When a dataset does ship D8 rasters, the engine consumes them automatically. If
+a terminal is covered by several overlapping per-Pfaf-02 D8 declarations (Pfaf-02
+is the two-digit Pfafstetter basin code that partitions the globe into
+hydrological regions), the engine selects the manifest-first covering tile — the
+first tile in manifest order whose footprint covers the terminal. Those
+overlapping entries are windows of one coherent fabric (the same continuous flow
+grid, declared as overlapping tiles) and agree where they overlap, so the chosen
+tile carves correctly.
 
 ### Verbose mode
 
@@ -187,7 +221,10 @@ is not the same as the final merged `area_km2` or `geometry_wkb`.
 
 ### GeoParquet export
 
-Exports are explicit writer-object calls and write complete batches:
+GeoParquet is the OGC standard for storing vector geometry inside Parquet files
+(ordinary Parquet columns plus geometry metadata that spatial tools such as
+GeoPandas, DuckDB spatial, and QGIS read natively). Exports are explicit
+writer-object calls and write complete batches:
 
 ```python
 basin_writer = pyshed.BasinGeoParquetWriter()
