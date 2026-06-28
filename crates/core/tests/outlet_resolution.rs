@@ -22,6 +22,7 @@ use shed_core::resolver::{
     OutletResolutionError, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
 };
 use shed_core::session::DatasetSession;
+use shed_core::testutil::{bbox_struct_array, bbox_struct_field};
 
 // ---------------------------------------------------------------------------
 // WKB helpers
@@ -176,10 +177,7 @@ fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
         Field::new("up_area_km2", DataType::Float32, true),
         Field::new("outlet_lon", DataType::Float64, false),
         Field::new("outlet_lat", DataType::Float64, false),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(false),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -232,10 +230,12 @@ fn write_catchments(root: &Path, specs: &[CatchmentSpec]) {
             Arc::new(up_area_b.finish()),
             Arc::new(outlet_lon_b.finish()),
             Arc::new(outlet_lat_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(geom_b.finish()),
         ],
     )
@@ -262,10 +262,7 @@ fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
         Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
         Field::new("stem_role", DataType::Utf8, true),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(true),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -319,10 +316,12 @@ fn write_snap(root: &Path, specs: &[SnapSpec<'_>]) {
             Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
             Arc::new(stem_role_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(geom_b.finish()),
         ],
     )

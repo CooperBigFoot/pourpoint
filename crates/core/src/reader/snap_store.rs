@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use arrow::array::{Array, BinaryArray, Float32Array, Int64Array, LargeBinaryArray, StringArray};
+use arrow::array::{
+    Array, BinaryArray, Float32Array, Int64Array, LargeBinaryArray, StringArray, StructArray,
+};
 use arrow::datatypes::DataType;
 use chrono::{DateTime, Utc};
 use futures_util::{StreamExt, stream};
@@ -27,7 +29,10 @@ use crate::error::SessionError;
 use crate::parquet_cache::{
     ArtifactIdent, CachingReader, ParquetFooterCache, ParquetRowGroupCache,
 };
-use crate::reader::{BboxColIndices, extract_row_group_bbox, require_column};
+use crate::reader::{
+    BboxColIndices, bbox_struct_leaf, bbox_struct_leaf_indices, extract_row_group_bbox,
+    require_column, validate_bbox_struct_field,
+};
 use crate::runtime::RT;
 use crate::telemetry::{Stage, StageGuard, record_matches, record_path, record_row_groups};
 
@@ -280,6 +285,7 @@ impl SnapStore {
         path_display: String,
         fabric_name: String,
         adapter_version: String,
+        hfx_format_version: String,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
     ) -> Result<Self, SessionError> {
         Self::open_remote_with_caches(
@@ -288,6 +294,7 @@ impl SnapStore {
             path_display,
             fabric_name,
             adapter_version,
+            hfx_format_version,
             parquet_cache,
             None,
             None,
@@ -304,6 +311,7 @@ impl SnapStore {
         path_display: String,
         fabric_name: String,
         adapter_version: String,
+        hfx_format_version: String,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
         head_meta: Option<ObjectMeta>,
@@ -314,7 +322,7 @@ impl SnapStore {
             path,
             path_display,
             HeadErrorMode::RemoteArtifact,
-            Some((fabric_name, adapter_version)),
+            Some((fabric_name, adapter_version, hfx_format_version)),
             parquet_cache,
             footer_cache,
             head_meta,
@@ -329,7 +337,7 @@ impl SnapStore {
         path: ObjectPath,
         path_display: String,
         head_error_mode: HeadErrorMode,
-        fabric_info: Option<(String, String)>,
+        fabric_info: Option<(String, String, String)>,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
         mode: SnapOpenMode,
@@ -353,7 +361,7 @@ impl SnapStore {
         path: ObjectPath,
         path_display: String,
         head_error_mode: HeadErrorMode,
-        fabric_info: Option<(String, String)>,
+        fabric_info: Option<(String, String, String)>,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
         head_meta: Option<ObjectMeta>,
@@ -382,14 +390,17 @@ impl SnapStore {
             );
             None
         } else if has_parquet_cache {
-            fabric_info.map(|(fabric_name, adapter_version)| ArtifactIdent {
-                fabric_name,
-                adapter_version,
-                artifact: ARTIFACT,
-                file_size,
-                etag: head_meta.e_tag.clone(),
-                last_modified,
-            })
+            fabric_info.map(
+                |(fabric_name, adapter_version, hfx_format_version)| ArtifactIdent {
+                    fabric_name,
+                    adapter_version,
+                    hfx_format_version,
+                    artifact: ARTIFACT,
+                    file_size,
+                    etag: head_meta.e_tag.clone(),
+                    last_modified,
+                },
+            )
         } else {
             None
         };
@@ -426,7 +437,12 @@ impl SnapStore {
                 "column \"stem_role\" must be Utf8 when present",
             ));
         }
-        let bbox_col_indices = optional_bbox_col_indices(schema)?;
+        let bbox_col_indices = if schema.field_with_name("bbox").is_ok() {
+            validate_bbox_struct_field(schema, true, ARTIFACT)?;
+            bbox_struct_leaf_indices(builder.parquet_schema(), ARTIFACT)?
+        } else {
+            None
+        };
         require_column(schema, "geometry", &DataType::Binary, ARTIFACT)?;
 
         let mut row_groups = Vec::new();
@@ -1021,17 +1037,18 @@ fn extract_snap_targets_from_batch(
         let geometry = geometry_from_array(geometry_col_array, i, absolute_row)?;
         let decoded_geometry = validate_snap_geometry(&geometry, absolute_row)?;
         let row_bbox = match bbox_cols {
-            Some((bbox_minx_col, bbox_miny_col, bbox_maxx_col, bbox_maxy_col))
-                if !bbox_minx_col.is_null(i)
-                    && !bbox_miny_col.is_null(i)
-                    && !bbox_maxx_col.is_null(i)
-                    && !bbox_maxy_col.is_null(i) =>
+            Some((bbox_struct, xmin_col, ymin_col, xmax_col, ymax_col))
+                if !bbox_struct.is_null(i)
+                    && !xmin_col.is_null(i)
+                    && !ymin_col.is_null(i)
+                    && !xmax_col.is_null(i)
+                    && !ymax_col.is_null(i) =>
             {
                 snap_bbox(
-                    bbox_minx_col.value(i),
-                    bbox_miny_col.value(i),
-                    bbox_maxx_col.value(i),
-                    bbox_maxy_col.value(i),
+                    xmin_col.value(i),
+                    ymin_col.value(i),
+                    xmax_col.value(i),
+                    ymax_col.value(i),
                     absolute_row,
                 )?
             }
@@ -1080,52 +1097,8 @@ fn extract_snap_targets_from_batch(
     Ok(results)
 }
 
-fn optional_bbox_col_indices(
-    schema: &arrow::datatypes::SchemaRef,
-) -> Result<Option<BboxColIndices>, SessionError> {
-    let names = ["bbox_minx", "bbox_miny", "bbox_maxx", "bbox_maxy"];
-    let indices = names
-        .iter()
-        .map(|name| match schema.field_with_name(name) {
-            Ok(field) if field.data_type() == &DataType::Float32 => {
-                Ok(Some(schema.index_of(name).map_err(|_| {
-                    SessionError::parquet_schema(ARTIFACT, format!("column \"{name}\" missing"))
-                })?))
-            }
-            Ok(_) => Err(SessionError::parquet_schema(
-                ARTIFACT,
-                format!("column \"{name}\" must be Float32 when present"),
-            )),
-            Err(_) => Ok(None),
-        })
-        .collect::<Result<Vec<_>, SessionError>>()?;
-
-    if indices.iter().all(Option::is_none) {
-        return Ok(None);
-    }
-    if indices.iter().any(Option::is_none) {
-        return Err(SessionError::parquet_schema(
-            ARTIFACT,
-            "snap bbox columns must either all be present or all be absent",
-        ));
-    }
-
-    let [Some(minx), Some(miny), Some(maxx), Some(maxy)] = indices.as_slice() else {
-        return Err(SessionError::parquet_schema(
-            ARTIFACT,
-            "snap bbox columns must either all be present or all be absent",
-        ));
-    };
-
-    Ok(Some(BboxColIndices {
-        minx: *minx,
-        miny: *miny,
-        maxx: *maxx,
-        maxy: *maxy,
-    }))
-}
-
 type BboxArrays<'a> = (
+    &'a StructArray,
     &'a Float32Array,
     &'a Float32Array,
     &'a Float32Array,
@@ -1135,36 +1108,20 @@ type BboxArrays<'a> = (
 fn optional_bbox_arrays(
     batch: &arrow::record_batch::RecordBatch,
 ) -> Result<Option<BboxArrays<'_>>, SessionError> {
-    let col = |name: &'static str| {
-        batch
-            .column_by_name(name)
-            .map(|column| {
-                column
-                    .as_any()
-                    .downcast_ref::<Float32Array>()
-                    .ok_or_else(|| {
-                        SessionError::parquet_schema(
-                            ARTIFACT,
-                            format!("column '{name}' has wrong type"),
-                        )
-                    })
-            })
-            .transpose()
+    let Some(column) = batch.column_by_name("bbox") else {
+        return Ok(None);
     };
-    let cols = (
-        col("bbox_minx")?,
-        col("bbox_miny")?,
-        col("bbox_maxx")?,
-        col("bbox_maxy")?,
-    );
-    match cols {
-        (None, None, None, None) => Ok(None),
-        (Some(minx), Some(miny), Some(maxx), Some(maxy)) => Ok(Some((minx, miny, maxx, maxy))),
-        _ => Err(SessionError::parquet_schema(
-            ARTIFACT,
-            "snap bbox columns must either all be present or all be absent",
-        )),
-    }
+    let bbox = column
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .ok_or_else(|| SessionError::parquet_schema(ARTIFACT, "column 'bbox' has wrong type"))?;
+    Ok(Some((
+        bbox,
+        bbox_struct_leaf(bbox, "xmin", ARTIFACT)?,
+        bbox_struct_leaf(bbox, "ymin", ARTIFACT)?,
+        bbox_struct_leaf(bbox, "xmax", ARTIFACT)?,
+        bbox_struct_leaf(bbox, "ymax", ARTIFACT)?,
+    )))
 }
 
 fn geometry_from_array(
@@ -1377,6 +1334,7 @@ mod tests {
 
     use super::*;
     use crate::reader::catchment_store::READER_SESSION_INSTRUMENTATION_TEST_LOCK;
+    use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
     /// Minimal valid WKB LineString with two points.
     fn minimal_wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
@@ -1412,10 +1370,7 @@ mod tests {
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("is_mainstem", DataType::Boolean, false),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]))
     }
@@ -1472,10 +1427,12 @@ mod tests {
                 Arc::new(unit_id_b.finish()),
                 Arc::new(weight_b.finish()),
                 Arc::new(is_mainstem_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )
@@ -1878,10 +1835,7 @@ mod tests {
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("stem_role", DataType::Int64, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]));
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
@@ -1892,10 +1846,12 @@ mod tests {
                 Arc::new(Int64Array::from(vec![10])) as Arc<dyn Array>,
                 Arc::new(Float32Array::from(vec![1.0])) as Arc<dyn Array>,
                 Arc::new(Int64Array::from(vec![1])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![1.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![1.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![2.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![2.0])) as Arc<dyn Array>,
+                Arc::new(bbox_struct_array(
+                    Float32Array::from(vec![1.0]),
+                    Float32Array::from(vec![1.0]),
+                    Float32Array::from(vec![2.0]),
+                    Float32Array::from(vec![2.0]),
+                )) as Arc<dyn Array>,
                 binary_column(&[geom]),
             ],
         );
@@ -1914,10 +1870,7 @@ mod tests {
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
         ]));
         let tmp = write_custom_snap_parquet(
             schema,
@@ -1925,10 +1878,12 @@ mod tests {
                 Arc::new(Int64Array::from(vec![1])) as Arc<dyn Array>,
                 Arc::new(Int64Array::from(vec![10])) as Arc<dyn Array>,
                 Arc::new(Float32Array::from(vec![1.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![1.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![1.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![2.0])) as Arc<dyn Array>,
-                Arc::new(Float32Array::from(vec![2.0])) as Arc<dyn Array>,
+                Arc::new(bbox_struct_array(
+                    Float32Array::from(vec![1.0]),
+                    Float32Array::from(vec![1.0]),
+                    Float32Array::from(vec![2.0]),
+                    Float32Array::from(vec![2.0]),
+                )) as Arc<dyn Array>,
             ],
         );
 
@@ -1938,7 +1893,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lazy_open_rejects_partial_bbox_columns() {
+    fn test_lazy_open_rejects_non_struct_bbox_column() {
         let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
             .lock()
             .expect("reader/session instrumentation test lock should not be poisoned");
@@ -1946,7 +1901,7 @@ mod tests {
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
-            Field::new("bbox_minx", DataType::Float32, false),
+            Field::new("bbox", DataType::Float32, true),
             Field::new("geometry", DataType::Binary, false),
         ]));
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
@@ -2304,10 +2259,7 @@ mod tests {
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("is_mainstem", DataType::Boolean, false),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -2337,10 +2289,12 @@ mod tests {
                 Arc::new(cid_b.finish()),
                 Arc::new(w_b.finish()),
                 Arc::new(ms_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )
@@ -2372,10 +2326,7 @@ mod tests {
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, true), // nullable so writer accepts null
             Field::new("is_mainstem", DataType::Boolean, false),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -2405,10 +2356,12 @@ mod tests {
                 Arc::new(cid_b.finish()),
                 Arc::new(w_b.finish()),
                 Arc::new(ms_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )
@@ -2449,10 +2402,7 @@ mod tests {
             Field::new("unit_id", DataType::Int64, false),
             // 'weight' intentionally omitted
             Field::new("is_mainstem", DataType::Boolean, false),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -2482,10 +2432,12 @@ mod tests {
                 Arc::new(id_b.finish()),
                 Arc::new(cid_b.finish()),
                 Arc::new(ms_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )

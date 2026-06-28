@@ -55,6 +55,8 @@ pub struct ArtifactIdent {
     pub fabric_name: String,
     /// Adapter version string (from manifest).
     pub adapter_version: String,
+    /// HFX format version string (from manifest).
+    pub hfx_format_version: String,
     /// Artifact filename — `"catchments.parquet"` or `"snap.parquet"`.
     pub artifact: &'static str,
     /// File size in bytes from the HEAD response.
@@ -523,6 +525,7 @@ mod tests {
         ArtifactIdent {
             fabric_name: "testfabric".to_owned(),
             adapter_version: "v1".to_owned(),
+            hfx_format_version: "0.2.1".to_owned(),
             artifact: "catchments.parquet",
             file_size: 1_000_000,
             etag: Some("abc123".to_owned()),
@@ -563,6 +566,28 @@ mod tests {
         // key2 still a miss.
         assert!(cache.get(&key2).is_none());
         assert_eq!(cache.hit_count(), 1);
+    }
+
+    #[test]
+    fn hfx_format_version_invalidates_cached_chunk() {
+        let cache = ParquetRowGroupCache::new(1024 * 1024);
+        let ident = make_ident();
+        let key = ChunkKey {
+            ident: ident.clone(),
+            chunk_offset: 0,
+            chunk_length: 4,
+        };
+        cache.insert(key.clone(), Bytes::from_static(b"test"));
+        assert!(cache.get(&key).is_some());
+
+        let mut changed_ident = ident;
+        changed_ident.hfx_format_version = "0.3.0".to_owned();
+        let changed_key = ChunkKey {
+            ident: changed_ident,
+            chunk_offset: 0,
+            chunk_length: 4,
+        };
+        assert!(cache.get(&changed_key).is_none());
     }
 
     #[test]

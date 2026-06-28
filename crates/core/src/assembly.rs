@@ -286,6 +286,7 @@ mod tests {
     use crate::algo::{
         DEFAULT_CLEANING_EPSILON, GeometryRepairError, HoleFillMode, collect_upstream,
     };
+    use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
     #[derive(Clone)]
     struct CatchmentRow {
@@ -692,10 +693,7 @@ mod tests {
             Field::new("id", DataType::Int64, false),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(false),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -733,10 +731,12 @@ mod tests {
                 Arc::new(id_b.finish()),
                 Arc::new(area_b.finish()),
                 Arc::new(up_area_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )

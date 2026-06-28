@@ -10,7 +10,7 @@ use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use serde_json::{Value, json};
 use shed_core::error::SessionError;
 use shed_core::session::DatasetSession;
-use shed_core::testutil::DatasetBuilder;
+use shed_core::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
 
 struct SnapFixtureRow {
     id: i64,
@@ -49,12 +49,7 @@ fn write_snap_fixture(
         fields.push(Field::new("stem_role", DataType::Utf8, true));
     }
     if include_bbox {
-        fields.extend([
-            Field::new("bbox_minx", DataType::Float32, true),
-            Field::new("bbox_miny", DataType::Float32, true),
-            Field::new("bbox_maxx", DataType::Float32, true),
-            Field::new("bbox_maxy", DataType::Float32, true),
-        ]);
+        fields.push(bbox_struct_field(true));
     }
     fields.push(Field::new("geometry", DataType::Binary, false));
     let schema = Arc::new(Schema::new(fields));
@@ -98,12 +93,12 @@ fn write_snap_fixture(
         columns.push(Arc::new(stem_role_b.finish()));
     }
     if include_bbox {
-        columns.extend([
-            Arc::new(minx_b.finish()) as Arc<dyn arrow::array::Array>,
-            Arc::new(miny_b.finish()) as Arc<dyn arrow::array::Array>,
-            Arc::new(maxx_b.finish()) as Arc<dyn arrow::array::Array>,
-            Arc::new(maxy_b.finish()) as Arc<dyn arrow::array::Array>,
-        ]);
+        columns.push(Arc::new(bbox_struct_array(
+            minx_b.finish(),
+            miny_b.finish(),
+            maxx_b.finish(),
+            maxy_b.finish(),
+        )));
     }
     columns.push(Arc::new(geom_b.finish()));
 

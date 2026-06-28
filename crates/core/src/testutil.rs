@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arrow::array::{
-    BinaryBuilder, Float32Builder, Float64Builder, Int16Builder, Int64Array, Int64Builder,
-    ListBuilder, RecordBatch, StringBuilder,
+    ArrayRef, BinaryBuilder, Float32Array, Float32Builder, Float64Builder, Int16Builder,
+    Int64Array, Int64Builder, ListBuilder, RecordBatch, StringBuilder, StructArray,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use hfx_core::{Level, UnitId};
@@ -15,6 +15,48 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use crate::algo::GeoCoord;
+
+pub fn bbox_struct_field(nullable: bool) -> Field {
+    Field::new(
+        "bbox",
+        DataType::Struct(
+            vec![
+                Arc::new(Field::new("xmin", DataType::Float32, false)),
+                Arc::new(Field::new("ymin", DataType::Float32, false)),
+                Arc::new(Field::new("xmax", DataType::Float32, false)),
+                Arc::new(Field::new("ymax", DataType::Float32, false)),
+            ]
+            .into(),
+        ),
+        nullable,
+    )
+}
+
+pub fn bbox_struct_array(
+    minx: Float32Array,
+    miny: Float32Array,
+    maxx: Float32Array,
+    maxy: Float32Array,
+) -> StructArray {
+    StructArray::from(vec![
+        (
+            Arc::new(Field::new("xmin", DataType::Float32, false)),
+            Arc::new(minx) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("ymin", DataType::Float32, false)),
+            Arc::new(miny) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("xmax", DataType::Float32, false)),
+            Arc::new(maxx) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("ymax", DataType::Float32, false)),
+            Arc::new(maxy) as ArrayRef,
+        ),
+    ])
+}
 
 /// Custom catchment specification for outlet resolution tests.
 pub struct TestCatchment {
@@ -412,10 +454,7 @@ impl DatasetBuilder {
             Field::new("up_area_km2", DataType::Float32, true),
             Field::new("outlet_lon", DataType::Float64, false),
             Field::new("outlet_lat", DataType::Float64, false),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(false),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -522,10 +561,12 @@ impl DatasetBuilder {
                 Arc::new(up_area_b.finish()),
                 Arc::new(outlet_lon_b.finish()),
                 Arc::new(outlet_lat_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )
@@ -556,10 +597,7 @@ impl DatasetBuilder {
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("stem_role", DataType::Utf8, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -643,10 +681,12 @@ impl DatasetBuilder {
                 Arc::new(unit_id_b.finish()),
                 Arc::new(weight_b.finish()),
                 Arc::new(stem_role_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
         )

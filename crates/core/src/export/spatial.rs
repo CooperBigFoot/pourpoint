@@ -401,7 +401,7 @@ mod export_spatial_tests {
     #[test]
     fn export_spatial_tie_break_stability() {
         let geometry = tiny_rect_around(lon_for_quantized_x(0), lat_for_quantized_y(0));
-        let mut keys = vec![
+        let mut keys = [
             BasinSpatialSortKey::from_geometry(
                 BasinId::parse("b").unwrap(),
                 DelineationLabel::parse("fabric/v1/b").unwrap(),
@@ -440,7 +440,7 @@ mod export_spatial_tests {
     #[test]
     fn export_spatial_unit_bundle_tie_break_uses_unit_id() {
         let geometry = tiny_rect_around(lon_for_quantized_x(0), lat_for_quantized_y(0));
-        let mut keys = vec![
+        let mut keys = [
             UnitBundleSpatialSortKey::from_geometry(
                 UnitId::new(9).unwrap(),
                 DelineationLabel::parse("fabric/v1/a").unwrap(),

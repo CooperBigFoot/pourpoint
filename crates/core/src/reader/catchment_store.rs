@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use arrow::array::{
     Array, BinaryArray, Float32Array, Float64Array, Int16Array, Int64Array, LargeBinaryArray,
-    StringArray,
+    StringArray, StructArray,
 };
 use arrow::datatypes::{DataType, Schema};
 use chrono::{DateTime, Utc};
@@ -33,7 +33,10 @@ use parquet::arrow::async_reader::{
 use tracing::{debug, info, instrument, warn};
 
 use super::id_index::IdIndex;
-use super::{BboxColIndices, extract_row_group_bbox, require_column};
+use super::{
+    BboxColIndices, bbox_struct_leaf, bbox_struct_leaf_indices, extract_row_group_bbox,
+    require_column, validate_bbox_struct_field,
+};
 use crate::algo::WkbDecodeError;
 use crate::cache::ArtifactMeta;
 use crate::error::SessionError;
@@ -254,6 +257,7 @@ impl CatchmentStore {
         path_display: String,
         fabric_name: String,
         adapter_version: String,
+        hfx_format_version: String,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
     ) -> Result<Self, SessionError> {
         Self::open_remote_with_caches(
@@ -262,6 +266,7 @@ impl CatchmentStore {
             path_display,
             fabric_name,
             adapter_version,
+            hfx_format_version,
             parquet_cache,
             None,
             None,
@@ -277,6 +282,7 @@ impl CatchmentStore {
         path_display: String,
         fabric_name: String,
         adapter_version: String,
+        hfx_format_version: String,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
         id_index_path: Option<PathBuf>,
@@ -286,7 +292,7 @@ impl CatchmentStore {
             path,
             path_display,
             HeadErrorMode::RemoteArtifact,
-            Some((fabric_name, adapter_version)),
+            Some((fabric_name, adapter_version, hfx_format_version)),
             parquet_cache,
             footer_cache,
             id_index_path,
@@ -299,7 +305,7 @@ impl CatchmentStore {
         path: ObjectPath,
         path_display: String,
         head_error_mode: HeadErrorMode,
-        fabric_info: Option<(String, String)>,
+        fabric_info: Option<(String, String, String)>,
         parquet_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
         id_index_path: Option<PathBuf>,
@@ -324,14 +330,17 @@ impl CatchmentStore {
             );
             None
         } else if has_parquet_cache {
-            fabric_info.map(|(fabric_name, adapter_version)| ArtifactIdent {
-                fabric_name,
-                adapter_version,
-                artifact: ARTIFACT,
-                file_size,
-                etag: head_meta.e_tag.clone(),
-                last_modified,
-            })
+            fabric_info.map(
+                |(fabric_name, adapter_version, hfx_format_version)| ArtifactIdent {
+                    fabric_name,
+                    adapter_version,
+                    hfx_format_version,
+                    artifact: ARTIFACT,
+                    file_size,
+                    etag: head_meta.e_tag.clone(),
+                    last_modified,
+                },
+            )
         } else {
             None
         };
@@ -358,35 +367,17 @@ impl CatchmentStore {
         require_column(arrow_schema, "id", &DataType::Int64, ARTIFACT)?;
         require_column(arrow_schema, "area_km2", &DataType::Float32, ARTIFACT)?;
         require_column(arrow_schema, "up_area_km2", &DataType::Float32, ARTIFACT)?;
-        for column in ["bbox_minx", "bbox_miny", "bbox_maxx", "bbox_maxy"] {
-            if arrow_schema.field_with_name(column).is_err() {
-                return Err(SessionError::MissingBboxColumn {
-                    artifact: ARTIFACT,
-                    column,
-                });
-            }
-            require_column(arrow_schema, column, &DataType::Float32, ARTIFACT)?;
-        }
+        validate_bbox_struct_field(arrow_schema, false, ARTIFACT)?;
         require_column(arrow_schema, "geometry", &DataType::Binary, ARTIFACT)?;
 
         // --- Parquet schema column indices for bbox statistics ---
         let parquet_schema = builder.parquet_schema();
-        let find_col = |name: &str| -> Result<usize, SessionError> {
-            parquet_schema
-                .columns()
-                .iter()
-                .position(|c| c.name() == name)
-                .ok_or_else(|| {
-                    SessionError::parquet_schema(ARTIFACT, format!("missing column {name}"))
-                })
-        };
-
-        let bbox_indices = BboxColIndices {
-            minx: find_col("bbox_minx")?,
-            miny: find_col("bbox_miny")?,
-            maxx: find_col("bbox_maxx")?,
-            maxy: find_col("bbox_maxy")?,
-        };
+        let bbox_indices = bbox_struct_leaf_indices(parquet_schema, ARTIFACT)?.ok_or(
+            SessionError::MissingBboxColumn {
+                artifact: ARTIFACT,
+                column: "bbox",
+            },
+        )?;
 
         // --- Row-group metadata pass ---
         let metadata = builder.metadata().clone();
@@ -598,7 +589,7 @@ impl CatchmentStore {
             })?;
         let parquet_schema = reader_metadata.parquet_schema();
         let projection =
-            ProjectionMask::roots(parquet_schema, full_projection_indices(parquet_schema)?);
+            ProjectionMask::leaves(parquet_schema, full_projection_indices(parquet_schema)?);
 
         let mut results = Vec::new();
         for (sel_idx, &row_group) in selected_row_groups.iter().enumerate() {
@@ -695,7 +686,7 @@ impl CatchmentStore {
             })?;
         let parquet_schema = reader_metadata.parquet_schema();
         let projection =
-            ProjectionMask::roots(parquet_schema, geometry_projection_indices(parquet_schema)?);
+            ProjectionMask::leaves(parquet_schema, geometry_projection_indices(parquet_schema)?);
 
         let read_context = GeometryRowGroupReadContext {
             store: Arc::clone(&self.store),
@@ -791,7 +782,7 @@ impl CatchmentStore {
             })?;
         let parquet_schema = reader_metadata.parquet_schema();
         let projection =
-            ProjectionMask::roots(parquet_schema, id_level_projection_indices(parquet_schema)?);
+            ProjectionMask::leaves(parquet_schema, id_level_projection_indices(parquet_schema)?);
 
         let row_group_results =
             stream::iter(selected_row_groups.into_iter().zip(rg_absolute_starts))
@@ -911,10 +902,11 @@ fn extract_units_from_batch(
     let up_area_col = col_as::<Float32Array>(batch, &schema, "up_area_km2", artifact)?;
     let outlet_lon_col = optional_col_as::<Float64Array>(batch, &schema, "outlet_lon", artifact)?;
     let outlet_lat_col = optional_col_as::<Float64Array>(batch, &schema, "outlet_lat", artifact)?;
-    let minx_col = col_as::<Float32Array>(batch, &schema, "bbox_minx", artifact)?;
-    let miny_col = col_as::<Float32Array>(batch, &schema, "bbox_miny", artifact)?;
-    let maxx_col = col_as::<Float32Array>(batch, &schema, "bbox_maxx", artifact)?;
-    let maxy_col = col_as::<Float32Array>(batch, &schema, "bbox_maxy", artifact)?;
+    let bbox_col = col_as::<StructArray>(batch, &schema, "bbox", artifact)?;
+    let minx_col = bbox_struct_leaf(bbox_col, "xmin", artifact)?;
+    let miny_col = bbox_struct_leaf(bbox_col, "ymin", artifact)?;
+    let maxx_col = bbox_struct_leaf(bbox_col, "xmax", artifact)?;
+    let maxy_col = bbox_struct_leaf(bbox_col, "ymax", artifact)?;
 
     // geometry may be Binary or LargeBinary
     let geom_idx = schema
@@ -1015,28 +1007,28 @@ fn extract_units_from_batch(
             return Err(SessionError::invalid_row(
                 artifact,
                 global_i,
-                "null value in non-nullable column \"bbox_minx\"",
+                "null value in non-nullable column \"bbox.xmin\"",
             ));
         }
         if miny_col.is_null(i) {
             return Err(SessionError::invalid_row(
                 artifact,
                 global_i,
-                "null value in non-nullable column \"bbox_miny\"",
+                "null value in non-nullable column \"bbox.ymin\"",
             ));
         }
         if maxx_col.is_null(i) {
             return Err(SessionError::invalid_row(
                 artifact,
                 global_i,
-                "null value in non-nullable column \"bbox_maxx\"",
+                "null value in non-nullable column \"bbox.xmax\"",
             ));
         }
         if maxy_col.is_null(i) {
             return Err(SessionError::invalid_row(
                 artifact,
                 global_i,
-                "null value in non-nullable column \"bbox_maxy\"",
+                "null value in non-nullable column \"bbox.ymax\"",
             ));
         }
         let bbox = BoundingBox::new(
@@ -1543,7 +1535,7 @@ async fn read_all_ids_with_row_groups_async(
             source: e,
         })?;
     let parquet_schema = reader_metadata.parquet_schema();
-    let id_projection = ProjectionMask::roots(parquet_schema, [id_column_index(parquet_schema)?]);
+    let id_projection = ProjectionMask::leaves(parquet_schema, [id_column_index(parquet_schema)?]);
     let selected_row_groups: Vec<usize> = (0..num_row_groups).collect();
     let rg_absolute_starts = absolute_row_starts(&metadata, &selected_row_groups);
 
@@ -1658,7 +1650,7 @@ async fn read_ids_levels_with_row_groups_async(
         })?;
     let parquet_schema = reader_metadata.parquet_schema();
     let projection =
-        ProjectionMask::roots(parquet_schema, id_level_projection_indices(parquet_schema)?);
+        ProjectionMask::leaves(parquet_schema, id_level_projection_indices(parquet_schema)?);
     let selected_row_groups: Vec<usize> = (0..num_row_groups).collect();
     let rg_absolute_starts = absolute_row_starts(&metadata, &selected_row_groups);
 
@@ -2054,13 +2046,19 @@ fn full_projection_indices(
             indices.push(index);
         }
     }
+    let bbox_indices = bbox_struct_leaf_indices(parquet_schema, ARTIFACT)?.ok_or(
+        SessionError::MissingBboxColumn {
+            artifact: ARTIFACT,
+            column: "bbox",
+        },
+    )?;
     indices.extend([
         named_column_index(parquet_schema, "area_km2")?,
         named_column_index(parquet_schema, "up_area_km2")?,
-        named_column_index(parquet_schema, "bbox_minx")?,
-        named_column_index(parquet_schema, "bbox_miny")?,
-        named_column_index(parquet_schema, "bbox_maxx")?,
-        named_column_index(parquet_schema, "bbox_maxy")?,
+        bbox_indices.minx,
+        bbox_indices.miny,
+        bbox_indices.maxx,
+        bbox_indices.maxy,
         named_column_index(parquet_schema, "geometry")?,
     ]);
     Ok(indices)
@@ -2169,6 +2167,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
+    use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
     // -----------------------------------------------------------------------
     // Fixture helpers
@@ -2214,10 +2213,7 @@ mod tests {
             Field::new("id", DataType::Int64, false),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(false),
             Field::new("geometry", DataType::Binary, false),
         ]))
     }
@@ -2228,10 +2224,7 @@ mod tests {
             Field::new("level", DataType::Int16, false),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(false),
             Field::new("geometry", DataType::Binary, false),
         ]))
     }
@@ -2286,10 +2279,12 @@ mod tests {
                 Arc::new(ids.finish()),
                 Arc::new(areas.finish()),
                 Arc::new(up_areas.finish()),
-                Arc::new(minxs.finish()),
-                Arc::new(minys.finish()),
-                Arc::new(maxxs.finish()),
-                Arc::new(maxys.finish()),
+                Arc::new(bbox_struct_array(
+                    minxs.finish(),
+                    minys.finish(),
+                    maxxs.finish(),
+                    maxys.finish(),
+                )),
                 Arc::new(geoms.finish()),
             ],
         )
@@ -2299,10 +2294,12 @@ mod tests {
         writer.close().unwrap();
     }
 
+    type CatchmentLevelFixtureRow = (i64, i16, f32, Option<f32>, [f32; 4]);
+
     /// `units`: (id, level, area_km2, up_area_km2, [minx, miny, maxx, maxy])
     fn write_fixture_with_levels(
         path: &std::path::Path,
-        units: &[(i64, i16, f32, Option<f32>, [f32; 4])],
+        units: &[CatchmentLevelFixtureRow],
         row_group_size: usize,
     ) {
         let schema = catchments_schema_with_level();
@@ -2352,10 +2349,12 @@ mod tests {
                 Arc::new(levels.finish()),
                 Arc::new(areas.finish()),
                 Arc::new(up_areas.finish()),
-                Arc::new(minxs.finish()),
-                Arc::new(minys.finish()),
-                Arc::new(maxxs.finish()),
-                Arc::new(maxys.finish()),
+                Arc::new(bbox_struct_array(
+                    minxs.finish(),
+                    minys.finish(),
+                    maxxs.finish(),
+                    maxys.finish(),
+                )),
                 Arc::new(geoms.finish()),
             ],
         )
@@ -2808,14 +2807,40 @@ mod tests {
     /// the standard schema columns.
     fn write_fixture_with_null(path: &std::path::Path, null_col: &str, null_row: usize) {
         // Build a schema with the target column overridden to nullable=true.
+        let bbox_field = Field::new(
+            "bbox",
+            DataType::Struct(
+                vec![
+                    Arc::new(Field::new(
+                        "xmin",
+                        DataType::Float32,
+                        null_col == "bbox.xmin",
+                    )),
+                    Arc::new(Field::new(
+                        "ymin",
+                        DataType::Float32,
+                        null_col == "bbox.ymin",
+                    )),
+                    Arc::new(Field::new(
+                        "xmax",
+                        DataType::Float32,
+                        null_col == "bbox.xmax",
+                    )),
+                    Arc::new(Field::new(
+                        "ymax",
+                        DataType::Float32,
+                        null_col == "bbox.ymax",
+                    )),
+                ]
+                .into(),
+            ),
+            false,
+        );
         let fields: Vec<Field> = vec![
             Field::new("id", DataType::Int64, null_col == "id"),
             Field::new("area_km2", DataType::Float32, null_col == "area_km2"),
             Field::new("up_area_km2", DataType::Float32, true),
-            Field::new("bbox_minx", DataType::Float32, null_col == "bbox_minx"),
-            Field::new("bbox_miny", DataType::Float32, null_col == "bbox_miny"),
-            Field::new("bbox_maxx", DataType::Float32, null_col == "bbox_maxx"),
-            Field::new("bbox_maxy", DataType::Float32, null_col == "bbox_maxy"),
+            bbox_field,
             Field::new("geometry", DataType::Binary, null_col == "geometry"),
         ];
         let schema = Arc::new(Schema::new(fields));
@@ -2854,22 +2879,22 @@ mod tests {
 
             up_areas.append_null(); // always nullable
 
-            if null_col == "bbox_minx" && is_null {
+            if null_col == "bbox.xmin" && is_null {
                 minxs.append_null();
             } else {
                 minxs.append_value(row as f32);
             }
-            if null_col == "bbox_miny" && is_null {
+            if null_col == "bbox.ymin" && is_null {
                 minys.append_null();
             } else {
                 minys.append_value(0.0f32);
             }
-            if null_col == "bbox_maxx" && is_null {
+            if null_col == "bbox.xmax" && is_null {
                 maxxs.append_null();
             } else {
                 maxxs.append_value(row as f32 + 1.0);
             }
-            if null_col == "bbox_maxy" && is_null {
+            if null_col == "bbox.ymax" && is_null {
                 maxys.append_null();
             } else {
                 maxys.append_value(1.0f32);
@@ -2889,10 +2914,12 @@ mod tests {
                 Arc::new(ids.finish()),
                 Arc::new(areas.finish()),
                 Arc::new(up_areas.finish()),
-                Arc::new(minxs.finish()),
-                Arc::new(minys.finish()),
-                Arc::new(maxxs.finish()),
-                Arc::new(maxys.finish()),
+                Arc::new(bbox_struct_array(
+                    minxs.finish(),
+                    minys.finish(),
+                    maxxs.finish(),
+                    maxys.finish(),
+                )),
                 Arc::new(geoms.finish()),
             ],
         )
