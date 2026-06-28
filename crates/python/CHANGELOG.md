@@ -7,6 +7,22 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-28
+
+- **Requires HFX v0.3.0; older HFX format versions no longer load.** HFX v0.3.0
+  stores catchment and snap bounding boxes as a GeoParquet 1.1 bbox covering
+  struct (`bbox.{xmin,ymin,xmax,ymax}`) in place of four flat `bbox_*` columns,
+  making HFX datasets first-class GeoParquet that standard spatial tools query
+  with automatic row-group pruning.
+- shed reads the covering struct's leaf row-group statistics directly via a
+  predicate edit in the catchment and snap readers; the concurrency-64 range-read
+  orchestration and the footer/row-group caches are unchanged. The optional
+  geoarrow-rs catchments-geometry delegation was evaluated and deferred — its
+  no-regression benchmark needs a live R2 covering dataset that was unavailable
+  for this release — so 0.3.0 ships the predicate-read path alone.
+- The hosted GRIT `2.0.0` example dataset is re-hosted at HFX v0.3.0 in lockstep
+  with this release.
+
 ## [0.2.4] - 2026-06-18
 
 - fix: terminals covered by multiple overlapping per-Pfaf-02 D8 raster

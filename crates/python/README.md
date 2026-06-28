@@ -1,9 +1,12 @@
 # pyshed
 
 Python bindings for the `shed` watershed delineation engine. `pyshed` loads
-[HFX-format](https://github.com/CooperBigFoot/hfx) v0.2.1 datasets and returns
-watershed polygons from a `(lat, lon)` outlet. Only HFX v0.2.1 datasets load;
-HFX v0.1 datasets hard-error as an unsupported format version. The full native
+[HFX-format](https://github.com/CooperBigFoot/hfx) v0.3.0 datasets and returns
+watershed polygons from a `(lat, lon)` outlet. HFX v0.3.0 stores catchment and
+snap bounding boxes as a GeoParquet 1.1 bbox covering — a struct column whose
+numeric leaves carry row-group statistics, so standard spatial tools recognize
+the dataset for automatic spatial pruning. Only HFX v0.3.0 datasets load; older
+HFX format versions hard-error as an unsupported format version. The full native
 stack (GDAL, PROJ, GEOS, libtiff, SQLite, and more) is bundled inside the wheel
 — no system install required.
 
