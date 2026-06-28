@@ -2,12 +2,9 @@
 members = ["crates/*"]
 
 [workspace.dependencies]
-# HFX on-disk format 0.2.1 is implemented by the unpublished hfx-core
-# crate (crate version 0.2.64 @ pinned hfx tag v0.2.64 / rev 478dfa6).
-# The crate version is NOT the format version. The [patch.crates-io] entry
-# below redirects this crates.io dep to that pinned git crate; do not mistake
-# crate version for the v0.2.1 contract.
-hfx-core = "=0.2.64"
+# HFX on-disk format 0.3.0 is implemented by the published hfx-core 0.4.x crate
+# (crate version != format version: the 0.4.0 crate implements the 0.3.0 contract).
+hfx-core = "0.4.0"
 
 [package]
 name = "shed"
@@ -31,8 +28,3 @@ assert_cmd = "2"
 tempfile = "3"
 serde_json = "1"
 shed-core = { path = "crates/core", features = ["test-fixtures"] }
-
-# hfx-core crate version 0.2.64 @ pinned hfx tag v0.2.64 / rev 478dfa6
-# implements HFX on-disk format 0.2.1 (crate version != format version).
-[patch.crates-io]
-hfx-core = { git = "https://github.com/CooperBigFoot/hfx.git", tag = "v0.2.64" }

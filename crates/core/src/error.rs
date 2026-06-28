@@ -129,14 +129,14 @@ pub enum SessionError {
     },
 
     /// Fired when `manifest.format_version` is not the only supported on-disk
-    /// format `"0.2.1"`. This is checked before any other manifest field is
+    /// format `"0.3.0"`. This is checked before any other manifest field is
     /// parsed, so a v0.1 (or any other) manifest is rejected with a clear
     /// version diagnostic rather than a missing-field error.
     #[error("unsupported HFX format version {found:?}, expected {expected:?}")]
     UnsupportedFormatVersion {
         /// The version string found in the manifest.
         found: String,
-        /// The only accepted format version (`"0.2.1"`).
+        /// The only accepted format version (`"0.3.0"`).
         expected: &'static str,
     },
 
@@ -220,7 +220,7 @@ pub enum SessionError {
         reason: String,
     },
 
-    /// Fired when an `hfx.aux.snap.v1` declaration is missing or carries invalid
+    /// Fired when an `hfx.aux.snap.v2` declaration is missing or carries invalid
     /// `name`, `description`, `references_levels`, or `weight_semantics`
     /// metadata.
     #[error("snap aux metadata for {name:?} is invalid: {reason}")]

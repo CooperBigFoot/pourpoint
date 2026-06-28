@@ -142,7 +142,7 @@ fn grit_v200_default_finest_resolves_zurich_to_l1_by_bounded_reads() {
             .expect("real GRIT manifest bytes should read");
         let parsed =
             read_manifest_from_bytes(&manifest_bytes).expect("real GRIT manifest should parse");
-        assert_eq!(parsed.manifest.format_version().to_string(), "0.2.1");
+        assert_eq!(parsed.manifest.format_version().to_string(), "0.3.0");
         assert_eq!(parsed.manifest.unit_count().get(), 22_337_300);
 
         let graph_path = remote_artifact_path(&root, "graph.parquet");

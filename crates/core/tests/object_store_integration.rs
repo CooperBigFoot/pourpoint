@@ -190,7 +190,7 @@ async fn put_object(store: &Arc<InMemory>, root: &ObjectPath, name: &str, payloa
 
 fn manifest_bytes() -> String {
     serde_json::json!({
-        "format_version": "0.2.1",
+        "format_version": "0.3.0",
         "fabric_name": "testfabric",
         "crs": "EPSG:4326",
         "topology": "tree",

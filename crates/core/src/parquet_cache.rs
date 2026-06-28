@@ -525,7 +525,7 @@ mod tests {
         ArtifactIdent {
             fabric_name: "testfabric".to_owned(),
             adapter_version: "v1".to_owned(),
-            hfx_format_version: "0.2.1".to_owned(),
+            hfx_format_version: "0.3.0".to_owned(),
             artifact: "catchments.parquet",
             file_size: 1_000_000,
             etag: Some("abc123".to_owned()),
@@ -581,7 +581,7 @@ mod tests {
         assert!(cache.get(&key).is_some());
 
         let mut changed_ident = ident;
-        changed_ident.hfx_format_version = "0.3.0".to_owned();
+        changed_ident.hfx_format_version = "0.4.0".to_owned();
         let changed_key = ChunkKey {
             ident: changed_ident,
             chunk_offset: 0,

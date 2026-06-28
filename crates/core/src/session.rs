@@ -653,7 +653,7 @@ impl DatasetSession {
     /// Return the snap store whose declaration is selected for `level`.
     ///
     /// Uses a narrow deterministic rule instead of a general strategy binding:
-    /// among `hfx.aux.snap.v1` declarations whose
+    /// among `hfx.aux.snap.v2` declarations whose
     /// `references_levels` contains `level`, sort by metadata `name` ascending,
     /// then artifact `snap` path ascending, and use the first declaration.
     pub(crate) fn snap_for_level(&self, level: Level) -> Option<&SnapStore> {
@@ -937,7 +937,7 @@ fn validate_local_aux_paths(root: &Path, aux: &AuxDeclarations) -> Result<(), Se
         validate_local_aux_artifact(root, "hfx.aux.d8_raster.v1", "flow_acc", &decl.flow_acc)?;
     }
     for decl in &aux.snaps {
-        validate_local_aux_artifact(root, "hfx.aux.snap.v1", "snap", &decl.snap)?;
+        validate_local_aux_artifact(root, "hfx.aux.snap.v2", "snap", &decl.snap)?;
     }
     for decl in &aux.generic {
         for (artifact, path) in &decl.artifacts {
@@ -977,7 +977,7 @@ fn validate_remote_aux_paths(root: &ObjectPath, aux: &AuxDeclarations) -> Result
         validate_remote_aux_artifact(root, "hfx.aux.d8_raster.v1", "flow_acc", &decl.flow_acc)?;
     }
     for decl in &aux.snaps {
-        validate_remote_aux_artifact(root, "hfx.aux.snap.v1", "snap", &decl.snap)?;
+        validate_remote_aux_artifact(root, "hfx.aux.snap.v2", "snap", &decl.snap)?;
     }
     for decl in &aux.generic {
         for (artifact, path) in &decl.artifacts {
@@ -1883,7 +1883,7 @@ mod tests {
 
     fn manifest_bytes_with_snap_paths_and_rasters(snap_paths: &[&str], rasters: bool) -> String {
         let mut manifest = serde_json::json!({
-            "format_version": "0.2.1",
+            "format_version": "0.3.0",
             "fabric_name": "testfabric",
             "crs": "EPSG:4326",
             "topology": "tree",
@@ -1898,7 +1898,7 @@ mod tests {
                 .as_array_mut()
                 .unwrap()
                 .push(serde_json::json!({
-                    "schema": "hfx.aux.snap.v1",
+                    "schema": "hfx.aux.snap.v2",
                     "artifacts": { "snap": snap_path },
                     "metadata": {
                         "name": format!("test-snap-{index}"),
