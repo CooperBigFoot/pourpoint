@@ -76,7 +76,7 @@ details.
 
 ### Canonical Hosted Dataset
 
-The canonical public dataset for examples is the GRIT HFX v0.2.1 fabric at:
+The canonical public dataset for examples is the GRIT HFX v0.3.0 fabric at:
 
 ```text
 https://basin-delineations-public.upstream.tech/grit/2.0.0/
