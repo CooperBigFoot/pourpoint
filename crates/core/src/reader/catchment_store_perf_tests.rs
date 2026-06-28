@@ -25,6 +25,7 @@ use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use crate::parquet_cache::ParquetFooterCache;
 use crate::reader::catchment_store::{CatchmentStore, READER_SESSION_INSTRUMENTATION_TEST_LOCK};
 use crate::runtime::RT;
+use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
 #[derive(Debug, Default)]
 struct StoreCounters {
@@ -232,6 +233,7 @@ fn footer_cache_reused_for_second_open_and_query() {
         "memory://catchments.parquet".into(),
         "testfabric".to_owned(),
         "test-v1".to_owned(),
+        "0.2.1".to_owned(),
         None,
         Some(footer_cache.clone()),
         None,
@@ -267,6 +269,7 @@ fn footer_cache_reused_for_second_open_and_query() {
         "memory://catchments.parquet".into(),
         "testfabric".to_owned(),
         "test-v1".to_owned(),
+        "0.2.1".to_owned(),
         None,
         Some(footer_cache.clone()),
         None,
@@ -295,10 +298,7 @@ fn catchments_schema() -> Arc<Schema> {
         Field::new("id", DataType::Int64, false),
         Field::new("area_km2", DataType::Float32, false),
         Field::new("up_area_km2", DataType::Float32, true),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(false),
         Field::new("geometry", DataType::Binary, false),
     ]))
 }
@@ -340,10 +340,12 @@ fn write_catchments_fixture() -> Vec<u8> {
             Arc::new(ids.finish()),
             Arc::new(areas.finish()),
             Arc::new(up_areas.finish()),
-            Arc::new(minxs.finish()),
-            Arc::new(minys.finish()),
-            Arc::new(maxxs.finish()),
-            Arc::new(maxys.finish()),
+            Arc::new(bbox_struct_array(
+                minxs.finish(),
+                minys.finish(),
+                maxxs.finish(),
+                maxys.finish(),
+            )),
             Arc::new(geoms.finish()),
         ],
     )

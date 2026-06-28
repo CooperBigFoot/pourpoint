@@ -18,6 +18,7 @@ use tempfile::TempDir;
 use hfx_core::{BoundingBox, Topology, UnitId};
 use shed_core::SessionError;
 use shed_core::session::DatasetSession;
+use shed_core::testutil::{bbox_struct_array, bbox_struct_field};
 
 // ---------------------------------------------------------------------------
 // WKB helpers
@@ -190,10 +191,7 @@ fn write_catchments_with_levels(root: &Path, levels: &[i16], row_group_size: usi
         Field::new("up_area_km2", DataType::Float32, true),
         Field::new("outlet_lon", DataType::Float64, false),
         Field::new("outlet_lat", DataType::Float64, false),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(false),
         Field::new("stem_role", DataType::Utf8, false),
         Field::new("geometry", DataType::Binary, false),
     ]));
@@ -258,10 +256,12 @@ fn write_catchments_with_levels(root: &Path, levels: &[i16], row_group_size: usi
             Arc::new(up_area_b.finish()),
             Arc::new(outlet_lon_b.finish()),
             Arc::new(outlet_lat_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(stem_role_b.finish()),
             Arc::new(geom_b.finish()),
         ],
@@ -278,10 +278,7 @@ fn write_snap(root: &Path, unit_count: usize) {
         Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
         Field::new("stem_role", DataType::Utf8, false),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(true),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -330,10 +327,12 @@ fn write_snap(root: &Path, unit_count: usize) {
             Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
             Arc::new(stem_role_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(geom_b.finish()),
         ],
     )
@@ -354,10 +353,7 @@ fn write_snap_with_degenerate_bbox(root: &Path, unit_count: usize) {
         Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
         Field::new("stem_role", DataType::Utf8, false),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(true),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -408,10 +404,12 @@ fn write_snap_with_degenerate_bbox(root: &Path, unit_count: usize) {
             Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
             Arc::new(stem_role_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(geom_b.finish()),
         ],
     )
@@ -432,10 +430,7 @@ fn write_snap_with_custom_unit_ids(root: &Path, unit_ids: &[i64]) {
         Field::new("unit_id", DataType::Int64, false),
         Field::new("weight", DataType::Float32, false),
         Field::new("stem_role", DataType::Utf8, false),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(true),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -485,10 +480,12 @@ fn write_snap_with_custom_unit_ids(root: &Path, unit_ids: &[i64]) {
             Arc::new(unit_id_b.finish()),
             Arc::new(weight_b.finish()),
             Arc::new(stem_role_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(geom_b.finish()),
         ],
     )

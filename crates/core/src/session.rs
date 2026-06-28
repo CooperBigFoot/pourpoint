@@ -444,6 +444,7 @@ impl DatasetSession {
             catchments_path.as_ref().to_string(),
             fabric_name.clone(),
             adapter_version.clone(),
+            manifest.format_version().to_string(),
             parquet_cache.clone(),
             footer_cache.clone(),
             Some(catchments_id_index_path),
@@ -504,6 +505,7 @@ impl DatasetSession {
                         snap_path.as_ref().to_string(),
                         fabric_name.clone(),
                         adapter_version.clone(),
+                        manifest.format_version().to_string(),
                         parquet_cache.clone(),
                         footer_cache.clone(),
                         Some(head_meta),
@@ -1364,7 +1366,7 @@ mod tests {
     use crate::runtime::RT;
     use crate::source::DatasetSource;
     use crate::telemetry::jsonl::JsonlLayer;
-    use crate::testutil::DatasetBuilder;
+    use crate::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
     use hfx_core::{BoundingBox, SnapId, UnitId};
 
     static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -2023,10 +2025,7 @@ mod tests {
             Field::new("level", DataType::Int16, false),
             Field::new("area_km2", DataType::Float32, false),
             Field::new("up_area_km2", DataType::Float32, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(false),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -2060,10 +2059,12 @@ mod tests {
                 Arc::new(level_b.finish()),
                 Arc::new(area_b.finish()),
                 Arc::new(up_area_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
             metadata,
@@ -2081,10 +2082,7 @@ mod tests {
             Field::new("unit_id", DataType::Int64, false),
             Field::new("weight", DataType::Float32, false),
             Field::new("stem_role", DataType::Utf8, true),
-            Field::new("bbox_minx", DataType::Float32, false),
-            Field::new("bbox_miny", DataType::Float32, false),
-            Field::new("bbox_maxx", DataType::Float32, false),
-            Field::new("bbox_maxy", DataType::Float32, false),
+            bbox_struct_field(true),
             Field::new("geometry", DataType::Binary, false),
         ]));
 
@@ -2114,10 +2112,12 @@ mod tests {
                 Arc::new(unit_id_b.finish()),
                 Arc::new(weight_b.finish()),
                 Arc::new(stem_role_b.finish()),
-                Arc::new(minx_b.finish()),
-                Arc::new(miny_b.finish()),
-                Arc::new(maxx_b.finish()),
-                Arc::new(maxy_b.finish()),
+                Arc::new(bbox_struct_array(
+                    minx_b.finish(),
+                    miny_b.finish(),
+                    maxx_b.finish(),
+                    maxy_b.finish(),
+                )),
                 Arc::new(geom_b.finish()),
             ],
             None,

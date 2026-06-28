@@ -184,13 +184,12 @@ pub enum SessionError {
         path: String,
     },
 
-    /// Fired when `catchments.parquet` is missing one of the required catchment
-    /// bbox columns (`bbox_minx`/`bbox_miny`/`bbox_maxx`/`bbox_maxy`).
+    /// Fired when a struct-bbox artifact is missing its required `bbox` covering.
     #[error("required bbox column {column:?} missing from {artifact:?}")]
     MissingBboxColumn {
         /// Short name of the artifact (`"catchments.parquet"`).
         artifact: &'static str,
-        /// The bbox column name that was absent.
+        /// The bbox column or covering name that was absent.
         column: &'static str,
     },
 

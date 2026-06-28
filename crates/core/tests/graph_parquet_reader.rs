@@ -12,7 +12,7 @@ use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use shed_core::error::SessionError;
 use shed_core::reader::graph::load_graph;
 use shed_core::session::DatasetSession;
-use shed_core::testutil::DatasetBuilder;
+use shed_core::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
 
 #[test]
 fn reads_graph_parquet_with_level_and_upstream_ids() {
@@ -288,10 +288,7 @@ fn write_catchments_parquet(root: &Path, rows: &[(i64, i16)]) {
         Field::new("up_area_km2", DataType::Float32, true),
         Field::new("outlet_lon", DataType::Float64, false),
         Field::new("outlet_lat", DataType::Float64, false),
-        Field::new("bbox_minx", DataType::Float32, false),
-        Field::new("bbox_miny", DataType::Float32, false),
-        Field::new("bbox_maxx", DataType::Float32, false),
-        Field::new("bbox_maxy", DataType::Float32, false),
+        bbox_struct_field(false),
         Field::new("geometry", DataType::Binary, false),
     ]));
 
@@ -338,10 +335,12 @@ fn write_catchments_parquet(root: &Path, rows: &[(i64, i16)]) {
             Arc::new(up_area_b.finish()),
             Arc::new(outlet_lon_b.finish()),
             Arc::new(outlet_lat_b.finish()),
-            Arc::new(minx_b.finish()),
-            Arc::new(miny_b.finish()),
-            Arc::new(maxx_b.finish()),
-            Arc::new(maxy_b.finish()),
+            Arc::new(bbox_struct_array(
+                minx_b.finish(),
+                miny_b.finish(),
+                maxx_b.finish(),
+                maxy_b.finish(),
+            )),
             Arc::new(geom_b.finish()),
         ],
     )

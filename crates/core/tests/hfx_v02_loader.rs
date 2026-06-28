@@ -217,8 +217,8 @@ fn auxiliary_d8_declared_but_missing_artifact_is_typed() {
             ref schema,
             ref artifact,
             ..
-        } if schema == "hfx.aux.d8_raster.v1" && artifact == "flow_acc"
-            || schema == "hfx.aux.d8_raster.v1" && artifact == "flow_dir"
+        } if schema == "hfx.aux.d8_raster.v1"
+            && (artifact == "flow_acc" || artifact == "flow_dir")
     ));
 }
 
@@ -593,40 +593,37 @@ async fn bounded_graph_proof(store: Arc<dyn ObjectStore>, path: ObjectPath) -> G
 
     let mut sample_rows = 0usize;
     let mut sample_non_empty_upstream_lists = 0usize;
-    while let Some(reader) = stream
+    let first_batch = stream
         .next_row_group()
         .await
         .expect("real GRIT graph first row group should read")
-    {
-        for batch in reader {
-            let batch = batch.expect("real GRIT graph batch should decode");
-            let ids = batch
-                .column_by_name("id")
-                .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
-                .expect("graph id should decode as Int64");
-            let levels = batch
-                .column_by_name("level")
-                .and_then(|column| column.as_any().downcast_ref::<Int16Array>())
-                .expect("graph level should decode as Int16");
-            let upstream = batch
-                .column_by_name("upstream_ids")
-                .expect("graph upstream_ids should decode");
+        .and_then(|reader| reader.into_iter().next());
+    if let Some(batch) = first_batch {
+        let batch = batch.expect("real GRIT graph batch should decode");
+        let ids = batch
+            .column_by_name("id")
+            .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+            .expect("graph id should decode as Int64");
+        let levels = batch
+            .column_by_name("level")
+            .and_then(|column| column.as_any().downcast_ref::<Int16Array>())
+            .expect("graph level should decode as Int16");
+        let upstream = batch
+            .column_by_name("upstream_ids")
+            .expect("graph upstream_ids should decode");
 
-            for row in 0..batch.num_rows() {
-                assert!(!ids.is_null(row), "graph sample id should be non-null");
-                assert!(
-                    !levels.is_null(row),
-                    "graph sample level should be non-null"
-                );
-                let upstream_len = upstream_list_len(upstream.as_ref(), row);
-                if upstream_len > 0 {
-                    sample_non_empty_upstream_lists += 1;
-                }
+        for row in 0..batch.num_rows() {
+            assert!(!ids.is_null(row), "graph sample id should be non-null");
+            assert!(
+                !levels.is_null(row),
+                "graph sample level should be non-null"
+            );
+            let upstream_len = upstream_list_len(upstream.as_ref(), row);
+            if upstream_len > 0 {
+                sample_non_empty_upstream_lists += 1;
             }
-            sample_rows += batch.num_rows();
-            break;
         }
-        break;
+        sample_rows += batch.num_rows();
     }
 
     GraphProof {
@@ -717,51 +714,48 @@ async fn bounded_snap_proof(store: Arc<dyn ObjectStore>, path: ObjectPath) -> Sn
     let mut sample_rows = 0usize;
     let mut decoded_wkb_rows = 0usize;
     let mut decoded_geometry_types = BTreeSet::new();
-    while let Some(reader) = stream
+    let first_batch = stream
         .next_row_group()
         .await
         .expect("real GRIT snap matching row group should read")
-    {
-        for batch in reader {
-            let batch = batch.expect("real GRIT snap batch should decode");
-            let ids = batch
-                .column_by_name("id")
-                .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
-                .expect("snap id should decode as Int64");
-            let unit_ids = batch
-                .column_by_name("unit_id")
-                .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
-                .expect("snap unit_id should decode as Int64");
-            let geometry = batch
-                .column_by_name("geometry")
-                .expect("snap geometry should be projected");
+        .and_then(|reader| reader.into_iter().next());
+    if let Some(batch) = first_batch {
+        let batch = batch.expect("real GRIT snap batch should decode");
+        let ids = batch
+            .column_by_name("id")
+            .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+            .expect("snap id should decode as Int64");
+        let unit_ids = batch
+            .column_by_name("unit_id")
+            .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+            .expect("snap unit_id should decode as Int64");
+        let geometry = batch
+            .column_by_name("geometry")
+            .expect("snap geometry should be projected");
 
-            for row in 0..batch.num_rows() {
-                assert!(!ids.is_null(row), "snap sample id should be non-null");
-                assert!(
-                    !unit_ids.is_null(row),
-                    "snap sample unit_id should be non-null"
-                );
-                let wkb = wkb_geometry_from_array(geometry.as_ref(), row);
-                let decoded = WkbGeometry::new(wkb)
-                    .map_err(|error| error.to_string())
-                    .and_then(|wkb| {
-                        Wkb(wkb.as_bytes())
-                            .to_geo()
-                            .map_err(|error| error.to_string())
-                    })
-                    .expect("snap sample geometry WKB should decode");
-                decoded_wkb_rows += 1;
-                decoded_geometry_types.insert(match decoded {
-                    Geometry::Point(_) => "Point",
-                    Geometry::LineString(_) => "LineString",
-                    _ => "Other",
-                });
-            }
-            sample_rows += batch.num_rows();
-            break;
+        for row in 0..batch.num_rows() {
+            assert!(!ids.is_null(row), "snap sample id should be non-null");
+            assert!(
+                !unit_ids.is_null(row),
+                "snap sample unit_id should be non-null"
+            );
+            let wkb = wkb_geometry_from_array(geometry.as_ref(), row);
+            let decoded = WkbGeometry::new(wkb)
+                .map_err(|error| error.to_string())
+                .and_then(|wkb| {
+                    Wkb(wkb.as_bytes())
+                        .to_geo()
+                        .map_err(|error| error.to_string())
+                })
+                .expect("snap sample geometry WKB should decode");
+            decoded_wkb_rows += 1;
+            decoded_geometry_types.insert(match decoded {
+                Geometry::Point(_) => "Point",
+                Geometry::LineString(_) => "LineString",
+                _ => "Other",
+            });
         }
-        break;
+        sample_rows += batch.num_rows();
     }
 
     SnapProof {
