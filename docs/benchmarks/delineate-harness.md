@@ -22,13 +22,13 @@ behavior.
 
 ## Examples
 
-Canonical remote runs:
+Canonical remote runs (the HFX v0.3.0 GRIT dataset; requires pyshed ≥ 0.3.0 and the new prefix being live after the v0.3.0 re-host — earlier recorded timings predate the bbox covering format):
 
 ```bash
-scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet zurich --iterations 3 --out scratchpad/benchmarks/cold-grit-zurich.jsonl
-scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet hammerfest --iterations 3 --out scratchpad/benchmarks/cold-grit-hammerfest.jsonl
-scripts/bench-delineate.sh --release --measure-rss --mode warm --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet zurich --iterations 5 --out scratchpad/benchmarks/warm-grit-zurich.jsonl
-scripts/bench-delineate.sh --release --measure-rss --mode hot --dataset https://basin-delineations-public.upstream.tech/grit/2.0.0/ --outlet zurich --iterations 10 --out scratchpad/benchmarks/hot-grit-zurich.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ --outlet zurich --iterations 3 --out scratchpad/benchmarks/cold-grit-zurich.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode cold --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ --outlet hammerfest --iterations 3 --out scratchpad/benchmarks/cold-grit-hammerfest.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode warm --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ --outlet zurich --iterations 5 --out scratchpad/benchmarks/warm-grit-zurich.jsonl
+scripts/bench-delineate.sh --release --measure-rss --mode hot --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ --outlet zurich --iterations 10 --out scratchpad/benchmarks/hot-grit-zurich.jsonl
 ```
 
 Local fixture smoke:
