@@ -42,9 +42,9 @@ fn push_auxiliary(root: &std::path::Path, aux: Value) {
 fn loads_minimal_v021_dataset() {
     let (_dir, root) = DatasetBuilder::new(3).build();
 
-    let session = DatasetSession::open_path(&root).expect("v0.2.1 fixture should load");
+    let session = DatasetSession::open_path(&root).expect("v0.3.0 fixture should load");
 
-    assert_eq!(session.manifest().format_version().to_string(), "0.2.1");
+    assert_eq!(session.manifest().format_version().to_string(), "0.3.0");
     assert_eq!(session.manifest().unit_count().get(), 3);
     assert_eq!(session.graph().len(), 3);
 }
@@ -72,7 +72,7 @@ fn manifest_wrong_version_rejected_before_later_required_fields() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(
         dir.path().join("manifest.json"),
-        r#"{"format_version":"0.3.0","auxiliary":[{"artifacts":{}}]}"#,
+        r#"{"format_version":"0.2.1","auxiliary":[{"artifacts":{}}]}"#,
     )
     .unwrap();
     std::fs::write(dir.path().join("graph.parquet"), []).unwrap();
@@ -81,7 +81,7 @@ fn manifest_wrong_version_rejected_before_later_required_fields() {
     let err = DatasetSession::open_path(dir.path()).unwrap_err();
     assert!(matches!(
         err,
-        SessionError::UnsupportedFormatVersion { ref found, .. } if found == "0.3.0"
+        SessionError::UnsupportedFormatVersion { ref found, .. } if found == "0.2.1"
     ));
 }
 
@@ -228,7 +228,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "missing name",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "description": "Synthetic snap targets.",
@@ -240,7 +240,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "empty name",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "",
@@ -253,7 +253,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "missing description",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "test-snap",
@@ -265,7 +265,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "empty references_levels",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "test-snap",
@@ -278,7 +278,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "negative references_levels",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "test-snap",
@@ -291,7 +291,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "non-integer references_levels",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "test-snap",
@@ -304,7 +304,7 @@ fn auxiliary_snap_missing_or_invalid_metadata_is_typed() {
         (
             "missing weight_semantics",
             json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "test-snap",
@@ -333,7 +333,7 @@ fn auxiliary_snap_path_escape_is_typed() {
     push_auxiliary(
         &root,
         json!({
-            "schema": "hfx.aux.snap.v1",
+            "schema": "hfx.aux.snap.v2",
             "artifacts": { "snap": "/tmp/snap.parquet" },
             "metadata": {
                 "name": "test-snap",
@@ -351,7 +351,7 @@ fn auxiliary_snap_path_escape_is_typed() {
             ref schema,
             ref artifact,
             ..
-        } if schema == "hfx.aux.snap.v1" && artifact == "snap"
+        } if schema == "hfx.aux.snap.v2" && artifact == "snap"
     ));
 }
 
@@ -432,7 +432,7 @@ fn grit_v200_public_r2_loads_real_v021_multilevel_dag() {
         let manifest = parsed.manifest;
         let aux = parsed.aux;
 
-        assert_eq!(manifest.format_version().to_string(), "0.2.1");
+        assert_eq!(manifest.format_version().to_string(), "0.3.0");
         assert_eq!(manifest.crs().to_string(), "EPSG:4326");
         assert_eq!(manifest.unit_count().get(), 22_337_300);
         assert_eq!(manifest.topology(), Topology::Dag);

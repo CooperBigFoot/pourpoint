@@ -74,7 +74,7 @@ fn wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
 
 fn write_manifest(root: &Path, unit_count: usize, has_snap: bool) {
     let mut m = serde_json::json!({
-        "format_version": "0.2.1",
+        "format_version": "0.3.0",
         "fabric_name": "testfabric",
         "crs": "EPSG:4326",
         "topology": "tree",
@@ -89,7 +89,7 @@ fn write_manifest(root: &Path, unit_count: usize, has_snap: bool) {
             .as_array_mut()
             .unwrap()
             .push(serde_json::json!({
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap.parquet" },
                 "metadata": {
                     "name": "test-snap",

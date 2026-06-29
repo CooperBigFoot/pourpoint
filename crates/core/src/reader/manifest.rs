@@ -1,7 +1,7 @@
 //! Manifest reader — parses manifest.json into an hfx_core::Manifest plus
 //! shed-side auxiliary declarations.
 //!
-//! HFX v0.2.1 hard-cut: only `format_version == "0.2.1"` and `crs ==
+//! HFX v0.3.0 hard-cut: only `format_version == "0.3.0"` and `crs ==
 //! "EPSG:4326"` are accepted. The version check runs first so a v0.1 manifest
 //! is rejected with a typed [`SessionError::UnsupportedFormatVersion`] before
 //! any required-field parsing. Presence of snap/raster data is expressed
@@ -20,7 +20,7 @@ use tracing::instrument;
 use crate::error::SessionError;
 
 /// The only HFX on-disk format version this engine reads.
-const SUPPORTED_FORMAT_VERSION: &str = "0.2.1";
+const SUPPORTED_FORMAT_VERSION: &str = "0.3.0";
 /// The only CRS this engine reads.
 const SUPPORTED_CRS: &str = "EPSG:4326";
 
@@ -35,7 +35,7 @@ pub struct D8RasterDecl {
     pub flow_dir_encoding: FlowDirEncoding,
 }
 
-/// Parsed metadata for a blessed `hfx.aux.snap.v1` declaration.
+/// Parsed metadata for a blessed `hfx.aux.snap.v2` declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapDecl {
     /// Kebab-case name, unique across snap declarations in the dataset.
@@ -123,7 +123,7 @@ pub(crate) struct RawAuxiliary {
 /// | Variant | Condition |
 /// |---|---|
 /// | [`SessionError::Io`] | File cannot be read |
-/// | [`SessionError::UnsupportedFormatVersion`] | `format_version` is not `"0.2.1"` |
+/// | [`SessionError::UnsupportedFormatVersion`] | `format_version` is not `"0.3.0"` |
 /// | [`SessionError::UnsupportedCrs`] | `crs` is not `"EPSG:4326"` |
 /// | [`SessionError::ManifestJsonParse`] | Bytes are not valid JSON or do not match the expected shape |
 /// | [`SessionError::ManifestFieldMissing`] | A required field is absent |
@@ -162,7 +162,7 @@ fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
             expected: SUPPORTED_FORMAT_VERSION,
         });
     }
-    let format_version = FormatVersion::V0_2_1;
+    let format_version = FormatVersion::V0_3_0;
 
     let fabric_name = raw.fabric_name.ok_or(SessionError::ManifestFieldMissing {
         field: "fabric_name",
@@ -309,7 +309,7 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
         AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV1) => ClassifiedAux::D8(
             parse_d8_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
         ),
-        AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV1) => ClassifiedAux::Snap(
+        AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV2) => ClassifiedAux::Snap(
             parse_snap_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
         ),
         AuxiliarySchemaId::Provisional(_) | AuxiliarySchemaId::ThirdParty(_) => {
@@ -356,7 +356,7 @@ fn parse_d8_metadata(
     })
 }
 
-/// Parse the metadata block for an `hfx.aux.snap.v1` declaration.
+/// Parse the metadata block for an `hfx.aux.snap.v2` declaration.
 fn parse_snap_metadata(
     schema: &str,
     artifacts: &BTreeMap<String, String>,
@@ -480,7 +480,7 @@ mod tests {
 
     fn minimal_json() -> serde_json::Value {
         json!({
-            "format_version": "0.2.1",
+            "format_version": "0.3.0",
             "fabric_name": "testfabric",
             "crs": "EPSG:4326",
             "topology": "tree",
@@ -499,7 +499,7 @@ mod tests {
         let parsed = read_manifest(&path).unwrap();
         let manifest = parsed.manifest;
 
-        assert_eq!(manifest.format_version(), FormatVersion::V0_2_1);
+        assert_eq!(manifest.format_version(), FormatVersion::V0_3_0);
         assert_eq!(manifest.fabric_name(), "testfabric");
         assert_eq!(manifest.crs(), Crs::Epsg4326);
         assert_eq!(manifest.topology(), Topology::Tree);
@@ -522,6 +522,21 @@ mod tests {
         let err = read_manifest(&path).unwrap_err();
         assert!(
             matches!(err, SessionError::UnsupportedFormatVersion { ref found, .. } if found == "0.1"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_v021_format_version_rejected_before_missing_fields() {
+        let dir = TempDir::new().unwrap();
+        let value = json!({
+            "format_version": "0.2.1",
+            "fabric_name": "testfabric"
+        });
+        let path = write_manifest(&dir, &value);
+        let err = read_manifest(&path).unwrap_err();
+        assert!(
+            matches!(err, SessionError::UnsupportedFormatVersion { ref found, .. } if found == "0.2.1"),
             "unexpected error: {err}"
         );
     }
@@ -550,7 +565,7 @@ mod tests {
                 "metadata": { "flow_dir_encoding": "esri" }
             },
             {
-                "schema": "hfx.aux.snap.v1",
+                "schema": "hfx.aux.snap.v2",
                 "artifacts": { "snap": "snap/segment_stems.parquet" },
                 "metadata": {
                     "name": "segment-stems",

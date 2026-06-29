@@ -15,7 +15,7 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
-use hfx_core::{BoundingBox, Topology, UnitId};
+use hfx_core::{BoundingBox, Level, Topology, UnitId};
 use shed_core::SessionError;
 use shed_core::session::DatasetSession;
 use shed_core::testutil::{bbox_struct_array, bbox_struct_field};
@@ -60,10 +60,21 @@ fn minimal_wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 fn write_manifest(root: &Path, unit_count: usize, snap: bool, rasters: bool, topology: &str) {
+    write_manifest_with_version(root, "0.3.0", unit_count, snap, rasters, topology);
+}
+
+fn write_manifest_with_version(
+    root: &Path,
+    format_version: &str,
+    unit_count: usize,
+    snap: bool,
+    rasters: bool,
+    topology: &str,
+) {
     let mut auxiliary = Vec::new();
     if snap {
         auxiliary.push(serde_json::json!({
-            "schema": "hfx.aux.snap.v1",
+            "schema": "hfx.aux.snap.v2",
             "artifacts": { "snap": "snap.parquet" },
             "metadata": {
                 "name": "test-snap",
@@ -82,7 +93,7 @@ fn write_manifest(root: &Path, unit_count: usize, snap: bool, rasters: bool, top
     }
 
     let mut m = serde_json::json!({
-        "format_version": "0.2.1",
+        "format_version": format_version,
         "fabric_name": "testfabric",
         "crs": "EPSG:4326",
         "topology": topology,
@@ -579,6 +590,33 @@ fn test_open_valid_full_dataset() {
 }
 
 #[test]
+fn test_open_hfx_v030_struct_bbox_dataset_with_snap() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_manifest_with_version(root, "0.3.0", 3, true, false, "tree");
+    write_graph(root, 3);
+    write_catchments(root, 3, 8192);
+    write_snap(root, 3);
+
+    let session = DatasetSession::open_path(root).expect("HFX v0.3.0 dataset should open");
+
+    assert_eq!(session.manifest().format_version().to_string(), "0.3.0");
+    assert_eq!(
+        session.level_of(UnitId::new(2).unwrap()),
+        Some(Level::new(0).unwrap())
+    );
+    assert_eq!(
+        session
+            .catchments()
+            .query_by_bbox(&BoundingBox::new(1.0, 0.0, 1.4, 0.4).unwrap())
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(session.snap().is_some());
+}
+
+#[test]
 fn test_open_missing_root() {
     let result = DatasetSession::open("/nonexistent/shed/test/path/xyz123");
     assert!(
@@ -675,7 +713,7 @@ fn test_open_snap_declared_but_missing() {
                 ref schema,
                 ref artifact,
                 ..
-            }) if schema == "hfx.aux.snap.v1" && artifact == "snap"
+            }) if schema == "hfx.aux.snap.v2" && artifact == "snap"
         ),
         "expected AuxiliaryArtifactMissing for snap.parquet, got: {result:?}"
     );

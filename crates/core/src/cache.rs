@@ -374,7 +374,7 @@ mod tests {
 
     fn sidecar_with_two_snaps() -> ValidationSidecar {
         ValidationSidecar::current(
-            "0.2.1",
+            "0.3.0",
             artifact("manifest.json", "manifest-etag", 11),
             artifact("graph.parquet", "graph-etag", 22),
             artifact("catchments.parquet", "catch-etag", 33),
@@ -414,7 +414,7 @@ mod tests {
         let (manifest, graph, catchments, snaps) = token_inputs();
         let sidecar = sidecar_with_two_snaps();
 
-        assert!(sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+        assert!(sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));
     }
 
     #[test]
@@ -423,14 +423,14 @@ mod tests {
         let graph = artifact("graph.parquet", "graph-etag", 22);
         let catchments = artifact("catchments.parquet", "catch-etag", 33);
         let sidecar = ValidationSidecar::current(
-            "0.2.1",
+            "0.3.0",
             manifest.clone(),
             graph.clone(),
             catchments.clone(),
             Vec::new(),
         );
 
-        assert!(sidecar.matches("0.2.1", &manifest, &graph, &catchments, &[]));
+        assert!(sidecar.matches("0.3.0", &manifest, &graph, &catchments, &[]));
     }
 
     #[test]
@@ -447,7 +447,7 @@ mod tests {
         let sidecar: ValidationSidecar = serde_json::from_value(legacy).unwrap();
         let (manifest, graph, catchments, snaps) = token_inputs();
 
-        assert!(!sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+        assert!(!sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));
     }
 
     #[test]
@@ -457,7 +457,7 @@ mod tests {
         serialized["shed_version"] = serde_json::json!("0.0.0-different-patch");
         let sidecar: ValidationSidecar = serde_json::from_value(serialized).unwrap();
 
-        assert!(sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+        assert!(sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));
     }
 
     #[test]
@@ -466,7 +466,7 @@ mod tests {
         let mut sidecar = sidecar_with_two_snaps();
         sidecar.validation_logic_version = ValidationLogicVersion("different-logic".into());
 
-        assert!(!sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+        assert!(!sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));
     }
 
     #[test]
@@ -475,7 +475,7 @@ mod tests {
         let mut sidecar = sidecar_with_two_snaps();
         sidecar.validation_logic_version = ValidationLogicVersion("r2-open-reuse-v1".into());
 
-        assert!(!sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+        assert!(!sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));
     }
 
     #[test]
@@ -484,14 +484,14 @@ mod tests {
         let sidecar = sidecar_with_two_snaps();
 
         assert!(!sidecar.matches(
-            "0.2.1",
+            "0.3.0",
             &artifact("manifest.json", "other-manifest", 11),
             &graph,
             &catchments,
             &snaps
         ));
         assert!(!sidecar.matches(
-            "0.2.1",
+            "0.3.0",
             &manifest,
             &graph,
             &artifact("catchments.parquet", "catch-etag", 34),
@@ -501,7 +501,7 @@ mod tests {
             artifact("aux/snap-a.parquet", "snap-a-etag", 44),
             artifact("aux/snap-b.parquet", "snap-b-etag", 56),
         ];
-        assert!(!sidecar.matches("0.2.1", &manifest, &graph, &catchments, &changed_snap));
+        assert!(!sidecar.matches("0.3.0", &manifest, &graph, &catchments, &changed_snap));
     }
 
     #[test]
@@ -510,14 +510,14 @@ mod tests {
         let sidecar = sidecar_with_two_snaps();
 
         assert!(!sidecar.matches(
-            "0.2.1",
+            "0.3.0",
             &manifest,
             &artifact("graph.parquet", "other-graph", 22),
             &catchments,
             &snaps
         ));
         assert!(!sidecar.matches(
-            "0.2.1",
+            "0.3.0",
             &manifest,
             &artifact("graph.parquet", "graph-etag", 23),
             &catchments,
@@ -538,6 +538,6 @@ mod tests {
                 artifact("aux/snap-b.parquet", "snap-b-etag", 55),
             ]
         );
-        assert!(sidecar.matches("0.2.1", &manifest, &graph, &catchments, &snaps));
+        assert!(sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));
     }
 }

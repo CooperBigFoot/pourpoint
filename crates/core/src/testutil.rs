@@ -313,7 +313,7 @@ impl DatasetBuilder {
     fn write_manifest(&self, root: &Path) {
         let unit_count = self.generated_unit_count();
         let mut manifest = json!({
-            "format_version": "0.2.1",
+            "format_version": "0.3.0",
             "fabric_name": "testfabric",
             "crs": "EPSG:4326",
             "topology": self.topology,
@@ -328,7 +328,7 @@ impl DatasetBuilder {
             if let Some(declarations) = &self.custom_snap_declarations {
                 for declaration in declarations {
                     auxiliary.push(json!({
-                        "schema": "hfx.aux.snap.v1",
+                        "schema": "hfx.aux.snap.v2",
                         "artifacts": { "snap": declaration.path },
                         "metadata": {
                             "name": declaration.name,
@@ -340,7 +340,7 @@ impl DatasetBuilder {
                 }
             } else {
                 auxiliary.push(json!({
-                    "schema": "hfx.aux.snap.v1",
+                    "schema": "hfx.aux.snap.v2",
                     "artifacts": { "snap": "snap.parquet" },
                     "metadata": {
                         "name": "test-snap",

@@ -16,7 +16,7 @@ fn fixture_builder_emits_v021_manifest_and_core_artifacts() {
 
     let manifest = read_manifest(&root);
 
-    assert_eq!(manifest["format_version"], "0.2.1");
+    assert_eq!(manifest["format_version"], "0.3.0");
     assert_eq!(manifest["unit_count"], 2);
     assert!(root.join("catchments.parquet").is_file());
     assert!(root.join("graph.parquet").is_file());
@@ -34,7 +34,7 @@ fn fixture_builder_declares_snap_and_d8_aux_artifacts() {
         .map(|decl| decl["schema"].as_str().unwrap())
         .collect::<BTreeSet<_>>();
 
-    assert!(schemas.contains("hfx.aux.snap.v1"));
+    assert!(schemas.contains("hfx.aux.snap.v2"));
     assert!(schemas.contains("hfx.aux.d8_raster.v1"));
     assert!(root.join("snap.parquet").is_file());
     assert!(root.join("flow_dir.tif").is_file());
@@ -91,7 +91,7 @@ fn converted_parity_fixture_is_separate_v021_d8_fixture() {
         .join(V021_SYNTHETIC_REFINED_DIR);
     let manifest = read_manifest(&root);
 
-    assert_eq!(manifest["format_version"], "0.2.1");
+    assert_eq!(manifest["format_version"], "0.3.0");
     assert_eq!(manifest["unit_count"], 1);
     assert!(root.join("catchments.parquet").is_file());
     assert!(root.join("graph.parquet").is_file());

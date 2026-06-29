@@ -1238,8 +1238,9 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "hfx-core"
-version = "0.2.64"
-source = "git+https://github.com/CooperBigFoot/hfx.git?tag=v0.2.64#478dfa608d269c23e7f65debd35d4e5236d82bf1"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2c9816a24f4729b0b73976a54c3652ec9d27a472db501b0a9275e0f2ff53e66"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -2272,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "pyshed"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "gdal",
  "gdal-sys",

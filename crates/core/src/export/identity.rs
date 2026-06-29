@@ -422,7 +422,7 @@ mod export_identity_tests {
     #[test]
     fn export_identity_fabric_identity_copies_manifest_fields() {
         let manifest = ManifestBuilder::new(
-            FormatVersion::V0_2_1,
+            FormatVersion::V0_3_0,
             "grit",
             Crs::Epsg4326,
             Topology::Tree,

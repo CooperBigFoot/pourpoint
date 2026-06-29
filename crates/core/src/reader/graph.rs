@@ -1,4 +1,4 @@
-//! Graph reader — loads HFX v0.2.1 graph.parquet into a DrainageGraph.
+//! Graph reader — loads HFX v0.3.0 graph.parquet into a DrainageGraph.
 
 use std::collections::BTreeSet;
 use std::path::Path;

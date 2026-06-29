@@ -324,7 +324,7 @@ fn decode_hex(hex: &str) -> Vec<u8> {
 }
 
 fn assert_real_merit_manifest(session: &DatasetSession) {
-    assert_eq!(session.manifest().format_version().to_string(), "0.2.1");
+    assert_eq!(session.manifest().format_version().to_string(), "0.3.0");
     assert_eq!(
         session.auxiliary_declarations().d8_rasters.len(),
         EXPECTED_REAL_MERIT_D8_DECLS,

@@ -728,7 +728,7 @@ pub fn resolve_outlet(
 ///
 /// Uses the same snap-vs-PiP dispatch as [`resolve_outlet`]. The PiP branch
 /// filters decoded catchment candidates to `selected_level` before containment
-/// testing and tie-breaking. The snap branch selects the `hfx.aux.snap.v1`
+/// testing and tie-breaking. The snap branch selects the `hfx.aux.snap.v2`
 /// declaration whose `references_levels` contains `selected_level`, then
 /// filters snap targets by their referenced unit level before radius filtering
 /// and ranking.
