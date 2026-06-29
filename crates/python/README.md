@@ -32,7 +32,7 @@ public GRIT dataset on Cloudflare R2 and delineate straight away:
 import pyshed
 
 # No local dataset: this reads the hosted GRIT dataset over the network.
-engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/2.0.0/")
+engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 result = engine.delineate(lat=47.3769, lon=8.5417)
 print(result.area_km2)
 ```
@@ -76,7 +76,7 @@ r2_engine = pyshed.Engine(
     "https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine"
 )
 public_r2_engine = pyshed.Engine(
-    "https://basin-delineations-public.upstream.tech/grit/2.0.0/"
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"
 )
 ```
 
@@ -121,7 +121,7 @@ Enable structured log output from both the Python and Rust layers:
 import pyshed
 
 pyshed.set_log_level("info")
-engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/2.0.0/")
+engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 # INFO lines stream during manifest/graph/catchment loading
 result = engine.delineate(lat=47.3769, lon=8.5417)
 ```
@@ -137,7 +137,7 @@ across overlapping watersheds:
 
 ```python
 engine = pyshed.Engine(
-    "https://basin-delineations-public.upstream.tech/grit/2.0.0/",
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/",
     parquet_cache=True,
     parquet_cache_max_mb=512,
 )
@@ -172,7 +172,7 @@ import pyshed
 # tqdm is a user dependency — not bundled with pyshed
 from tqdm.auto import tqdm
 
-url = "https://basin-delineations-public.upstream.tech/grit/2.0.0/"
+url = "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"
 engine = pyshed.Engine(url)
 
 outlets = [
