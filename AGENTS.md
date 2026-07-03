@@ -38,34 +38,34 @@ These guidelines are guardrails against common LLM coding mistakes. They bias to
 - Bug fixes should be tied to a reproduction or regression test when practical.
 - Behavior changes should end with the smallest useful verification: tests, build, or a concrete manual check.
 
-## Version Bumping (mandatory)
+## Releases (curated)
 
-**Every commit MUST include a patch version bump.** No exceptions.
-
-Before committing, follow this exact sequence:
-
-1. `./scripts/bump-version.sh patch` — modifies `Cargo.toml` version field
-2. Stage `Cargo.toml` alongside code changes
-3. Commit with a conventional commit message
-4. `git tag v$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')` — tag the commit
+**Versions change only on intentional, curated releases — never per commit.**
+Regular commits carry NO version bump and NO tag.
 
 **Rules:**
 
-- **Patch bumps**: Automatic with every commit. Claude MUST do this.
-- **Minor/major bumps**: Only when the user explicitly requests. Use `./scripts/bump-version.sh minor` or `./scripts/bump-version.sh major`.
-- **Never let tooling create its own commit or tag.** Fold version changes into the real commit.
-- **Always tag** after every commit.
+- **Regular commits**: Use conventional commit messages. Do NOT bump the version and do NOT create tags.
+- **Agents never create or push tags.** Tags in the `v*` (workspace) and `pyshed-v*` (pyshed) namespaces are cut by a human at release time.
+- **Workspace release bump**: `./scripts/bump-version.sh <patch|minor|major>` edits the root `Cargo.toml` version field. It is invoked only as part of preparing a curated release — never as part of a normal commit.
 
 > **Note:** `cargo bump` does not support Cargo workspaces (it panics). Use `./scripts/bump-version.sh` instead — it edits `Cargo.toml` directly.
+
+### Pyshed releases (standalone)
+
+The `pyshed` crate (`crates/python/`) follows its own standalone release process and uses the separate `pyshed-v*` tag namespace:
+
+- Bump with `./scripts/bump-pyshed-version.sh <patch|minor|major|set <PEP440-version>>`.
+- `set` mode is required for prereleases (e.g. `set 0.1.0rc1`): the script writes the SemVer 2.0 form (`0.1.0-rc.1`) to `Cargo.toml` and the PEP 440 form (`0.1.0rc1`) to `pyproject.toml`.
+- Tag pyshed releases `pyshed-v*` (e.g. `pyshed-v0.3.0`), by a human at release time, to avoid colliding with the workspace's `v*` tags.
 
 ### Quick Reference
 
 | Command | Effect |
 |---|---|
-| `./scripts/bump-version.sh patch` | `0.1.0` → `0.1.1` |
-| `./scripts/bump-version.sh minor` | `0.1.1` → `0.2.0` |
-| `./scripts/bump-version.sh major` | `0.2.0` → `1.0.0` |
-| `grep '^version' Cargo.toml` | Show current version |
+| `./scripts/bump-version.sh patch` | `0.1.0` → `0.1.1` (workspace, release time) |
+| `./scripts/bump-pyshed-version.sh patch` | `0.3.0` → `0.3.1` (pyshed, release time) |
+| `grep '^version' Cargo.toml` | Show current workspace version |
 
 ## Rust Coding Conventions
 
@@ -247,3 +247,38 @@ Good candidates for typestate: delineation pipeline stages, raster processing ch
 - **Math-friendly names are allowed** in algorithm code (e.g., `dx`, `dy`, `acc`, `phi`), but add a glossary in the module doc.
 - **No `use super::*`** — explicit imports only.
 - **Group imports**: std → external crates → crate-internal, separated by blank lines.
+
+## Python Coding Conventions (`crates/python/`)
+
+These apply to the `pyshed` Python surface — the `.pyi` stub, the Python package under `crates/python/python/`, and the Python tests under `crates/python/tests/`. The compiled extension itself is Rust; see the Rust conventions above for that code.
+
+### Tooling: `uv`, `ruff`, `ty`
+
+- **Use `uv` exclusively** for Python environments and dependencies. Never invoke `pip`, `poetry`, `pip-tools`, or `virtualenv` directly. Run Python tooling through `uv run` and manage dependency groups with `uv` (e.g. `uv run --group docs mkdocs build --strict`).
+- **Format and lint with `ruff`.** `ruff format` is the formatter and `ruff check` is the linter — do not add `black`, `isort`, `flake8`, or `pylint`. Fix lints rather than blanket-suppressing them with `# noqa`.
+- **Type-check with `ty`.** `ty` is the type checker for the Python surface — do not introduce `mypy` or `pyright` as a parallel gate.
+
+### Modern typing
+
+Target the `requires-python >=3.9` floor with built-in generics and PEP 604 unions. Do NOT import `Optional`, `List`, `Dict`, `Tuple`, or `Union` from `typing`.
+
+```python
+# WRONG
+from typing import Optional, List, Dict
+def to_geojson(props: Optional[Dict[str, str]] = None) -> List[float]: ...
+
+# RIGHT
+def to_geojson(props: dict[str, str] | None = None) -> list[float]: ...
+```
+
+Use `list[str]`, `dict[str, int]`, `tuple[float, float]`, and `X | None` unions throughout, including in the `.pyi` stub.
+
+### Test assertions
+
+Prefer **library-specific assertion helpers** over a bare `assert` when comparing arrays or data frames — they give precise, tolerance-aware diffs on failure.
+
+- NumPy arrays: `numpy.testing.assert_allclose` / `numpy.testing.assert_array_equal`.
+- Polars frames: `polars.testing.assert_frame_equal`.
+- pandas frames: `pandas.testing.assert_frame_equal`.
+
+Bare `assert` remains fine for scalar and identity checks (e.g. `assert result.area_km2 > 0`).
