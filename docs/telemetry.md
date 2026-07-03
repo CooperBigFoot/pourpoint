@@ -1,9 +1,7 @@
 # Telemetry
 
 The benchmark telemetry contract provides stable stage timings and coarse
-remote-I/O counters for harnesses without depending on internal Rust APIs. The
-delineation harness is documented in
-[`docs/benchmarks/delineate-harness.md`](benchmarks/delineate-harness.md).
+remote-I/O counters for harnesses without depending on internal Rust APIs.
 
 ## Enablement
 

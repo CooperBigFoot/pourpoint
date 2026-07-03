@@ -20,3 +20,6 @@ scratchpad/
 
 # MkDocs build output (written by `mkdocs build` / `make docs`)
 /site/
+
+# uv virtualenv created by the docs toolchain (`uv run` / `make docs`)
+.venv/

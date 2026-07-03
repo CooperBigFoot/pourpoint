@@ -1,0 +1,42 @@
+site_name: shed
+site_description: Watershed delineation for any HFX-compliant hydrofabric.
+site_url: https://cooperbigfoot.github.io/shed/
+repo_url: https://github.com/CooperBigFoot/shed
+
+docs_dir: docs
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [crates/python/python]
+          options:
+            show_if_no_docstring: true
+            show_root_heading: true
+            members_order: source
+            docstring_style: google
+
+# Keep the stale maintainer-facing folder index (README.md maps to the same site
+# root '/' as index.md — a duplicate-destination conflict that fails --strict) and
+# the untracked local-only codex note out of the build. Both files are left on disk.
+exclude_docs: |
+  README.md
+  codex-non-interactive.md
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - How it works: how-it-works.md
+  - Guide:
+      - Datasets: guide/datasets.md
+      - Staged API: guide/staged-api.md
+      - Basin GeoParquet Export: basin-geoparquet-export.md
+  - API Reference: api-reference.md
+  - Advanced:
+      - Telemetry: telemetry.md
+      - Raster cache: raster-cache.md
+  - Credits & Citation: credits.md
