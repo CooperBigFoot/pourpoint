@@ -1,8 +1,13 @@
 # Basin GeoParquet Export
 
-## Status
+pyshed exports delineated basins to [GeoParquet](https://geoparquet.org/), the
+OGC standard that stores vector geometry inside Parquet files so tools like
+GeoPandas, DuckDB spatial, and QGIS read them natively. Reach for it when you want
+to delineate a catalog of basins once and query the outlines many times.
 
-This document defines the `shed` basin GeoParquet export format. It is a documented shed format, not a versioned spec. It is intended to be precise enough for code that reads shed outputs, while leaving external conformance rules, compatibility negotiation, and validator fixtures for a later versioned open spec if another producer appears.
+This page describes the columns, geometry encoding, and basin-identity rules that
+`BasinGeoParquetWriter` writes, so you can consume the output with any
+GeoParquet-aware reader.
 
 ## Purpose
 
@@ -153,7 +158,3 @@ define a basin GeoParquet export catalog shape. A CLI wrapper should be added
 only after that catalog contract is settled, so it can parse all `BasinId`
 values before delineation and call the core writer without inventing another
 input format.
-
-## Elevation Path
-
-If another producer or external conformer needs to target this format, elevate this document into a versioned open spec with compatibility rules, fixtures, and a conformance test suite.
