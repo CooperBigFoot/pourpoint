@@ -15,7 +15,8 @@ crates/python/dist/
 # Local benchmark output (written by scripts/bench-delineate.sh)
 scratchpad/
 
-# Local PCE planning scaffolding (plans/critiques/decisions/investigations; kept out of history)
-docs/plans/
-docs/investigations/
-docs/hfx-v02-redesign/
+# Archived PCE planning scaffolding (moved out of docs/; kept out of history)
+/planning/
+
+# MkDocs build output (written by `mkdocs build` / `make docs`)
+/site/
