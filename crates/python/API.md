@@ -113,6 +113,35 @@ hard-error as an unsupported format version.
   `snap_strategy`, unknown `repair_geometry`, a non-positive `snap_radius`, or
   `parquet_cache_max_mb=0` when `parquet_cache=True`.
 
+### Tuning Knobs
+
+Use these constructor options when the dataset or outlet coordinates need extra
+control. They apply to the `Engine` instance you create.
+
+- `snap_radius` sets the search radius in metres for snapping the outlet point
+  onto the river network. Set it on the constructor and reuse that engine for
+  delineations that need the same search distance. Raise it when outlet
+  coordinates sit off the mapped river.
+
+  ```python
+  engine = Engine("/path/to/hfx/dataset", snap_radius=5000)
+  ```
+
+- `repair_geometry` controls the geometry repairer. Geometry repair defaults to
+  the pure-Rust topology cleaner. `"gdal"` opts into the GDAL repairer.
+  `"auto"`, `"clean"`, `False`, and `None` all use the default cleaner.
+
+- `parquet_cache` controls the per-`Engine` in-memory cache of recently fetched
+  dataset blocks. The `None` default enables it for remote URLs and disables it
+  for local paths. Repeated delineations in the same session reuse data already
+  fetched, so overlapping watersheds are faster. The cache is held in memory
+  only, never written to disk, and is separate from the persistent metadata
+  cache kept under `HFX_CACHE_DIR` or the OS cache directory.
+
+- `parquet_cache_max_mb` sets the cache size cap in MiB. It defaults to `512`
+  when caching is enabled and must be greater than zero when
+  `parquet_cache=True`.
+
 ### Methods
 
 ```python
