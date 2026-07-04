@@ -11,7 +11,7 @@ GeoParquet-aware reader.
 
 ## Purpose
 
-The export supports the "delineate once, extract many" workflow: produce one dataset-level basin outlines file that downstream HDX-style pipelines can query by basin identity and source-fabric delineation.
+The export supports the "delineate once, extract many" workflow: produce one dataset-level basin outlines file that downstream tools that partition by basin can query by basin identity and source-fabric delineation.
 
 Each row represents one `(basin_id, delineation)` pair. Reusing a `basin_id` with different `delineation` labels is valid and represents the same caller-owned basin catalog entry delineated from different fabric data or methods.
 
@@ -19,7 +19,7 @@ Each row represents one `(basin_id, delineation)` pair. Reusing a `basin_id` wit
 
 | Column | Arrow type | Nullable | Description |
 |---|---|---:|---|
-| `basin_id` | `Utf8` | No | Caller-owned basin identity, unique per physical basin within a run and safe for HDX `basin=<id>` path segments. |
+| `basin_id` | `Utf8` | No | Caller-owned basin identity, unique per physical basin within a run and safe as a Hive-style `key=value` folder/URL path segment. |
 | `delineation` | `Utf8` | No | Source fabric data and method label, formatted by default as `{fabric_name}/{fabric_version}/{method}`. |
 | `geometry` | `Binary` | No | OGC WKB `MultiPolygon`, 2D, EPSG:4326. |
 | `outlet_lon` | `Float64` | No | Resolved outlet longitude in EPSG:4326. |
@@ -69,7 +69,7 @@ The export omits `orientation`. It also does not declare GeoParquet `covering.bb
 - reject `.` and `..`
 - reject Windows device names case-insensitively: `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, and `LPT1` through `LPT9`
 - reject trailing `.` or trailing space
-- reject `=` by the regex, because HDX uses `basin=<id>` path segments
+- reject `=` by the regex, so an ID stays safe as a Hive-style `key=value` folder or URL path segment
 
 The caller owns `basin_id` assignment. A narrow single-fabric default may use `DelineationResult::terminal_unit_id()` formatted as decimal text, but negative terminal unit IDs are rejected instead of emitting a leading `-`.
 
