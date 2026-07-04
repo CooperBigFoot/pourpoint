@@ -4,11 +4,11 @@ This guide takes you from installing pyshed to your first delineated watershed.
 
 ## Terms
 
-- **Outlet** — the point a watershed drains to, given as a `(latitude,
+- **Outlet**: the point a watershed drains to, given as a `(latitude,
   longitude)` coordinate. Everything upstream of the outlet is its watershed.
-- **Delineation** — computing that watershed: finding every piece of land
+- **Delineation**: computing that watershed by finding every piece of land
   upstream of the outlet and returning it as a polygon.
-- **HFX dataset** — a *hydrofabric*: the pre-built river-network and catchment
+- **HFX dataset**: a *hydrofabric*, the pre-built river-network and catchment
   data shed reads to delineate. It follows the open
   [HFX](https://github.com/CooperBigFoot/hfx) format, and you point pyshed at one
   by path or URL. See [Datasets](guide/datasets.md).
@@ -16,17 +16,19 @@ This guide takes you from installing pyshed to your first delineated watershed.
 ## 1. Install
 
 ```bash
-pip install pyshed
+uv add pyshed
 ```
 
-pyshed ships as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside —
-there is nothing else to install. Wheels are currently built for Apple Silicon
+(or pip install pyshed)
+
+pyshed ships as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside,
+so there is nothing else to install. Wheels are currently built for Apple Silicon
 macOS only (`macosx_11_0_arm64`).
 
 ## 2. Delineate your first watershed
 
 You do not need a local dataset. pyshed reads the hosted GRIT hydrofabric
-directly over the network, fetching only the bytes it needs — the full dataset is
+directly over the network, fetching only the bytes it needs; the full dataset is
 never downloaded to your machine.
 
 ```python
@@ -51,22 +53,25 @@ read the result. `result.area_km2` is the drainage area; `result.to_geojson()`
 returns the boundary polygon ready to write to a file or load into GeoPandas,
 QGIS, or a web map.
 
-The first open of the global hosted dataset fetches and validates metadata over
-the network and can take a minute or two; keep the `engine` around and reuse it
-for many delineations rather than reopening it.
+The first open of the hosted dataset fetches dataset metadata over the network
+and is slower; keep the `engine` around and reuse it for many delineations.
+Repeated delineations in the same session reuse data already fetched, so
+overlapping watersheds are faster.
 
 ## What just happened
 
-`delineate` resolved your `(lat, lon)` to the catchment it falls in, walked the
-river network upstream to gather every contributing catchment, and dissolved them
-into one polygon. For the mechanics in plain language, see
-[How it works](how-it-works.md). To run those steps yourself and inspect the
-intermediate results, see the [Staged API](guide/staged-api.md).
+The hydrofabric already records which catchment flows into which downstream
+catchment. `delineate` nudged your point onto the nearest river channel, found
+the unit catchment that contains it, followed the recorded catchment connections
+upstream, and merged the gathered catchments into one polygon, the watershed.
+For the mechanics in plain language, see [How it works](how-it-works.md). To run
+those steps yourself and inspect the intermediate results, see the
+[Staged API](guide/staged-api.md).
 
 ## Next steps
 
-- Point pyshed at other datasets, local or remote —
+- Point pyshed at other datasets, local or remote:
   [Datasets](guide/datasets.md).
-- Export many basins to GeoParquet —
+- Export many basins to GeoParquet:
   [Basin GeoParquet Export](basin-geoparquet-export.md).
-- Browse the full API — [API Reference](api-reference.md).
+- Browse the full API: [API Reference](api-reference.md).
