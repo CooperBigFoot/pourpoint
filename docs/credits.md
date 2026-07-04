@@ -2,23 +2,22 @@
 
 ## The algorithm is Matthew Heberger's
 
-The delineation method at the heart of `shed` — the hybrid of raster and vector
-techniques described in [How it works](how-it-works.md) — is the work of
+The delineation method at the heart of `shed`, the approach summarized in
+[How it works](how-it-works.md), is the work of
 **Matthew Heberger** ([ORCID 0000-0001-9122-0030](https://orcid.org/0000-0001-9122-0030)).
 He designed the method, validated it against reference watersheds, published it, and
 released a reference implementation as the open-source, **MIT**-licensed
 [delineator](https://github.com/mheberger/delineator) tool, alongside the
 point-and-click [Global Watersheds](https://mghydro.com/watersheds) web application.
 
-`shed` is an independent Rust reimplementation of that method. It does not extend or
-improve the algorithm — the intellectual contribution is entirely Heberger's. What
-`shed` adds is engineering reach: Heberger's delineator is built specifically around
-the MERIT-Hydro and MERIT-Basins datasets, whereas `shed` runs the same method on any
-[HFX](https://github.com/CooperBigFoot/hfx)-compliant hydrofabric — GRIT,
-MERIT-Basins, and others. The algorithm is his; the fabric-agnostic generalization is
-`shed`'s engineering delta. Because delineator is MIT-licensed, this reimplementation
-is legally clean: the credit here is a matter of correctness and courtesy, not a
-license obligation.
+`shed` is an independent Rust reimplementation of that method. The algorithm
+design is entirely Heberger's; what `shed` adds is engineering reach: Heberger's
+delineator is built specifically around the MERIT-Hydro and MERIT-Basins
+datasets, while `shed` runs the same method on any
+[HFX](https://github.com/CooperBigFoot/hfx)-compliant hydrofabric, including
+GRIT, MERIT-Basins, and others. Because delineator is MIT-licensed, the license
+permits this reimplementation. This page credits him because correctness and
+courtesy require it.
 
 ### A note on lineage
 
@@ -58,4 +57,4 @@ If the delineation algorithm matters to your work, please cite Heberger.
 DOI or paper. If you use them in research, cite Heberger's algorithm as above and
 point to the repository:
 
-> shed — watershed delineation for any HFX-compliant hydrofabric. <https://github.com/CooperBigFoot/shed>
+> shed: watershed delineation for any HFX-compliant hydrofabric. <https://github.com/CooperBigFoot/shed>
