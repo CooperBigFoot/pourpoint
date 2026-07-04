@@ -1,29 +1,24 @@
 # shed
 
-The watershed extraction engine that consumes compiled
-[HFX](https://github.com/CooperBigFoot/hfx) datasets and returns watershed
-polygons for any `(lat, lon)` outlet.
+Give `shed` a point on a river and it returns the whole upstream area that drains to it, the watershed.
 
-`shed` is fabric-agnostic by design: it reads the open HydroFabric Exchange
-contract (`manifest.json`, `catchments.parquet`, `graph.parquet`, plus
-manifest-declared snap and D8 raster auxiliaries — a D8 raster is the
-eight-direction flow model in which each grid cell drains to whichever of its
-eight neighbors lies steepest downhill) and runs outlet resolution (matching the
-requested point to the drainage unit it falls in), upstream traversal, optional
-terminal raster refinement (using the D8 flow grid to carve the precise
-watershed boundary inside the outlet's own terminal unit), and final geometry
-assembly without any source-fabric-specific logic in the hot path. The same
-engine works for any HFX-compliant dataset.
+`shed` reads [HFX](https://github.com/CooperBigFoot/hfx), a folder of pre-built
+river-network files in the open HydroFabric Exchange format. It finds the
+catchment that contains the point, gathers every catchment upstream, and merges
+them into one watershed polygon. The same engine works with any dataset in the
+HFX format.
 
 ## Use it from Python
 
 The Python wrapper [`pyshed`](https://pypi.org/project/pyshed/) is published
-on PyPI as a self-contained wheel with GDAL, PROJ, GEOS, and friends bundled
-inside — no system dependencies required.
+on PyPI as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside, so
+no system installs are needed.
 
 ```bash
-pip install pyshed
+uv add pyshed
 ```
+
+(or `pip install pyshed`)
 
 Current PyPI wheels are Apple Silicon macOS only (`macosx_11_0_arm64`). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for local builds and platform notes.
@@ -45,11 +40,12 @@ developer API reference.
 
 ## Dataset locations
 
-`shed` accepts local HFX dataset directories and remote object-store URLs for
-the dataset root. The root must contain the HFX artifacts described by the
+`shed` accepts local HFX dataset folders and remote URLs to datasets hosted
+online, for example on Amazon S3 or Cloudflare R2. The root must contain the
+HFX artifacts described by the
 manifest: `manifest.json`, `catchments.parquet`, and `graph.parquet`.
 Optional snap and D8 raster artifacts are declared in `manifest.json`
-auxiliaries rather than fixed root filenames.
+auxiliaries.
 
 Supported dataset path forms:
 
@@ -61,18 +57,11 @@ Supported dataset path forms:
 | Cloudflare R2 HTTPS URL | `https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine` |
 | Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` |
 
-For remote datasets, metadata and validation sidecars are cached under
-`HFX_CACHE_DIR` or the OS cache directory joined with `hfx` by default. On
-macOS that is typically `~/Library/Caches/hfx`; on Linux it is typically
-the user's XDG cache directory with an `hfx` child. Parquet artifacts such as
-`catchments.parquet` and `graph.parquet` are read through object-store range
-reads instead of being downloaded wholesale. The per-engine Parquet row-group
-cache defaults on for remote Python engines and off for local paths.
-
-Remote raster refinement uses COG window reads when raster artifacts are present:
-`shed` fetches TIFF metadata and only the compressed tile byte ranges needed for
-the terminal catchment. See [`docs/raster-cache.md`](docs/raster-cache.md) for
-details.
+For remote datasets, `shed` reads only the parts needed for each watershed, so
+you never download the whole dataset. It keeps a small cache on disk so repeat
+opens are faster; set `HFX_CACHE_DIR` to choose where it lives. On macOS that is
+typically `~/Library/Caches/hfx`. See
+[`docs/raster-cache.md`](docs/raster-cache.md) for details.
 
 ### Canonical Hosted Dataset
 
@@ -108,18 +97,9 @@ raster auxiliary, so best-effort refinement safely skips with a
 
 ## Performance And Caching
 
-The first open of the global GRIT dataset over R2 is the expensive step: expect
-about 2 minutes for the roughly 42 GB global fabric because metadata,
-validation, and network round trips dominate. Warm repeat opens are much
-cheaper, about 10 seconds when validation sidecars can be reused. A local
-large-dataset open is also about 10 seconds.
-
-Once an engine is open, delineation is much faster: about 80 ms for a single
-outlet and about 10 ms per outlet when batched. Set `HFX_CACHE_DIR` to choose
-the persistent remote metadata/validation cache root; otherwise the default on
-macOS is typically `~/Library/Caches/hfx`. Remote Python engines also enable a
-per-engine Parquet row-group cache by default, while local paths leave that
-cache off unless requested.
+The first open of a remote dataset fetches dataset metadata over the network and
+is slower, so keep the engine around and reuse it. Repeated delineations in the
+same session reuse data already fetched, so overlapping watersheds are faster.
 
 ## Use it from the CLI
 
@@ -146,10 +126,10 @@ cargo build --release
 |---|---|
 | `crates/core` | Pure-Rust algorithm core (HFX I/O, traversal, dissolve, repair) |
 | `crates/gdal` | GDAL bridge for windowed raster reads + GEOS geometry repair |
-| `crates/python` | PyO3 bindings, published on PyPI as `pyshed` |
+| `crates/python` | Python bindings, published on PyPI as `pyshed` |
 | `src/main.rs` | The `shed` CLI binary |
 | `ci/`, `.github/` | macOS arm64 wheel build pipeline (cibuildwheel + bespoke native stack) |
-| `scripts/` | Version-bump helpers — see `CLAUDE.md` for the workflow |
+| `scripts/` | Version-bump helpers; see `CLAUDE.md` for the workflow |
 
 ## Contributing
 
@@ -161,7 +141,7 @@ wheel contributions (Linux / Intel macOS / Windows) live in
 
 Public hosting of the canonical GRIT HFX dataset at
 `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` is sponsored by
-[Upstream Tech](https://www.upstream.tech/), who provide the object-storage
+[Upstream Tech](https://www.upstream.tech/), who provide the hosting
 infrastructure as an in-kind contribution to the open HFX ecosystem. Upstream
 Tech is an infrastructure sponsor: `shed` is independent open-source software,
 and this acknowledgment implies no commercial relationship or endorsement.
