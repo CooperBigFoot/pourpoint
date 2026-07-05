@@ -2143,6 +2143,93 @@ dependencies = [
 ]
 
 [[package]]
+name = "pourpoint"
+version = "0.1.189"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "clap",
+ "csv",
+ "geo",
+ "pourpoint-core",
+ "pourpoint-gdal",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "pourpoint-core"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "bytes",
+ "chrono",
+ "criterion",
+ "dashmap",
+ "dhat",
+ "dirs",
+ "futures-util",
+ "geo",
+ "geozero",
+ "hfx-core",
+ "moka",
+ "object_store",
+ "parquet",
+ "pourpoint-core",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tiff",
+ "tokio",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "pourpoint-gdal"
+version = "0.1.0"
+dependencies = [
+ "gdal",
+ "geo",
+ "geozero",
+ "hfx-core",
+ "pourpoint-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "pourpoint-python"
+version = "0.3.0"
+dependencies = [
+ "gdal",
+ "gdal-sys",
+ "geo",
+ "hfx-core",
+ "log",
+ "pourpoint-core",
+ "pourpoint-gdal",
+ "pyo3",
+ "pyo3-log",
+ "serde_json",
+ "strsim",
+ "thiserror 2.0.18",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2269,27 +2356,6 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "pyshed"
-version = "0.3.0"
-dependencies = [
- "gdal",
- "gdal-sys",
- "geo",
- "hfx-core",
- "log",
- "pyo3",
- "pyo3-log",
- "serde_json",
- "shed-core",
- "shed-gdal",
- "strsim",
- "thiserror 2.0.18",
- "tracing",
- "tracing-log",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2792,72 +2858,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
-]
-
-[[package]]
-name = "shed"
-version = "0.1.187"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "clap",
- "csv",
- "geo",
- "serde",
- "serde_json",
- "shed-core",
- "shed-gdal",
- "tempfile",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "shed-core"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "bytes",
- "chrono",
- "criterion",
- "dashmap",
- "dhat",
- "dirs",
- "futures-util",
- "geo",
- "geozero",
- "hfx-core",
- "moka",
- "object_store",
- "parquet",
- "rayon",
- "serde",
- "serde_json",
- "shed-core",
- "tempfile",
- "thiserror 2.0.18",
- "tiff",
- "tokio",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shed-gdal"
-version = "0.1.0"
-dependencies = [
- "gdal",
- "geo",
- "geozero",
- "hfx-core",
- "serde",
- "serde_json",
- "shed-core",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]

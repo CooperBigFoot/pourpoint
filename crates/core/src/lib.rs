@@ -1,4 +1,4 @@
-//! Core library for the shed watershed extraction engine.
+//! Core library for the pourpoint watershed extraction engine.
 
 pub mod algo;
 #[allow(dead_code)]

@@ -1,11 +1,11 @@
-//! PyO3 bindings for the shed watershed delineation engine.
+//! PyO3 bindings for the pourpoint watershed delineation engine.
 //!
 //! Exposes `Engine` and `DelineationResult` to Python, plus a hierarchy
-//! of typed exceptions rooted at `ShedError`.
+//! of typed exceptions rooted at `PourpointError`.
 //!
-//! The compiled extension module is named `_pyshed` (note the leading
-//! underscore). The public `pyshed` package re-exports everything from
-//! `pyshed/__init__.py` and handles runtime GDAL/PROJ data injection.
+//! The compiled extension module is named `_pourpoint` (note the leading
+//! underscore). The public `pourpoint` package re-exports everything from
+//! `pourpoint/__init__.py` and handles runtime GDAL/PROJ data injection.
 
 mod config;
 mod data_paths;
@@ -20,9 +20,9 @@ mod staged;
 use std::sync::OnceLock;
 
 use log::{LevelFilter, Log, Metadata, Record};
+use pourpoint_core::telemetry::jsonl::{JsonlGuard, JsonlLayer};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use shed_core::telemetry::jsonl::{JsonlGuard, JsonlLayer};
 use tracing_subscriber::prelude::*;
 
 static JSONL_GUARD: OnceLock<JsonlGuard> = OnceLock::new();
@@ -87,7 +87,7 @@ fn parse_level_filter(level: &str) -> PyResult<log::LevelFilter> {
 /// installed in the module-init path below. After that, only the dynamic
 /// `log::set_max_level` filter can change. This function adjusts that filter.
 ///
-/// Internal hook — the public `pyshed.set_log_level` wrapper in `__init__.py`
+/// Internal hook — the public `pourpoint.set_log_level` wrapper in `__init__.py`
 /// calls into this and additionally configures the Python `logging` hierarchy
 /// so records are actually emitted.
 ///
@@ -116,7 +116,7 @@ fn _install_bench_trace() {
 }
 
 #[pymodule]
-fn _pyshed(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _pourpoint(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Route Rust `tracing`/`log` events to Python's `logging` module.
     // `let _ =` ensures a duplicate install on re-import does not panic
     // (`log::set_boxed_logger` only succeeds once per process).
@@ -140,7 +140,7 @@ fn _pyshed(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<staged::PyPreMergeDrainageUnit>()?;
     m.add_class::<staged::PyTerminalRefinement>()?;
     m.add_class::<staged::PyDissolvedWatershed>()?;
-    m.add("ShedError", m.py().get_type::<error::ShedError>())?;
+    m.add("PourpointError", m.py().get_type::<error::PourpointError>())?;
     m.add("DatasetError", m.py().get_type::<error::DatasetError>())?;
     m.add(
         "ResolutionError",

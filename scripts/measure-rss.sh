@@ -47,8 +47,8 @@ if [[ ${#cmd[@]} -eq 0 ]]; then
   exit 2
 fi
 
-stdout_file=$(mktemp "${TMPDIR:-/tmp}/shed-rss-stdout.XXXXXX")
-stderr_file=$(mktemp "${TMPDIR:-/tmp}/shed-rss-stderr.XXXXXX")
+stdout_file=$(mktemp "${TMPDIR:-/tmp}/pourpoint-rss-stdout.XXXXXX")
+stderr_file=$(mktemp "${TMPDIR:-/tmp}/pourpoint-rss-stderr.XXXXXX")
 trap 'rm -f "$stdout_file" "$stderr_file"' EXIT
 
 platform=$(uname -s)
@@ -65,13 +65,13 @@ case "$platform" in
     ;;
 esac
 
-if /usr/bin/time "${time_args[@]}" bash -c '"$@"; status=$?; printf "\n__SHED_RSS_EXIT_STATUS=%d\n" "$status" >&2; exit "$status"' shed-rss "${cmd[@]}" >"$stdout_file" 2>"$stderr_file"; then
+if /usr/bin/time "${time_args[@]}" bash -c '"$@"; status=$?; printf "\n__POURPOINT_RSS_EXIT_STATUS=%d\n" "$status" >&2; exit "$status"' pourpoint-rss "${cmd[@]}" >"$stdout_file" 2>"$stderr_file"; then
   time_status=0
 else
   time_status=$?
 fi
 
-exit_status=$(awk -F= '/^__SHED_RSS_EXIT_STATUS=/ { value = $2 } END { if (value != "") print value }' "$stderr_file")
+exit_status=$(awk -F= '/^__POURPOINT_RSS_EXIT_STATUS=/ { value = $2 } END { if (value != "") print value }' "$stderr_file")
 if [[ -z ${exit_status:-} ]]; then
   exit_status=$time_status
 fi
@@ -83,7 +83,7 @@ fi
 
 if [[ -s "$stderr_file" ]]; then
   printf '%s\n' "--- command stderr and time output ---" >&2
-  awk '!/^__SHED_RSS_EXIT_STATUS=/' "$stderr_file" >&2
+  awk '!/^__POURPOINT_RSS_EXIT_STATUS=/' "$stderr_file" >&2
 fi
 
 case "$platform" in

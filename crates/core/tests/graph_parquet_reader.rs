@@ -9,10 +9,10 @@ use arrow::datatypes::{DataType, Field, Schema};
 use hfx_core::UnitId;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
-use shed_core::error::SessionError;
-use shed_core::reader::graph::load_graph;
-use shed_core::session::DatasetSession;
-use shed_core::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
+use pourpoint_core::error::SessionError;
+use pourpoint_core::reader::graph::load_graph;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
 
 #[test]
 fn reads_graph_parquet_with_level_and_upstream_ids() {

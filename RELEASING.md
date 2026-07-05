@@ -2,26 +2,26 @@
 
 This repository has two independent release streams. Do not confuse them:
 
-- **Workspace (`shed` / `shed-core`)** — tagged `v*`. Publishing a `v*` GitHub
-  Release does **not** publish pyshed: `build-wheels.yaml` guards every publish
-  path (and the build job) on the `pyshed-v` tag prefix.
-- **pyshed (Python bindings)** — tagged `pyshed-v*`. Publishing a `pyshed-v*`
+- **Workspace (`pourpoint` / `pourpoint-core`)** — tagged `v*`. Publishing a `v*` GitHub
+  Release does **not** publish pourpoint: `build-wheels.yaml` guards every publish
+  path (and the build job) on the `pourpoint-v` tag prefix.
+- **pourpoint (Python bindings)** — tagged `pourpoint-v*`. Publishing a `pourpoint-v*`
   GitHub Release is what builds and ships the wheel to PyPI / TestPyPI via OIDC
   Trusted Publishing (no stored tokens).
 
 Versions change **only** on intentional, curated releases — never per commit.
 Agents never create or push tags; a human cuts every release.
 
-## Cutting a pyshed release
+## Cutting a pourpoint release
 
-1. **Bump the version.** Use the standalone pyshed bump script (it edits
+1. **Bump the version.** Use the standalone pourpoint bump script (it edits
    `crates/python/pyproject.toml` and `crates/python/Cargo.toml`; it does not
    commit or tag):
 
    ```bash
-   ./scripts/bump-pyshed-version.sh patch          # 0.3.0 -> 0.3.1
-   ./scripts/bump-pyshed-version.sh minor          # 0.3.1 -> 0.4.0
-   ./scripts/bump-pyshed-version.sh set 0.4.0rc1   # required for prereleases
+   ./scripts/bump-pourpoint-version.sh patch          # 0.3.0 -> 0.3.1
+   ./scripts/bump-pourpoint-version.sh minor          # 0.3.1 -> 0.4.0
+   ./scripts/bump-pourpoint-version.sh set 0.4.0rc1   # required for prereleases
    ```
 
    Prereleases **must** use `set` mode with the PEP 440 form (e.g. `0.4.0rc1`);
@@ -31,11 +31,11 @@ Agents never create or push tags; a human cuts every release.
 2. **Update the changelog.** Add the release entry to `crates/python/CHANGELOG.md`.
 
 3. **Commit and merge.** Commit the bump on a branch (conventional message, e.g.
-   `chore(pyshed): prepare 0.4.0rc1`) and merge it to `main` via PR. The commit
+   `chore(pourpoint): prepare 0.4.0rc1`) and merge it to `main` via PR. The commit
    itself creates no tag.
 
-4. **Create and publish the GitHub Release.** Tag it `pyshed-vX.Y.Z[rcN]` (e.g.
-   `pyshed-v0.4.0rc1` or `pyshed-v0.4.0`), targeting the merged commit on `main`,
+4. **Create and publish the GitHub Release.** Tag it `pourpoint-vX.Y.Z[rcN]` (e.g.
+   `pourpoint-v0.4.0rc1` or `pourpoint-v0.4.0`), targeting the merged commit on `main`,
    and click **Publish**. The tag string is the single source of truth for
    routing:
 
@@ -64,9 +64,9 @@ OIDC Trusted Publishing and the docs site need GitHub + PyPI configuration that
 only a repository admin can do. Do this **once**:
 
 - [ ] **PyPI Trusted Publisher** — on <https://pypi.org>, add a GitHub trusted
-      publisher to the `pyshed` project:
+      publisher to the `pourpoint` project:
       - Owner: `CooperBigFoot`
-      - Repository: `shed`
+      - Repository: `pourpoint`
       - Workflow filename: `build-wheels.yaml`
       - Environment: `pypi`
 - [ ] **TestPyPI Trusted Publisher** — on <https://test.pypi.org>, same project,
@@ -77,5 +77,5 @@ only a repository admin can do. Do this **once**:
 - [ ] **Enable GitHub Pages** — Settings -> Pages -> Source: **GitHub Actions**.
 
 Until both Trusted Publishers and the `pypi` / `testpypi` environments exist, a
-published `pyshed-v*` Release will build the wheel but the publish step will fail
+published `pourpoint-v*` Release will build the wheel but the publish step will fail
 the OIDC handshake.

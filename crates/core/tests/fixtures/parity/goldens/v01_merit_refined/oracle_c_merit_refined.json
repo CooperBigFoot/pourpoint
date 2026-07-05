@@ -788,7 +788,7 @@
       "status": "Applied",
       "reason": null
     },
-    "canonicalizer_version": "shed-canonical-wkb-v1",
+    "canonicalizer_version": "pourpoint-canonical-wkb-v1",
     "comparison_policy": {
       "coordinate_abs_epsilon": 1e-6,
       "area_km2_abs_epsilon": 1e-6,
@@ -891,7 +891,7 @@
     },
     "attestation": {
       "local_tiff_raster_source_gdal_tile_parity": "rhine_basel localized windows were materialized by capture delineate() and proven tile-identical through LocalTiffRasterSource and GdalRasterSource, including tile geotransforms, sample values, nodata handling, and direct terminal-carve output before this golden was blessed",
-      "proof_command": "SHED_PARITY_R2_CAPTURE=1 cargo test -p shed-gdal --test raster_decode_parity merit_c_windows_tiff_match_gdal -- --ignored --nocapture"
+      "proof_command": "POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-gdal --test raster_decode_parity merit_c_windows_tiff_match_gdal -- --ignored --nocapture"
     }
   }
 ]

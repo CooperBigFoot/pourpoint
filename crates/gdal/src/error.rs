@@ -1,4 +1,4 @@
-//! Error types for the `shed-gdal` crate.
+//! Error types for the `pourpoint-gdal` crate.
 
 /// Errors from loading raster tiles via GDAL.
 #[derive(Debug, thiserror::Error)]

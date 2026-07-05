@@ -33,11 +33,11 @@ artifacts.
 Offline comparison command:
 
 ```bash
-cargo test -p shed-core --test parity_golden_artifacts
+cargo test -p pourpoint-core --test parity_golden_artifacts
 ```
 
 Refresh command:
 
 ```bash
-SHED_PARITY_R2_CAPTURE=1 cargo test -p shed-core --test parity_v01_oracle_capture -- --ignored --nocapture
+POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-core --test parity_v01_oracle_capture -- --ignored --nocapture
 ```

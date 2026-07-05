@@ -121,4 +121,4 @@ esac
 
 echo ""
 echo "Don't forget to update crates/python/CHANGELOG.md and tag with:"
-echo "  git tag pyshed-v${PEP_VER:-${NEW_VER}}"
+echo "  git tag pourpoint-v${PEP_VER:-${NEW_VER}}"

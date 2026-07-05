@@ -3,17 +3,17 @@ use std::path::{Path, PathBuf};
 
 use geo::{Rect, coord};
 use hfx_core::FlowDirEncoding;
-use serde_json::{Value, json};
-use shed_core::algo::coord::GeoCoord;
-use shed_core::algo::{
+use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::algo::{
     AccumulationTile, FlowDirectionTile, RasterSource, RasterSourceError, Raw,
     canonical_wkb_multi_polygon,
 };
-use shed_core::session::{DatasetSession, RasterKind};
-use shed_core::{
+use pourpoint_core::session::{DatasetSession, RasterKind};
+use pourpoint_core::{
     BestEffortSkipReason, DelineationOptions, Engine, EngineError, RefinementMode,
     RefinementOutcome, RefinementProvenance, RefinementStrategyName, SessionError,
 };
+use serde_json::{Value, json};
 use tempfile::TempDir;
 use tiff::encoder::{TiffEncoder, colortype};
 use tiff::tags::Tag;

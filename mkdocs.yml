@@ -1,7 +1,7 @@
-site_name: shed
+site_name: pourpoint
 site_description: Watershed delineation for any HFX-compliant hydrofabric.
-site_url: https://cooperbigfoot.github.io/shed/
-repo_url: https://github.com/CooperBigFoot/shed
+site_url: https://cooperbigfoot.github.io/pourpoint/
+repo_url: https://github.com/CooperBigFoot/pourpoint
 
 docs_dir: docs
 

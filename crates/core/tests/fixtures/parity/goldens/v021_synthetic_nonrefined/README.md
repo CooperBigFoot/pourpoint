@@ -17,7 +17,7 @@ Provenance:
 
 - baseline: commit `dc65924`, tag/version `v0.1.122`
 - current capture: commit `5f3d3cf`, version `0.1.127`
-- canonicalizer: `shed-canonical-wkb-v1` at 6 decimal places
+- canonicalizer: `pourpoint-canonical-wkb-v1` at 6 decimal places
 - comparison policy: coordinate epsilon `1e-6`, area absolute epsilon `1e-6`,
   area relative epsilon `1e-6`
 

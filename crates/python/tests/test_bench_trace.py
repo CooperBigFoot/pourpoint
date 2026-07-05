@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-import pyshed
+import pourpoint
 
 
 def test_bench_trace_writes_stage_records_before_process_exit(tmp_path):
@@ -18,8 +18,8 @@ def test_bench_trace_writes_stage_records_before_process_exit(tmp_path):
         / "v021_synthetic_refined"
     )
 
-    with pyshed.bench_trace(trace_path):
-        engine = pyshed.Engine(str(fixture), snap_threshold=500)
+    with pourpoint.bench_trace(trace_path):
+        engine = pourpoint.Engine(str(fixture), snap_threshold=500)
         engine.delineate(lat=-2.5, lon=2.5)
 
     assert os.path.getsize(trace_path) > 0

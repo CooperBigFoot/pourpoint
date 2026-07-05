@@ -1,26 +1,26 @@
-"""Smoke tests for the pyshed Python bindings."""
+"""Smoke tests for the pourpoint Python bindings."""
 
 
 def test_import():
     """Module can be imported."""
-    import pyshed
+    import pourpoint
 
-    assert hasattr(pyshed, "Engine")
+    assert hasattr(pourpoint, "Engine")
 
 
 def test_exceptions_exist():
     """Custom exception classes are importable."""
-    from pyshed import DatasetError, ResolutionError, ShedError
+    from pourpoint import DatasetError, ResolutionError, PourpointError
 
-    assert issubclass(DatasetError, ShedError)
-    assert issubclass(ResolutionError, ShedError)
+    assert issubclass(DatasetError, PourpointError)
+    assert issubclass(ResolutionError, PourpointError)
 
 
 def test_engine_bad_path():
     """Engine raises DatasetError for a nonexistent path."""
     import pytest
 
-    import pyshed
+    import pourpoint
 
-    with pytest.raises(pyshed.DatasetError):
-        pyshed.Engine("/nonexistent/path/to/dataset")
+    with pytest.raises(pourpoint.DatasetError):
+        pourpoint.Engine("/nonexistent/path/to/dataset")

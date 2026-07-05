@@ -79,7 +79,7 @@ fn registry_hint(name: &str, ctx: &KwargContext) -> Option<String> {
             // removed them from the allowed list, so be defensive.
             KwargContext::Delineate => format!(
                 "'{name}' should be in the allowed list for this method; \
-                 this is a pyshed bug — please report it."
+                 this is a pourpoint bug — please report it."
             ),
             KwargContext::DelineateBatch => format!(
                 "'{name}' is a per-outlet field, not a batch kwarg. \

@@ -25,6 +25,6 @@ PERFORMANCE OF THIS SOFTWARE.
 
 Note: Some components of xz (e.g., the xz command-line tool and certain
 helper scripts) are under GPL-2.0 or LGPL-2.1. The library (liblzma) that is
-bundled in the pyshed wheel is public domain / 0BSD. See
+bundled in the pourpoint wheel is public domain / 0BSD. See
 https://github.com/tukaani-project/xz/blob/v5.8.2/COPYING for the complete
 per-file licensing breakdown.

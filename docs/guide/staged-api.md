@@ -11,11 +11,11 @@ to export those intermediates.
 `delineate()` is exactly this composition:
 
 ```python
-import pyshed
+import pourpoint
 
-engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
+engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 
-level = engine.select_level(selection=pyshed.LevelSelection.FINEST)
+level = engine.select_level(selection=pourpoint.LevelSelection.FINEST)
 outlet = engine.resolve_outlet(level, lat=47.3769, lon=8.5417)
 upstream = engine.traverse(outlet)
 units = engine.pre_merge_units(upstream)

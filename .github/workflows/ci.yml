@@ -84,10 +84,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run Rust workspace tests
-        run: cargo test --workspace --exclude pyshed
+        run: cargo test --workspace --exclude pourpoint-python
 
-      - name: Check pyshed bindings crate
-        run: cargo check -p pyshed
+      - name: Check pourpoint bindings crate
+        run: cargo check -p pourpoint-python
 
   python-wheel-smoke:
     name: Python wheel smoke
@@ -129,17 +129,17 @@ jobs:
       - name: Import smoke test
         run: |
           python - <<'PY'
-          import pyshed
+          import pourpoint
 
-          assert pyshed.__version__, "missing __version__"
+          assert pourpoint.__version__, "missing __version__"
 
           try:
-              pyshed.Engine("/nonexistent/path/to/dataset")
-          except pyshed.DatasetError:
+              pourpoint.Engine("/nonexistent/path/to/dataset")
+          except pourpoint.DatasetError:
               pass
           else:
               raise AssertionError("Engine should reject missing datasets")
 
-          pyshed._pyshed._self_test_proj()
-          print("pyshed import smoke passed; version=" + pyshed.__version__)
+          pourpoint._pourpoint._self_test_proj()
+          print("pourpoint import smoke passed; version=" + pourpoint.__version__)
           PY

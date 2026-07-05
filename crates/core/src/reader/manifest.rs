@@ -1,5 +1,5 @@
 //! Manifest reader — parses manifest.json into an hfx_core::Manifest plus
-//! shed-side auxiliary declarations.
+//! pourpoint-side auxiliary declarations.
 //!
 //! HFX v0.3.0 hard-cut: only `format_version == "0.3.0"` and `crs ==
 //! "EPSG:4326"` are accepted. The version check runs first so a v0.1 manifest
@@ -52,7 +52,7 @@ pub struct SnapDecl {
 
 /// A generic (non-blessed) auxiliary declaration retained as a raw handle.
 ///
-/// shed performs structural checks only on these (path resolution + presence);
+/// pourpoint performs structural checks only on these (path resolution + presence);
 /// it does NOT parse their metadata semantically. This is the reverse-DNS /
 /// provisional handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +65,7 @@ pub struct GenericAuxDecl {
     pub metadata: serde_json::Value,
 }
 
-/// shed-side classified auxiliary declarations parsed from `manifest.auxiliary[]`.
+/// pourpoint-side classified auxiliary declarations parsed from `manifest.auxiliary[]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AuxDeclarations {
     /// Blessed D8 raster declarations.
@@ -81,7 +81,7 @@ pub struct AuxDeclarations {
 pub struct ParsedManifest {
     /// The validated core manifest.
     pub manifest: Manifest,
-    /// shed-side classified auxiliary declarations.
+    /// pourpoint-side classified auxiliary declarations.
     pub aux: AuxDeclarations,
 }
 
@@ -278,7 +278,7 @@ enum ClassifiedAux {
 }
 
 /// Parse one `auxiliary[]` entry into both an [`AuxiliaryDecl`] for the core
-/// manifest and a shed-side [`ClassifiedAux`] carrying parsed metadata.
+/// manifest and a pourpoint-side [`ClassifiedAux`] carrying parsed metadata.
 fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), SessionError> {
     let schema_str = raw.schema.ok_or_else(|| SessionError::AuxiliaryDeclParse {
         schema: "<missing>".to_string(),

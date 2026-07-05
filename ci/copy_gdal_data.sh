@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Copies GDAL_DATA and PROJ data from the built native stack into the pyshed
+# Copies GDAL_DATA and PROJ data from the built native stack into the pourpoint
 # Python package source tree so that maturin's include glob picks them up when
 # building the wheel.
 #
-# Target: crates/python/python/pyshed/_data/
+# Target: crates/python/python/pourpoint/_data/
 #   _data/gdal/  — GDAL_DATA (gdalvrt.xsd and friends)
 #   _data/proj/  — PROJ data (proj.db and friends)
 #
@@ -21,7 +21,7 @@ if [ -z "${BUILD_PREFIX:-}" ]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="$REPO_ROOT/crates/python/python/pyshed/_data"
+DEST="$REPO_ROOT/crates/python/python/pourpoint/_data"
 
 echo "staging bundled data from $BUILD_PREFIX into $DEST"
 rm -rf "$DEST"

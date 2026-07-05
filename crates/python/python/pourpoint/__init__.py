@@ -1,4 +1,4 @@
-"""pyshed — Python bindings for the shed watershed delineation engine.
+"""pourpoint — Python bindings for the pourpoint watershed delineation engine.
 
 Resolves bundled GDAL_DATA and PROJ data at import time (wheel installs).
 For source/editable installs the resolution is silent on miss; the user is
@@ -38,8 +38,8 @@ def _preseed_bundled_data() -> None:
 
 _preseed_bundled_data()
 
-from pyshed import _pyshed
-from pyshed._pyshed import (
+from pourpoint import _pourpoint
+from pourpoint._pourpoint import (
     AreaOnlyResult,
     AssemblyError,
     BasinGeoParquetWriter,
@@ -54,7 +54,7 @@ from pyshed._pyshed import (
     ResolutionError,
     ResolvedOutlet,
     SelectedLevel,
-    ShedError,
+    PourpointError,
     TerminalRefinement,
     UnitBundleGeoParquetWriter,
     UpstreamUnits,
@@ -63,7 +63,7 @@ from pyshed._pyshed import (
 )
 
 
-_LOGGER_NAMES = ("pyshed", "_pyshed", "shed_core", "hfx_core")
+_LOGGER_NAMES = ("pourpoint", "_pourpoint", "pourpoint_core", "hfx_core")
 _LOG_LEVELS = {
     "trace": ("trace", logging.DEBUG),
     "debug": ("debug", logging.DEBUG),
@@ -87,16 +87,16 @@ def _normalize_log_level(level: str) -> tuple[str, int]:
 
 
 def set_log_level(level: str) -> None:
-    """Set the pyshed log level for both the Rust bridge and Python `logging`.
+    """Set the pourpoint log level for both the Rust bridge and Python `logging`.
 
     Updates the dynamic max-level used by the pyo3-log bridge and configures
-    the relevant Python loggers so records actually emit. If any pyshed logger
+    the relevant Python loggers so records actually emit. If any pourpoint logger
     has no handler, a default ``StreamHandler`` is attached to that logger.
 
     Records originating from Rust route through pyo3-log under loggers named
-    after their Rust crate (``_pyshed.*``, ``shed_core.*``, ``hfx_core.*``).
+    after their Rust crate (``_pourpoint.*``, ``pourpoint_core.*``, ``hfx_core.*``).
     We therefore set the level on each of those roots in addition to the
-    Python ``pyshed`` facade.
+    Python ``pourpoint`` facade.
 
     Valid levels (case-insensitive): ``"trace"``, ``"debug"``, ``"info"``,
     ``"warn"``/``"warning"``, ``"error"``/``"critical"``.
@@ -116,16 +116,16 @@ def set_log_level(level: str) -> None:
 @contextmanager
 def bench_trace(path: os.PathLike[str] | str) -> Iterator[None]:
     """Write Rust stage-span benchmark telemetry to ``path`` inside the context."""
-    previous = os.environ.get("PYSHED_BENCH_TRACE")
-    os.environ["PYSHED_BENCH_TRACE"] = os.fspath(path)
+    previous = os.environ.get("POURPOINT_BENCH_TRACE")
+    os.environ["POURPOINT_BENCH_TRACE"] = os.fspath(path)
     _install_bench_trace()
     try:
         yield
     finally:
         if previous is None:
-            os.environ.pop("PYSHED_BENCH_TRACE", None)
+            os.environ.pop("POURPOINT_BENCH_TRACE", None)
         else:
-            os.environ["PYSHED_BENCH_TRACE"] = previous
+            os.environ["POURPOINT_BENCH_TRACE"] = previous
 
 
 __all__ = [
@@ -143,7 +143,7 @@ __all__ = [
     "ResolutionError",
     "ResolvedOutlet",
     "SelectedLevel",
-    "ShedError",
+    "PourpointError",
     "TerminalRefinement",
     "UnitBundleGeoParquetWriter",
     "UpstreamUnits",
@@ -152,7 +152,7 @@ __all__ = [
 ]
 
 try:
-    __version__ = _pkg_version("pyshed")
+    __version__ = _pkg_version("pourpoint")
 except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
 
@@ -164,30 +164,30 @@ def _inject_gdal_data() -> None:
     if path is None:
         _log.debug("no bundled gdal data in %s; relying on system GDAL", _PKG_DIR)
         return
-    _pyshed._set_gdal_data(path)
+    _pourpoint._set_gdal_data(path)
 
 
 def _inject_proj_data() -> None:
     for env_var in ("PROJ_DATA", "PROJ_LIB"):
         if env_var in os.environ:
-            _pyshed._set_proj_data(os.environ[env_var])
+            _pourpoint._set_proj_data(os.environ[env_var])
             return
     path = _bundled("proj", "proj.db")
     if path is None:
         _log.debug("no bundled proj data in %s; relying on system PROJ", _PKG_DIR)
         return
-    _pyshed._set_proj_data(path)
+    _pourpoint._set_proj_data(path)
 
 
 _inject_gdal_data()
 _inject_proj_data()
 
-if "PYSHED_LOG" in os.environ:
+if "POURPOINT_LOG" in os.environ:
     try:
-        set_log_level(os.environ["PYSHED_LOG"])
+        set_log_level(os.environ["POURPOINT_LOG"])
     except ValueError:
         warnings.warn(
-            "invalid PYSHED_LOG value; valid values are: trace, debug, info, "
+            "invalid POURPOINT_LOG value; valid values are: trace, debug, info, "
             "warn, warning, error, critical",
             UserWarning,
             stacklevel=2,

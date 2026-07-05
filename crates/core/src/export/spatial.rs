@@ -48,7 +48,7 @@ pub struct BasinCentroid {
     pub lat: f64,
 }
 
-/// Shed-owned 16-bit-per-axis Hilbert sort key.
+/// Pourpoint-owned 16-bit-per-axis Hilbert sort key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HilbertIndex(pub u32);
 

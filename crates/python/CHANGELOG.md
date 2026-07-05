@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `pyshed` are documented in this file. The format is based on
+All notable changes to `pourpoint` are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [PEP 440](https://peps.python.org/pep-0440/) versioning (decoupled from the workspace's
 per-commit Rust crate versioning).

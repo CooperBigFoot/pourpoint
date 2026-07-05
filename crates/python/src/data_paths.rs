@@ -1,7 +1,7 @@
 //! Runtime data-path injection for bundled GDAL/PROJ data.
 //!
-//! Wheel builds bundle GDAL data files under `pyshed/_data/gdal/` and PROJ
-//! data (including `proj.db`) under `pyshed/_data/proj/`. The Python
+//! Wheel builds bundle GDAL data files under `pourpoint/_data/gdal/` and PROJ
+//! data (including `proj.db`) under `pourpoint/_data/proj/`. The Python
 //! `__init__.py` detects those directories at import time and calls these
 //! functions to inform the GDAL/PROJ runtime of the correct search paths,
 //! overriding any compiled-in or environment-variable defaults.
@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 
 /// Inject the bundled GDAL data directory into the GDAL runtime.
 ///
-/// Calls `CPLSetConfigOption("GDAL_DATA", path)`. Called by `pyshed/__init__.py`
+/// Calls `CPLSetConfigOption("GDAL_DATA", path)`. Called by `pourpoint/__init__.py`
 /// when a bundled `gdal/gdalvrt.xsd` sentinel is found.
 #[pyfunction]
 pub(crate) fn _set_gdal_data(path: &str) -> PyResult<()> {
@@ -29,7 +29,7 @@ pub(crate) fn _set_gdal_data(path: &str) -> PyResult<()> {
 /// Inject the bundled PROJ data directory into the PROJ runtime.
 ///
 /// Calls `OSRSetPROJSearchPaths` with a NULL-terminated pointer array. Called
-/// by `pyshed/__init__.py` when a bundled `proj/proj.db` sentinel is found, or
+/// by `pourpoint/__init__.py` when a bundled `proj/proj.db` sentinel is found, or
 /// when the `PROJ_DATA`/`PROJ_LIB` environment variable is set.
 #[pyfunction]
 pub(crate) fn _set_proj_data(path: &str) -> PyResult<()> {

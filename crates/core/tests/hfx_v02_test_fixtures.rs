@@ -3,9 +3,9 @@ use std::path::Path;
 
 use arrow::array::{Array, Int16Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::DatasetBuilder;
 use serde_json::Value;
-use shed_core::session::DatasetSession;
-use shed_core::testutil::DatasetBuilder;
 
 const PARITY_FIXTURE_ROOT: &str = "tests/fixtures/parity";
 const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";

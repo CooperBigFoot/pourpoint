@@ -22,8 +22,8 @@ const MIN_RANGE_GET_CONCURRENCY: usize = 1;
 const MAX_RANGE_GET_CONCURRENCY: usize = 16;
 
 /// Return configured parallel range-read concurrency for large remote artifacts.
-pub fn shed_get_ranges_concurrency() -> usize {
-    std::env::var("SHED_RANGE_GET_CONCURRENCY")
+pub fn pourpoint_get_ranges_concurrency() -> usize {
+    std::env::var("POURPOINT_RANGE_GET_CONCURRENCY")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(DEFAULT_RANGE_GET_CONCURRENCY)
@@ -31,7 +31,7 @@ pub fn shed_get_ranges_concurrency() -> usize {
 }
 
 // Retry/timeout policy mirrors reformatters' download.py public-data fetch defaults.
-fn shed_retry_config() -> RetryConfig {
+fn pourpoint_retry_config() -> RetryConfig {
     RetryConfig {
         backoff: BackoffConfig {
             init_backoff: Duration::from_secs(1),
@@ -43,7 +43,7 @@ fn shed_retry_config() -> RetryConfig {
     }
 }
 
-fn shed_client_options() -> ClientOptions {
+fn pourpoint_client_options() -> ClientOptions {
     ClientOptions::new()
         .with_connect_timeout(Duration::from_secs(4))
         .with_timeout(Duration::from_secs(120))
@@ -121,8 +121,8 @@ impl DatasetSource {
         })?;
         let store = AmazonS3Builder::from_env()
             .with_url(input)
-            .with_retry(shed_retry_config())
-            .with_client_options(shed_client_options())
+            .with_retry(pourpoint_retry_config())
+            .with_client_options(pourpoint_client_options())
             .build()
             .map_err(|source| SessionError::ObjectStoreConfig {
                 input: input.to_string(),
@@ -192,8 +192,8 @@ impl DatasetSource {
             .with_endpoint(endpoint)
             .with_region("auto")
             .with_virtual_hosted_style_request(false)
-            .with_retry(shed_retry_config())
-            .with_client_options(shed_client_options())
+            .with_retry(pourpoint_retry_config())
+            .with_client_options(pourpoint_client_options())
             .build()
             .map_err(|source| SessionError::ObjectStoreConfig {
                 input: input.to_string(),
@@ -223,8 +223,8 @@ impl DatasetSource {
             .with_region("auto")
             .with_virtual_hosted_style_request(true)
             .with_skip_signature(true)
-            .with_retry(shed_retry_config())
-            .with_client_options(shed_client_options())
+            .with_retry(pourpoint_retry_config())
+            .with_client_options(pourpoint_client_options())
             .build()
             .map_err(|source| SessionError::ObjectStoreConfig {
                 input: input.to_string(),
@@ -246,7 +246,7 @@ mod tests {
     use std::ffi::OsString;
     use std::sync::{Mutex, MutexGuard};
 
-    use super::{DatasetSource, shed_get_ranges_concurrency};
+    use super::{DatasetSource, pourpoint_get_ranges_concurrency};
     use crate::error::SessionError;
 
     static AWS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -261,10 +261,10 @@ mod tests {
         fn set_bogus_credentials() -> Self {
             let guard = AWS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let vars = [
-                ("AWS_PROFILE", "shed-bogus-profile"),
-                ("AWS_ACCESS_KEY_ID", "shed-bogus-access-key"),
-                ("AWS_SECRET_ACCESS_KEY", "shed-bogus-secret-key"),
-                ("AWS_SESSION_TOKEN", "shed-bogus-session-token"),
+                ("AWS_PROFILE", "pourpoint-bogus-profile"),
+                ("AWS_ACCESS_KEY_ID", "pourpoint-bogus-access-key"),
+                ("AWS_SECRET_ACCESS_KEY", "pourpoint-bogus-secret-key"),
+                ("AWS_SESSION_TOKEN", "pourpoint-bogus-session-token"),
             ];
             let previous = vars
                 .iter()
@@ -311,14 +311,14 @@ mod tests {
             let guard = RANGE_CONCURRENCY_ENV_LOCK
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            let previous = std::env::var_os("SHED_RANGE_GET_CONCURRENCY");
+            let previous = std::env::var_os("POURPOINT_RANGE_GET_CONCURRENCY");
 
-            // SAFETY: these tests serialize SHED_RANGE_GET_CONCURRENCY mutations
+            // SAFETY: these tests serialize POURPOINT_RANGE_GET_CONCURRENCY mutations
             // with RANGE_CONCURRENCY_ENV_LOCK and restore before unlocking.
             unsafe {
                 match value {
-                    Some(value) => std::env::set_var("SHED_RANGE_GET_CONCURRENCY", value),
-                    None => std::env::remove_var("SHED_RANGE_GET_CONCURRENCY"),
+                    Some(value) => std::env::set_var("POURPOINT_RANGE_GET_CONCURRENCY", value),
+                    None => std::env::remove_var("POURPOINT_RANGE_GET_CONCURRENCY"),
                 }
             }
 
@@ -335,8 +335,8 @@ mod tests {
             // environment value is restored.
             unsafe {
                 match &self.previous {
-                    Some(value) => std::env::set_var("SHED_RANGE_GET_CONCURRENCY", value),
-                    None => std::env::remove_var("SHED_RANGE_GET_CONCURRENCY"),
+                    Some(value) => std::env::set_var("POURPOINT_RANGE_GET_CONCURRENCY", value),
+                    None => std::env::remove_var("POURPOINT_RANGE_GET_CONCURRENCY"),
                 }
             }
         }
@@ -346,24 +346,24 @@ mod tests {
     fn range_get_concurrency_defaults_to_eight() {
         let _env = RangeConcurrencyEnv::set(None);
 
-        assert_eq!(shed_get_ranges_concurrency(), 8);
+        assert_eq!(pourpoint_get_ranges_concurrency(), 8);
     }
 
     #[test]
     fn range_get_concurrency_clamps_configured_value() {
         let _env = RangeConcurrencyEnv::set(Some("0"));
-        assert_eq!(shed_get_ranges_concurrency(), 1);
+        assert_eq!(pourpoint_get_ranges_concurrency(), 1);
 
         drop(_env);
         let _env = RangeConcurrencyEnv::set(Some("32"));
-        assert_eq!(shed_get_ranges_concurrency(), 16);
+        assert_eq!(pourpoint_get_ranges_concurrency(), 16);
     }
 
     #[test]
     fn range_get_concurrency_uses_default_for_invalid_value() {
         let _env = RangeConcurrencyEnv::set(Some("fast"));
 
-        assert_eq!(shed_get_ranges_concurrency(), 8);
+        assert_eq!(pourpoint_get_ranges_concurrency(), 8);
     }
 
     #[test]
@@ -380,11 +380,12 @@ mod tests {
 
     #[test]
     fn parses_file_url_as_local_source() {
-        let source = DatasetSource::parse("file:///tmp/shed-fixture").expect("source should parse");
+        let source =
+            DatasetSource::parse("file:///tmp/pourpoint-fixture").expect("source should parse");
 
         match source {
             DatasetSource::Local(path) => {
-                assert_eq!(path, std::path::PathBuf::from("/tmp/shed-fixture"))
+                assert_eq!(path, std::path::PathBuf::from("/tmp/pourpoint-fixture"))
             }
             DatasetSource::Remote { .. } => panic!("expected local source"),
         }
@@ -393,12 +394,12 @@ mod tests {
     #[test]
     fn parses_s3_url_as_remote_source() {
         let source =
-            DatasetSource::parse("s3://shed-test/example/root").expect("source should parse");
+            DatasetSource::parse("s3://pourpoint-test/example/root").expect("source should parse");
 
         match source {
             DatasetSource::Remote { root, url, .. } => {
                 assert_eq!(root.as_ref(), "example/root");
-                assert_eq!(url.as_str(), "s3://shed-test/example/root");
+                assert_eq!(url.as_str(), "s3://pourpoint-test/example/root");
             }
             DatasetSource::Local(_) => panic!("expected remote source"),
         }
@@ -406,16 +407,17 @@ mod tests {
 
     #[test]
     fn parses_r2_url_as_remote_source() {
-        let source =
-            DatasetSource::parse("https://abc123.r2.cloudflarestorage.com/shed-test/example/root")
-                .expect("source should parse");
+        let source = DatasetSource::parse(
+            "https://abc123.r2.cloudflarestorage.com/pourpoint-test/example/root",
+        )
+        .expect("source should parse");
 
         match source {
             DatasetSource::Remote { root, url, .. } => {
                 assert_eq!(root.as_ref(), "example/root");
                 assert_eq!(
                     url.as_str(),
-                    "https://abc123.r2.cloudflarestorage.com/shed-test/example/root"
+                    "https://abc123.r2.cloudflarestorage.com/pourpoint-test/example/root"
                 );
             }
             DatasetSource::Local(_) => panic!("expected remote source"),

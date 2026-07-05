@@ -7,7 +7,7 @@ use geo::{Coord, LineString, MultiPolygon, Polygon};
 use crate::algo::{WkbEncodeError, encode_wkb_multi_polygon};
 
 /// Canonicalizer contract version recorded in parity goldens.
-pub const CANONICAL_WKB_VERSION: &str = "shed-canonical-wkb-v1";
+pub const CANONICAL_WKB_VERSION: &str = "pourpoint-canonical-wkb-v1";
 
 /// Number of decimal coordinate places retained before canonical WKB emission.
 pub const CANONICAL_WKB_DECIMAL_PRECISION: u32 = 6;
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn records_precision_contract() {
-        assert_eq!(CANONICAL_WKB_VERSION, "shed-canonical-wkb-v1");
+        assert_eq!(CANONICAL_WKB_VERSION, "pourpoint-canonical-wkb-v1");
         assert_eq!(CANONICAL_WKB_DECIMAL_PRECISION, 6);
     }
 

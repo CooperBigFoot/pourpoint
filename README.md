@@ -1,8 +1,8 @@
-# shed
+# pourpoint
 
-Give `shed` a point on a river and it returns the whole upstream area that drains to it, the watershed.
+Give `pourpoint` a point on a river and it returns the whole upstream area that drains to it, the watershed.
 
-`shed` reads [HFX](https://github.com/CooperBigFoot/hfx), a folder of pre-built
+`pourpoint` reads [HFX](https://github.com/CooperBigFoot/hfx), a folder of pre-built
 river-network files in the open HydroFabric Exchange format. It finds the
 catchment that contains the point, gathers every catchment upstream, and merges
 them into one watershed polygon. The same engine works with any dataset in the
@@ -10,23 +10,23 @@ HFX format.
 
 ## Use it from Python
 
-The Python wrapper [`pyshed`](https://pypi.org/project/pyshed/) is published
+The Python wrapper [`pourpoint`](https://pypi.org/project/pourpoint/) is published
 on PyPI as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside, so
 no system installs are needed.
 
 ```bash
-uv add pyshed
+uv add pourpoint
 ```
 
-(or `pip install pyshed`)
+(or `pip install pourpoint`)
 
 Current PyPI wheels are Apple Silicon macOS only (`macosx_11_0_arm64`). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for local builds and platform notes.
 
 ```python
-import pyshed
+import pourpoint
 
-engine = pyshed.Engine("/path/to/hfx/dataset")
+engine = pourpoint.Engine("/path/to/hfx/dataset")
 result = engine.delineate(lat=47.3769, lon=8.5417)
 
 print(result.area_km2)        # geodesic area in km²
@@ -40,7 +40,7 @@ developer API reference.
 
 ## Dataset locations
 
-`shed` accepts local HFX dataset folders and remote URLs to datasets hosted
+`pourpoint` accepts local HFX dataset folders and remote URLs to datasets hosted
 online, for example on Amazon S3 or Cloudflare R2. The root must contain the
 HFX artifacts described by the
 manifest: `manifest.json`, `catchments.parquet`, and `graph.parquet`.
@@ -57,7 +57,7 @@ Supported dataset path forms:
 | Cloudflare R2 HTTPS URL | `https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine` |
 | Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` |
 
-For remote datasets, `shed` reads only the parts needed for each watershed, so
+For remote datasets, `pourpoint` reads only the parts needed for each watershed, so
 you never download the whole dataset. It keeps a small cache on disk so repeat
 opens are faster; set `HFX_CACHE_DIR` to choose where it lives. On macOS that is
 typically `~/Library/Caches/hfx`. See
@@ -74,7 +74,7 @@ https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
 CLI example:
 
 ```bash
-./target/release/shed delineate \
+./target/release/pourpoint delineate \
     --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ \
     --lat 47.3769 --lon 8.5417
 ```
@@ -82,9 +82,9 @@ CLI example:
 Python example:
 
 ```python
-import pyshed
+import pourpoint
 
-engine = pyshed.Engine(
+engine = pourpoint.Engine(
     "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"
 )
 result = engine.delineate(lat=47.3769, lon=8.5417)
@@ -104,20 +104,20 @@ same session reuse data already fetched, so overlapping watersheds are faster.
 ## Use it from the CLI
 
 ```bash
-git clone https://github.com/CooperBigFoot/shed
-cd shed
+git clone https://github.com/CooperBigFoot/pourpoint
+cd pourpoint
 cargo build --release
 
 # Single outlet
-./target/release/shed delineate --dataset /path/to/hfx \
+./target/release/pourpoint delineate --dataset /path/to/hfx \
     --lat 47.3769 --lon 8.5417
 
 # Batch via CSV
-./target/release/shed delineate --dataset /path/to/hfx \
+./target/release/pourpoint delineate --dataset /path/to/hfx \
     --outlets outlets.csv --output watersheds.geojson
 ```
 
-`shed delineate --help` for all flags (snap radius, accumulation threshold,
+`pourpoint delineate --help` for all flags (snap radius, accumulation threshold,
 `--no-refine`, `--json` envelope, etc.).
 
 ## Repository layout
@@ -126,8 +126,8 @@ cargo build --release
 |---|---|
 | `crates/core` | Pure-Rust algorithm core (HFX I/O, traversal, dissolve, repair) |
 | `crates/gdal` | GDAL bridge for windowed raster reads + GEOS geometry repair |
-| `crates/python` | Python bindings, published on PyPI as `pyshed` |
-| `src/main.rs` | The `shed` CLI binary |
+| `crates/python` | Python bindings, published on PyPI as `pourpoint` |
+| `src/main.rs` | The `pourpoint` CLI binary |
 | `ci/`, `.github/` | macOS arm64 wheel build pipeline (cibuildwheel + bespoke native stack) |
 | `scripts/` | Version-bump helpers; see `CLAUDE.md` for the workflow |
 
@@ -143,12 +143,12 @@ Public hosting of the canonical GRIT HFX dataset at
 `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` is sponsored by
 [Upstream Tech](https://www.upstream.tech/), who provide the hosting
 infrastructure as an in-kind contribution to the open HFX ecosystem. Upstream
-Tech is an infrastructure sponsor: `shed` is independent open-source software,
+Tech is an infrastructure sponsor: `pourpoint` is independent open-source software,
 and this acknowledgment implies no commercial relationship or endorsement.
 
 ## License
 
-`shed` and `pyshed` are MIT-licensed (see [`LICENSE`](LICENSE)). Bundled
+`pourpoint` is MIT-licensed (see [`LICENSE`](LICENSE)). Bundled
 native libraries in the published wheel retain their own licenses; see
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and the per-library
 texts in [`LICENSES/`](LICENSES/).

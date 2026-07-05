@@ -2,11 +2,11 @@
 
 use std::fs::File;
 
-use pyo3::prelude::*;
-use shed_core::export::{
+use pourpoint_core::export::{
     BasinExportInput, BasinGeoParquetWriter, BasinId, ExportMethod, ExportOptions, ExportOrigin,
     UnitBundleExportInput, UnitBundleExportOptions, UnitBundleGeoParquetWriter,
 };
+use pyo3::prelude::*;
 
 use crate::engine::{PyEngine, default_export_method};
 use crate::error::export_err_to_py;
@@ -75,7 +75,7 @@ impl PyBasinGeoParquetWriter {
 
         let method = resolve_method(method, engine)?;
         let origins = (0..results.len())
-            .map(|index| ExportOrigin::new(format!("pyshed result[{index}]")))
+            .map(|index| ExportOrigin::new(format!("pourpoint result[{index}]")))
             .collect::<Vec<_>>();
         let inputs = match &basin_ids {
             Some(ids) => ids

@@ -1,6 +1,6 @@
 # Basin GeoParquet Export
 
-pyshed exports delineated basins to [GeoParquet](https://geoparquet.org/), the
+pourpoint exports delineated basins to [GeoParquet](https://geoparquet.org/), the
 OGC standard that stores vector geometry inside Parquet files so tools like
 GeoPandas, DuckDB spatial, and QGIS read them natively. Reach for it when you want
 to delineate a catalog of basins once and query the outlines many times.
@@ -98,7 +98,7 @@ The dataset-level GeoParquet bbox remains f64 and must cover the true row bboxes
 
 ## Hilbert Ordering
 
-HFX does not define Hilbert curve parameters for this export. Shed therefore owns these deterministic parameters:
+HFX does not define Hilbert curve parameters for this export. Pourpoint therefore owns these deterministic parameters:
 
 - fixed global EPSG:4326 extent: `[-180.0, -90.0, 180.0, 90.0]`
 - input point: centroid of the dissolved `MultiPolygon`
@@ -152,7 +152,7 @@ PY
 
 ## CLI Emission
 
-The current `shed delineate` CLI supports single-outlet flags and an `--outlets`
+The current `pourpoint delineate` CLI supports single-outlet flags and an `--outlets`
 CSV for GeoJSON output; `--format` currently accepts only `geojson`. It does not
 define a basin GeoParquet export catalog shape. A CLI wrapper should be added
 only after that catalog contract is settled, so it can parse all `BasinId`

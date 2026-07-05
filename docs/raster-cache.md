@@ -1,6 +1,6 @@
 # Raster cache
 
-When a dataset ships D8 flow-direction rasters, shed can sharpen the outlet's own
+When a dataset ships D8 flow-direction rasters, pourpoint can sharpen the outlet's own
 terminal catchment by tracing those flow directions through it (terminal
 refinement). For remote datasets it reads only the raster tiles it needs —
 fetching the compressed byte ranges that cover the terminal catchment rather than
@@ -29,10 +29,10 @@ guaranteed to agree. Opening the engine with `refine=False` takes the whole-unit
 result and skips refinement:
 
 ```python
-import pyshed
+import pourpoint
 
 # Escape hatch: skip refinement and take the whole-unit result.
-engine = pyshed.Engine("/data/hfx/local", refine=False)
+engine = pourpoint.Engine("/data/hfx/local", refine=False)
 ```
 
 ## Supported raster layout

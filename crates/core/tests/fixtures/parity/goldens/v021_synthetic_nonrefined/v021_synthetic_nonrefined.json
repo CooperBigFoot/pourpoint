@@ -21,7 +21,7 @@
     "status": "Disabled",
     "reason": null
   },
-  "canonicalizer_version": "shed-canonical-wkb-v1",
+  "canonicalizer_version": "pourpoint-canonical-wkb-v1",
   "comparison_policy": {
     "coordinate_abs_epsilon": 1e-6,
     "area_km2_abs_epsilon": 1e-6,

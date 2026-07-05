@@ -15,12 +15,12 @@ use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStoreExt, PutPayload};
 use parquet::arrow::ArrowWriter;
-use shed_core::Engine;
-use shed_core::algo::GeoCoord;
-use shed_core::engine::{DelineationOptions, RefinementOutcome};
-use shed_core::session::DatasetSession;
-use shed_core::testutil::{bbox_struct_array, bbox_struct_field};
-use shed_core::{BestEffortSkipReason, RefinementProvenance, RefinementStrategyName};
+use pourpoint_core::Engine;
+use pourpoint_core::algo::GeoCoord;
+use pourpoint_core::engine::{DelineationOptions, RefinementOutcome};
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
+use pourpoint_core::{BestEffortSkipReason, RefinementProvenance, RefinementStrategyName};
 use tempfile::TempDir;
 use url::Url;
 
@@ -65,7 +65,7 @@ fn phase_3a7_open_remote_inmemory_reads_manifest_graph_and_catchments() {
     let cache_dir = TempDir::new().unwrap();
     let _cache_env = CacheEnv::set(cache_dir.path());
     let root = ObjectPath::from("phase-3a7/full-open");
-    let url = Url::parse("s3://shed-test/phase-3a7/full-open").unwrap();
+    let url = Url::parse("s3://pourpoint-test/phase-3a7/full-open").unwrap();
     let store = Arc::new(InMemory::new());
     put_remote_fixture(&store, &root, RemoteFixture::Full);
 
@@ -106,7 +106,7 @@ fn phase_3a7_delineate_remote_inmemory_end_to_end_and_reuses_manifest_graph_cach
     let cache_dir = TempDir::new().unwrap();
     let _cache_env = CacheEnv::set(cache_dir.path());
     let root = ObjectPath::from("phase-3a7/delineate-cache");
-    let url = Url::parse("s3://shed-test/phase-3a7/delineate-cache").unwrap();
+    let url = Url::parse("s3://pourpoint-test/phase-3a7/delineate-cache").unwrap();
     let first_store = Arc::new(InMemory::new());
     put_remote_fixture(&first_store, &root, RemoteFixture::Full);
 

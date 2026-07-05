@@ -11,10 +11,10 @@ use std::process::Command;
 use geo::{MultiPolygon, polygon};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use serde::Deserialize;
-use shed_core::algo::{
+use pourpoint_core::algo::{
     CANONICAL_WKB_DECIMAL_PRECISION, CANONICAL_WKB_VERSION, canonical_wkb_multi_polygon,
 };
+use serde::Deserialize;
 
 const FIXTURE_DIR: &str = "tests/fixtures/parity";
 const M1_SYNTHETIC_REFINED_DIR: &str = "v01_synthetic_refined";
@@ -444,7 +444,7 @@ fn assert_synthetic_refined_b_contract(record: &GoldenRecord) {
             .local_tiff_raster_source_gdal_tile_parity
             .contains("tile-identical")
     );
-    assert!(attestation.proof_command.contains("shed-gdal"));
+    assert!(attestation.proof_command.contains("pourpoint-gdal"));
 }
 
 fn assert_v021_synthetic_nonrefined_contract(record: &GoldenRecord) {

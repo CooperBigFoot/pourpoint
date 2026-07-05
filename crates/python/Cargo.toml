@@ -1,21 +1,21 @@
 [package]
-name = "pyshed"
+name = "pourpoint-python"
 version = "0.3.0"
 edition = "2024"
-description = "Python bindings for the shed watershed delineation engine"
+description = "Python bindings for the pourpoint watershed delineation engine"
 license = "MIT"
-repository = "https://github.com/CooperBigFoot/shed"
-homepage = "https://github.com/CooperBigFoot/shed"
+repository = "https://github.com/CooperBigFoot/pourpoint"
+homepage = "https://github.com/CooperBigFoot/pourpoint"
 readme = "README.md"
 publish = false
 
 [lib]
-name = "_pyshed"
+name = "_pourpoint"
 crate-type = ["cdylib"]
 
 [dependencies]
-shed-core = { path = "../core" }
-shed-gdal = { path = "../gdal" }
+pourpoint-core = { path = "../core" }
+pourpoint-gdal = { path = "../gdal" }
 hfx-core.workspace = true
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"] }
 geo = "0.29"

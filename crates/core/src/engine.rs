@@ -508,7 +508,7 @@ impl EngineBuilder {
 
 // ── Engine ────────────────────────────────────────────────────────────────────
 
-/// The shed watershed delineation engine.
+/// The pourpoint watershed delineation engine.
 ///
 /// Wires outlet resolution, upstream traversal, optional terminal refinement,
 /// and watershed assembly into a single [`Engine::delineate`] call.

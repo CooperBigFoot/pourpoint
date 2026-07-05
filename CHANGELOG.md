@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `shed` (the CLI binary) and `shed-core` (the engine crate) are documented here.
+All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the engine crate) are documented here.
 
 ## Unreleased
 
