@@ -441,7 +441,7 @@ mod tests {
             "snap_etag": null,
             "snap_size": null,
             "validated_at": 1,
-            "shed_version": env!("CARGO_PKG_VERSION")
+            "pourpoint_version": env!("CARGO_PKG_VERSION")
         });
 
         let sidecar: ValidationSidecar = serde_json::from_value(legacy).unwrap();
@@ -454,7 +454,7 @@ mod tests {
     fn validation_sidecar_patch_version_change_does_not_invalidate_v2_token() {
         let (manifest, graph, catchments, snaps) = token_inputs();
         let mut serialized = serde_json::to_value(sidecar_with_two_snaps()).unwrap();
-        serialized["shed_version"] = serde_json::json!("0.0.0-different-patch");
+        serialized["pourpoint_version"] = serde_json::json!("0.0.0-different-patch");
         let sidecar: ValidationSidecar = serde_json::from_value(serialized).unwrap();
 
         assert!(sidecar.matches("0.3.0", &manifest, &graph, &catchments, &snaps));

@@ -1,4 +1,4 @@
-//! GDAL-backed raster I/O and geometry operations for the shed engine.
+//! GDAL-backed raster I/O and geometry operations for the pourpoint engine.
 
 pub mod config;
 pub mod convert;

@@ -1,5 +1,5 @@
 [package]
-name = "shed-core"
+name = "pourpoint-core"
 version = "0.1.0"
 edition = "2024"
 
@@ -34,7 +34,7 @@ test-fixtures = []
 
 [dev-dependencies]
 criterion = "0.5"
-shed-core = { path = ".", features = ["test-fixtures"] }
+pourpoint-core = { path = ".", features = ["test-fixtures"] }
 tempfile = "3"
 tiff = "0.9"
 tracing-core = "0.1"

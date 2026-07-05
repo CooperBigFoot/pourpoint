@@ -14,13 +14,15 @@ use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStreamBuilder};
 use parquet::file::statistics::Statistics;
-use shed_core::algo::coord::GeoCoord;
-use shed_core::reader::manifest::read_manifest_from_bytes;
-use shed_core::resolver::{ResolutionMethod, ResolverConfig};
-use shed_core::session::DatasetSession;
-use shed_core::source::DatasetSource;
-use shed_core::testutil::{DatasetBuilder, TestSnapDeclaration, TestSnapGeometry, TestSnapTarget};
-use shed_core::{Engine, LevelSelection};
+use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::reader::manifest::read_manifest_from_bytes;
+use pourpoint_core::resolver::{ResolutionMethod, ResolverConfig};
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::source::DatasetSource;
+use pourpoint_core::testutil::{
+    DatasetBuilder, TestSnapDeclaration, TestSnapGeometry, TestSnapTarget,
+};
+use pourpoint_core::{Engine, LevelSelection};
 
 const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
 const REAL_GRIT_ZURICH_OUTLET: GeoCoord = GeoCoord {
@@ -254,11 +256,11 @@ fn lower_snap_id_breaks_only_exact_weight_stem_role_distance_tie() {
 }
 
 #[test]
-#[ignore = "network-gated GRIT v2.0.0 snap proof; set SHED_HFX_V02_REAL_R2_DELINEATION=1"]
+#[ignore = "network-gated GRIT v2.0.0 snap proof; set POURPOINT_HFX_V02_REAL_R2_DELINEATION=1"]
 fn grit_v200_finest_snap_uses_reach_stems_and_weight_first_cascade() {
-    if std::env::var("SHED_HFX_V02_REAL_R2_DELINEATION").as_deref() != Ok("1") {
+    if std::env::var("POURPOINT_HFX_V02_REAL_R2_DELINEATION").as_deref() != Ok("1") {
         println!(
-            "skipping real GRIT v2.0.0 snap proof; set SHED_HFX_V02_REAL_R2_DELINEATION=1 to enable"
+            "skipping real GRIT v2.0.0 snap proof; set POURPOINT_HFX_V02_REAL_R2_DELINEATION=1 to enable"
         );
         return;
     }

@@ -1,10 +1,10 @@
 [package]
-name = "shed-gdal"
+name = "pourpoint-gdal"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-shed-core = { path = "../core" }
+pourpoint-core = { path = "../core" }
 hfx-core.workspace = true
 gdal = { version = "0.19", features = ["bindgen"] }
 geo = "0.29"
@@ -12,7 +12,7 @@ thiserror = "2"
 tracing = "0.1"
 
 [dev-dependencies]
-shed-core = { path = "../core", features = ["test-fixtures"] }
+pourpoint-core = { path = "../core", features = ["test-fixtures"] }
 geozero = { version = "0.14", default-features = false, features = ["with-geo", "with-wkb"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

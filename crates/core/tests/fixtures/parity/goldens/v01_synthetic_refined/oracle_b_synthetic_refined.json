@@ -25,7 +25,7 @@
     "status": "Applied",
     "reason": null
   },
-  "canonicalizer_version": "shed-canonical-wkb-v1",
+  "canonicalizer_version": "pourpoint-canonical-wkb-v1",
   "comparison_policy": {
     "coordinate_abs_epsilon": 1e-6,
     "area_km2_abs_epsilon": 1e-6,
@@ -100,6 +100,6 @@
   },
   "attestation": {
     "local_tiff_raster_source_gdal_tile_parity": "Step 2 proved LocalTiffRasterSource tile-identical to GdalRasterSource for the B fixture window before this golden was blessed",
-    "proof_command": "cargo test -p shed-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture"
+    "proof_command": "cargo test -p pourpoint-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture"
   }
 }

@@ -7,20 +7,20 @@ use clap::{ArgAction, Args, Parser, Subcommand};
 use serde_json::json;
 use tracing::error;
 
-use shed_core::algo::{CleanEpsilon, GeoCoord, SnapThreshold};
-use shed_core::resolver::{ResolverConfig, SearchRadiusMetres, SnapStrategy};
-use shed_core::session::DatasetSession;
-use shed_core::{
+use pourpoint_core::algo::{CleanEpsilon, GeoCoord, SnapThreshold};
+use pourpoint_core::resolver::{ResolverConfig, SearchRadiusMetres, SnapStrategy};
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::{
     DelineationOptions, DelineationResult, Engine, EngineError, RefinementMode, RefinementOutcome,
     ResolutionMethod,
 };
-use shed_gdal::{GdalGeometryRepair, GdalRasterSource};
+use pourpoint_gdal::{GdalGeometryRepair, GdalRasterSource};
 
 // ── CLI structure ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "shed",
+    name = "pourpoint",
     version,
     about = "Watershed delineation engine for HFX datasets"
 )]

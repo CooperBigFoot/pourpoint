@@ -766,7 +766,7 @@ impl CatchmentStore {
             num_row_groups,
             concurrency = LEAN_VALIDATION_ROW_GROUP_CONCURRENCY,
             concurrency_bound =
-                "shed scheduler row-group bound; object_store transport may cap requests",
+                "pourpoint scheduler row-group bound; object_store transport may cap requests",
             "reading catchment id levels"
         );
         if num_row_groups == 0 {
@@ -815,7 +815,7 @@ impl CatchmentStore {
             num_row_groups,
             concurrency = LEAN_VALIDATION_ROW_GROUP_CONCURRENCY,
             concurrency_bound =
-                "shed scheduler row-group bound; object_store transport may cap requests",
+                "pourpoint scheduler row-group bound; object_store transport may cap requests",
             elapsed_ms = started.elapsed().as_millis(),
             "catchment id levels read"
         );
@@ -1632,7 +1632,7 @@ async fn read_ids_levels_with_row_groups_async(
         projected_columns = "id,level",
         concurrency = LEAN_VALIDATION_ROW_GROUP_CONCURRENCY,
         concurrency_bound =
-            "shed scheduler row-group bound; object_store transport may cap requests",
+            "pourpoint scheduler row-group bound; object_store transport may cap requests",
         "building catchment id index and validation levels"
     );
     if num_row_groups == 0 {
@@ -1713,7 +1713,7 @@ async fn read_ids_levels_with_row_groups_async(
         projected_columns = "id,level",
         concurrency = LEAN_VALIDATION_ROW_GROUP_CONCURRENCY,
         concurrency_bound =
-            "shed scheduler row-group bound; object_store transport may cap requests",
+            "pourpoint scheduler row-group bound; object_store transport may cap requests",
         elapsed_ms = started.elapsed().as_millis(),
         "id index and validation levels built"
     );

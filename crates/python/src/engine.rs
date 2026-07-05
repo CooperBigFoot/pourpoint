@@ -2,16 +2,16 @@
 
 use std::sync::Arc;
 
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
-use shed_core::Engine;
-use shed_core::algo::GeoCoord;
-use shed_core::export::{ExportMethod, FabricIdentity};
-use shed_core::parquet_cache::{
+use pourpoint_core::Engine;
+use pourpoint_core::algo::GeoCoord;
+use pourpoint_core::export::{ExportMethod, FabricIdentity};
+use pourpoint_core::parquet_cache::{
     DEFAULT_PARQUET_CACHE_MAX_BYTES, ParquetFooterCache, ParquetRowGroupCache,
 };
-use shed_core::session::DatasetSession;
-use shed_gdal::{GdalGeometryRepair, GdalRasterSource};
+use pourpoint_core::session::DatasetSession;
+use pourpoint_gdal::{GdalGeometryRepair, GdalRasterSource};
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 
 use crate::config::{EngineConfig, RepairGeometry};
 use crate::error::engine_err_to_py;
@@ -506,7 +506,7 @@ impl PyEngine {
                 .map(|(lat, lon)| GeoCoord::new(*lon, *lat))
                 .collect();
 
-            let results: Vec<Result<PyDelineationResult, shed_core::EngineError>> = py
+            let results: Vec<Result<PyDelineationResult, pourpoint_core::EngineError>> = py
                 .allow_threads(move || {
                     engine
                         .delineate_batch_uniform(&coords, &options)
@@ -546,7 +546,7 @@ impl PyEngine {
 
 pub(crate) fn default_export_method(config: &EngineConfig) -> PyResult<ExportMethod> {
     if config.to_delineation_options()?.refinement_mode()
-        == shed_core::staged::RefinementMode::Disabled
+        == pourpoint_core::staged::RefinementMode::Disabled
     {
         Ok(ExportMethod::no_refine())
     } else {
@@ -580,7 +580,7 @@ fn sequential_delineate_with_progress(
     parsed: &[(f64, f64)],
     total: usize,
     engine: &Arc<Engine>,
-    options: &shed_core::DelineationOptions,
+    options: &pourpoint_core::DelineationOptions,
     cb: PyObject,
 ) -> PyResult<Vec<PyDelineationResult>> {
     let batch_start = std::time::Instant::now();
@@ -592,7 +592,7 @@ fn sequential_delineate_with_progress(
         let engine_ref = engine.clone();
         let options_ref = options.clone();
 
-        let outcome: Result<shed_core::DelineationResult, shed_core::EngineError> =
+        let outcome: Result<pourpoint_core::DelineationResult, pourpoint_core::EngineError> =
             py.allow_threads(move || engine_ref.delineate(coord, &options_ref));
 
         // Build and fire the progress event before recording the result.

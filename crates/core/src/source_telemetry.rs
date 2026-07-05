@@ -18,7 +18,7 @@ use object_store::{
     ObjectStore, PutMultipartOptions, PutOptions, PutPayload, PutResult, RenameOptions, Result,
 };
 
-const BENCH_NET_ENV: &str = "PYSHED_BENCH_NET";
+const BENCH_NET_ENV: &str = "POURPOINT_BENCH_NET";
 
 /// Cloneable snapshot of counters for one object path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -120,7 +120,7 @@ struct AtomicPathCounters {
     bytes_out: AtomicU64,
 }
 
-/// Wrap an object store when `PYSHED_BENCH_NET=1`.
+/// Wrap an object store when `POURPOINT_BENCH_NET=1`.
 pub fn wrap_if_enabled(
     store: Arc<dyn ObjectStore>,
 ) -> (Arc<dyn ObjectStore>, Option<HttpStatsHandle>) {
@@ -360,13 +360,13 @@ mod tests {
     impl BenchNetEnv {
         fn set(value: Option<&str>) -> Self {
             let guard = BENCH_NET_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-            let previous = std::env::var_os("PYSHED_BENCH_NET");
-            // SAFETY: these tests serialize PYSHED_BENCH_NET mutations with
+            let previous = std::env::var_os("POURPOINT_BENCH_NET");
+            // SAFETY: these tests serialize POURPOINT_BENCH_NET mutations with
             // BENCH_NET_ENV_LOCK and restore the prior value before unlocking.
             unsafe {
                 match value {
-                    Some(value) => std::env::set_var("PYSHED_BENCH_NET", value),
-                    None => std::env::remove_var("PYSHED_BENCH_NET"),
+                    Some(value) => std::env::set_var("POURPOINT_BENCH_NET", value),
+                    None => std::env::remove_var("POURPOINT_BENCH_NET"),
                 }
             }
             Self {
@@ -382,8 +382,8 @@ mod tests {
             // environment value is restored.
             unsafe {
                 match &self.previous {
-                    Some(value) => std::env::set_var("PYSHED_BENCH_NET", value),
-                    None => std::env::remove_var("PYSHED_BENCH_NET"),
+                    Some(value) => std::env::set_var("POURPOINT_BENCH_NET", value),
+                    None => std::env::remove_var("POURPOINT_BENCH_NET"),
                 }
             }
         }

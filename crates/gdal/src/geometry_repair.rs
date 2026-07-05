@@ -7,8 +7,8 @@
 use geo::MultiPolygon;
 use tracing::{debug, instrument, warn};
 
-use shed_core::algo::clean_epsilon::CleanEpsilon;
-use shed_core::algo::traits::{GeometryRepair, GeometryRepairError};
+use pourpoint_core::algo::clean_epsilon::CleanEpsilon;
+use pourpoint_core::algo::traits::{GeometryRepair, GeometryRepairError};
 
 use crate::convert::{gdal_to_multi_polygon, multi_polygon_to_gdal};
 use crate::error::GdalRepairError;

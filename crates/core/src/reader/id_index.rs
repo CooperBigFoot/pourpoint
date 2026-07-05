@@ -31,7 +31,7 @@ pub(crate) struct IdIndex {
 struct Footer {
     file_etag: Option<String>,
     file_size: u64,
-    built_by_shed_version: String,
+    built_by_pourpoint_version: String,
     validated_at: u64,
     body_crc32: u32,
 }
@@ -56,7 +56,7 @@ impl IdIndex {
         let footer = Footer {
             file_etag: file_etag.map(str::to_owned),
             file_size,
-            built_by_shed_version: env!("CARGO_PKG_VERSION").to_owned(),
+            built_by_pourpoint_version: env!("CARGO_PKG_VERSION").to_owned(),
             validated_at: validated_at_unix_seconds(),
             body_crc32: crc32(&body),
         };
@@ -97,7 +97,7 @@ impl IdIndex {
             return Ok(None);
         }
 
-        if footer.built_by_shed_version != env!("CARGO_PKG_VERSION") {
+        if footer.built_by_pourpoint_version != env!("CARGO_PKG_VERSION") {
             return Ok(None);
         }
 

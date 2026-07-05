@@ -14,12 +14,12 @@ use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStreamBuilder};
 use parquet::file::statistics::Statistics;
+use pourpoint_core::error::SessionError;
+use pourpoint_core::reader::manifest::read_manifest_from_bytes;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::source::DatasetSource;
+use pourpoint_core::testutil::DatasetBuilder;
 use serde_json::{Value, json};
-use shed_core::error::SessionError;
-use shed_core::reader::manifest::read_manifest_from_bytes;
-use shed_core::session::DatasetSession;
-use shed_core::source::DatasetSource;
-use shed_core::testutil::DatasetBuilder;
 
 const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
 const REAL_GRIT_QUERY_BBOX: (f32, f32, f32, f32) = (-123.30, 48.30, -123.20, 48.40);
@@ -406,11 +406,11 @@ fn auxiliary_generic_path_escape_is_typed() {
 }
 
 #[test]
-#[ignore = "network-gated GRIT v2.0.0 public R2 loader proof; set SHED_HFX_V02_REAL_R2_LOAD=1"]
+#[ignore = "network-gated GRIT v2.0.0 public R2 loader proof; set POURPOINT_HFX_V02_REAL_R2_LOAD=1"]
 fn grit_v200_public_r2_loads_real_v021_multilevel_dag() {
-    if std::env::var("SHED_HFX_V02_REAL_R2_LOAD").as_deref() != Ok("1") {
+    if std::env::var("POURPOINT_HFX_V02_REAL_R2_LOAD").as_deref() != Ok("1") {
         println!(
-            "skipping real GRIT v2.0.0 bounded readiness proof; set SHED_HFX_V02_REAL_R2_LOAD=1 to enable"
+            "skipping real GRIT v2.0.0 bounded readiness proof; set POURPOINT_HFX_V02_REAL_R2_LOAD=1 to enable"
         );
         return;
     }

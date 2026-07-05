@@ -21,7 +21,7 @@
     "status": "NotApplied",
     "reason": "seed golden has no raster refinement"
   },
-  "canonicalizer_version": "shed-canonical-wkb-v1",
+  "canonicalizer_version": "pourpoint-canonical-wkb-v1",
   "comparison_policy": {
     "coordinate_abs_epsilon": 0.000001,
     "area_km2_abs_epsilon": 0.000001,

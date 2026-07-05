@@ -32,7 +32,7 @@ use crate::reader::manifest::{AuxDeclarations, SnapDecl};
 use crate::reader::snap_store::{SnapOpenMode, SnapStore};
 use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
-use crate::source::{DatasetSource, shed_get_ranges_concurrency};
+use crate::source::{DatasetSource, pourpoint_get_ranges_concurrency};
 use crate::source_telemetry::{HttpStatsHandle, HttpStatsSnapshot};
 use crate::telemetry::{Stage, StageGuard, record_bytes, record_path};
 
@@ -1134,7 +1134,7 @@ fn validate_graph_catchments(
     Ok(catchment_levels)
 }
 
-/// Validate shed-owned snap referential integrity.
+/// Validate pourpoint-owned snap referential integrity.
 ///
 /// Ensures each snap `unit_id` exists in the loaded catchment set and that the
 /// referenced unit level is declared in the snap entry's `references_levels`.
@@ -1191,7 +1191,7 @@ fn read_remote_artifact(
         })?;
 
         if meta.size > RANGE_GET_CHUNK_TARGET_BYTES {
-            let concurrency = shed_get_ranges_concurrency();
+            let concurrency = pourpoint_get_ranges_concurrency();
             let ranges = remote_artifact_ranges(meta.size, concurrency);
             let chunks = futures_util::stream::iter(
                 ranges
@@ -1371,7 +1371,7 @@ mod tests {
 
     static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
     const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
-    const REAL_MEASUREMENT_ENV: &str = "SHED_R2_SNAP_OPEN_REAL_MEASURE";
+    const REAL_MEASUREMENT_ENV: &str = "POURPOINT_R2_SNAP_OPEN_REAL_MEASURE";
     const LOCAL_MERIT_GLOBAL: &str =
         "/Users/nicolaslazaro/Desktop/merit-hfx-v2/planetary/merit-hfx-global";
 
@@ -2150,7 +2150,7 @@ mod tests {
         let mut builder = WriterProperties::builder();
         if let Some(value) = metadata {
             builder = builder.set_key_value_metadata(Some(vec![KeyValue {
-                key: "shed-test-token".to_owned(),
+                key: "pourpoint-test-token".to_owned(),
                 value: Some(value.to_owned()),
             }]));
         }
@@ -2294,7 +2294,7 @@ mod tests {
         let root = ObjectPath::from("dataset/root");
         put_remote_manifest_and_graph(&store, &root, false);
         put_remote_catchments(&store, &root);
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         let session = DatasetSession::open_remote(store, &root, &url, None).unwrap();
 
@@ -2358,7 +2358,7 @@ mod tests {
         let root = ObjectPath::from("dataset/root");
         put_remote_manifest_and_graph(&store, &root, false);
         put_remote_catchments(&store, &root);
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         let session =
             DatasetSession::open_remote_with_default_caches(store, &root, &url, None).unwrap();
@@ -2378,7 +2378,7 @@ mod tests {
         let root = ObjectPath::from("dataset/root");
         put_remote_manifest_and_graph(&store, &root, false);
         put_remote_catchments(&store, &root);
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         let session =
             DatasetSession::open_remote_with_stats(store, &root, &url, None, None, None).unwrap();
@@ -2425,7 +2425,7 @@ mod tests {
         put_remote_catchments(&base_store, &root);
         let counting_store = Arc::new(CountingStore::new(base_store));
         let object_store = Arc::clone(&counting_store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
         let row_group_cache = Some(ParquetRowGroupCache::new(1024 * 1024));
         let footer_cache = Some(ParquetFooterCache::new());
         let session = DatasetSession::open_remote_with_stats(
@@ -2459,7 +2459,7 @@ mod tests {
         let root = ObjectPath::from("dataset/root");
         put_remote_manifest_and_graph(&store, &root, false);
         put_remote_catchments(&store, &root);
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(store, &root, &url, None).unwrap();
 
@@ -2480,7 +2480,7 @@ mod tests {
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let root_a = ObjectPath::from("dataset/a");
-        let url_a = Url::parse("s3://shed-test/dataset/a").unwrap();
+        let url_a = Url::parse("s3://pourpoint-test/dataset/a").unwrap();
         let store_a = Arc::new(InMemory::new());
         put_remote_manifest_and_graph(&store_a, &root_a, false);
         put_remote_catchments(&store_a, &root_a);
@@ -2488,7 +2488,7 @@ mod tests {
         DatasetSession::open_remote(store_a, &root_a, &url_a, None).unwrap();
 
         let root_b = ObjectPath::from("dataset/b");
-        let url_b = Url::parse("s3://shed-test/dataset/b").unwrap();
+        let url_b = Url::parse("s3://pourpoint-test/dataset/b").unwrap();
         let empty_store = Arc::new(InMemory::new());
         let unmapped_err =
             DatasetSession::open_remote(empty_store, &root_b, &url_b, None).unwrap_err();
@@ -2519,7 +2519,7 @@ mod tests {
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
         let root = ObjectPath::from("dataset/root");
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         let err = DatasetSession::open_remote(store, &root, &url, None).unwrap_err();
 
@@ -2552,7 +2552,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         let session = DatasetSession::open_remote(store, &root, &url, None).unwrap();
         let snap = session.snap().expect("snap store should be present");
@@ -2613,7 +2613,7 @@ mod tests {
         });
         let counting_store = Arc::new(CountingStore::new(base_store));
         let object_store = Arc::clone(&counting_store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
         let first_ranged_gets = counting_store.ranged_get_calls();
@@ -2677,7 +2677,7 @@ mod tests {
         put_remote_catchments(&base_store, &root);
         put_remote_snaps(&base_store, &root, &snap_paths);
         let object_store = Arc::clone(&base_store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
 
@@ -2741,7 +2741,7 @@ mod tests {
             catchments_bytes_with_levels_metadata_and_row_group_size([0, 0], None, Some(1)),
         );
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         reset_geometry_decode_counts_for_test();
         reset_read_id_level_scan_count_for_test();
@@ -2797,7 +2797,7 @@ mod tests {
             catchments_bytes_with_levels_metadata_and_row_group_size([0, 0], None, Some(1)),
         );
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
         std::fs::remove_file(
@@ -2839,7 +2839,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "network and large-cache measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
+    #[ignore = "network and large-cache measurement; set POURPOINT_R2_SNAP_OPEN_REAL_MEASURE=1"]
     fn measure_real_grit_warm_snap_open_reuse() {
         if !real_snap_open_measurements_enabled() {
             println!("skipping real GRIT warm snap-open measurement; set {REAL_MEASUREMENT_ENV}=1");
@@ -2922,7 +2922,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "network and large-cache measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
+    #[ignore = "network and large-cache measurement; set POURPOINT_R2_SNAP_OPEN_REAL_MEASURE=1"]
     fn measure_real_grit_cold_snap_membership_open() {
         if !real_snap_open_measurements_enabled() {
             println!("skipping real GRIT cold snap-open measurement; set {REAL_MEASUREMENT_ENV}=1");
@@ -3012,7 +3012,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "large local measurement; set SHED_R2_SNAP_OPEN_REAL_MEASURE=1"]
+    #[ignore = "large local measurement; set POURPOINT_R2_SNAP_OPEN_REAL_MEASURE=1"]
     fn measure_local_merit_global_snap_membership_open() {
         if !real_snap_open_measurements_enabled() {
             println!("skipping local MERIT snap-open measurement; set {REAL_MEASUREMENT_ENV}=1");
@@ -3090,7 +3090,7 @@ mod tests {
         put_remote_catchments(&base_store, &root);
         put_remote_snaps(&base_store, &root, &snap_paths);
         let object_store = Arc::new(NoEtagHeadStore::new(base_store)) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
 
@@ -3141,7 +3141,7 @@ mod tests {
         put_remote_catchments(&store, &root);
         put_remote_snaps(&store, &root, &snap_paths);
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
         let snap_path = ObjectPath::from(format!("{}/{}", root.as_ref(), "aux/snap.parquet"));
@@ -3181,7 +3181,7 @@ mod tests {
         put_remote_catchments(&store, &root);
         put_remote_snaps(&store, &root, &snap_paths);
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
         let snap_path = ObjectPath::from(format!("{}/{}", root.as_ref(), "aux/snap.parquet"));
@@ -3226,7 +3226,7 @@ mod tests {
         put_remote_manifest_and_graph(&store, &root, false);
         put_remote_catchments(&store, &root);
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
         let catchments_path = root.clone().join("catchments.parquet");
@@ -3267,7 +3267,7 @@ mod tests {
         put_remote_manifest_and_graph(&store, &root, false);
         put_remote_catchments(&store, &root);
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
         let validation_sidecar_path = cache_dir
@@ -3346,7 +3346,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let url = Url::parse("s3://shed-test/dataset/root").unwrap();
+        let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
         let subscriber = StageNestingSubscriber::default();
         let state = subscriber.state.clone();

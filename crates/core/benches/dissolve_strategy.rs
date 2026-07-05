@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use geo::{LineString, Polygon};
-use shed_core::algo::dissolve;
+use pourpoint_core::algo::dissolve;
 
 fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Polygon<f64> {
     Polygon::new(

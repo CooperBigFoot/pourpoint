@@ -9,13 +9,13 @@ use geo::Rect;
 use hfx_core::FlowDirEncoding;
 use tracing::{debug, instrument};
 
-use shed_core::algo::accumulation_tile::AccumulationTile;
-use shed_core::algo::coord::{GeoCoord, GridDims};
-use shed_core::algo::flow_direction_tile::FlowDirectionTile;
-use shed_core::algo::geo_transform::GeoTransform;
-use shed_core::algo::raster_tile::RasterTile;
-use shed_core::algo::tile_state::Raw;
-use shed_core::algo::traits::{RasterSource, RasterSourceError};
+use pourpoint_core::algo::accumulation_tile::AccumulationTile;
+use pourpoint_core::algo::coord::{GeoCoord, GridDims};
+use pourpoint_core::algo::flow_direction_tile::FlowDirectionTile;
+use pourpoint_core::algo::geo_transform::GeoTransform;
+use pourpoint_core::algo::raster_tile::RasterTile;
+use pourpoint_core::algo::tile_state::Raw;
+use pourpoint_core::algo::traits::{RasterSource, RasterSourceError};
 
 use crate::config::{GdalConfig, ensure_gdal_configured};
 use crate::error::RasterReadError;
@@ -506,7 +506,7 @@ mod tests {
     #[test]
     fn vsi_like_uri_is_passed_to_gdal_without_pre_exists_rejection() {
         let err = open_dataset(
-            "/vsimem/shed_missing_virtual_raster.tif",
+            "/vsimem/pourpoint_missing_virtual_raster.tif",
             &GdalConfig::new(),
         )
         .expect_err("missing virtual raster should fail in GDAL open");

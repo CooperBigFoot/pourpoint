@@ -49,7 +49,7 @@ if [[ ${#bench_args[@]} -eq 0 ]]; then
   exit 2
 fi
 
-cargo_args=(run -p shed-core --bin bench_delineate)
+cargo_args=(run -p pourpoint-core --bin bench_delineate)
 if [[ $release -eq 1 ]]; then
   cargo_args+=(--release)
 fi

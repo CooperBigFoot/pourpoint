@@ -11,14 +11,14 @@ use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStreamBuilder};
 use parquet::file::statistics::Statistics;
-use shed_core::algo::coord::GeoCoord;
-use shed_core::reader::graph::max_level_from_row_group_statistics;
-use shed_core::reader::manifest::read_manifest_from_bytes;
-use shed_core::resolver::ResolutionMethod;
-use shed_core::session::DatasetSession;
-use shed_core::source::DatasetSource;
-use shed_core::testutil::DatasetBuilder;
-use shed_core::{DelineationOptions, Engine, LevelSelection};
+use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::reader::graph::max_level_from_row_group_statistics;
+use pourpoint_core::reader::manifest::read_manifest_from_bytes;
+use pourpoint_core::resolver::ResolutionMethod;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::source::DatasetSource;
+use pourpoint_core::testutil::DatasetBuilder;
+use pourpoint_core::{DelineationOptions, Engine, LevelSelection};
 
 const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";
 const REAL_GRIT_ZURICH_OUTLET: GeoCoord = GeoCoord {
@@ -121,11 +121,11 @@ fn default_finest_pip_resolution_prefers_nested_l1_child_over_larger_l0_parent()
 }
 
 #[test]
-#[ignore = "network-gated GRIT v2.0.0 finest-level proof; set SHED_HFX_V02_REAL_R2_DELINEATION=1"]
+#[ignore = "network-gated GRIT v2.0.0 finest-level proof; set POURPOINT_HFX_V02_REAL_R2_DELINEATION=1"]
 fn grit_v200_default_finest_resolves_zurich_to_l1_by_bounded_reads() {
-    if std::env::var("SHED_HFX_V02_REAL_R2_DELINEATION").as_deref() != Ok("1") {
+    if std::env::var("POURPOINT_HFX_V02_REAL_R2_DELINEATION").as_deref() != Ok("1") {
         println!(
-            "skipping real GRIT v2.0.0 finest-level proof; set SHED_HFX_V02_REAL_R2_DELINEATION=1 to enable"
+            "skipping real GRIT v2.0.0 finest-level proof; set POURPOINT_HFX_V02_REAL_R2_DELINEATION=1 to enable"
         );
         return;
     }

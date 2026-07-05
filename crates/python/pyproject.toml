@@ -3,10 +3,10 @@ requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "pyshed"
+name = "pourpoint"
 version = "0.3.0"
 requires-python = ">=3.9"
-description = "Python bindings for the shed watershed delineation engine"
+description = "Python bindings for the pourpoint watershed delineation engine"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "LICENSES/*"]
@@ -32,27 +32,27 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CooperBigFoot/shed"
-Repository = "https://github.com/CooperBigFoot/shed"
-Issues = "https://github.com/CooperBigFoot/shed/issues"
-Changelog = "https://github.com/CooperBigFoot/shed/blob/main/crates/python/CHANGELOG.md"
-Documentation = "https://cooperbigfoot.github.io/shed/"
+Homepage = "https://github.com/CooperBigFoot/pourpoint"
+Repository = "https://github.com/CooperBigFoot/pourpoint"
+Issues = "https://github.com/CooperBigFoot/pourpoint/issues"
+Changelog = "https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/CHANGELOG.md"
+Documentation = "https://cooperbigfoot.github.io/pourpoint/"
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pyarrow>=15"]
-dev = ["pyshed[test]", "ruff", "maturin>=1.7,<2"]
+dev = ["pourpoint[test]", "ruff", "maturin>=1.7,<2"]
 
 [dependency-groups]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 
 [tool.pytest.ini_options]
 markers = [
-    "network: tests that require a live HFX dataset URL (set PYSHED_TEST_REMOTE_URL)",
+    "network: tests that require a live HFX dataset URL (set POURPOINT_TEST_REMOTE_URL)",
 ]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "pyshed._pyshed"
+module-name = "pourpoint._pourpoint"
 python-source = "python"
 auditwheel = "skip"
-include = [{ path = "python/pyshed/_data/**/*", format = "wheel" }]
+include = [{ path = "python/pourpoint/_data/**/*", format = "wheel" }]

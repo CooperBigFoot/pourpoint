@@ -1,12 +1,12 @@
 //! Python-exposed staged delineation intermediates.
 
-use pyo3::prelude::*;
-use pyo3::types::PyBytes;
-use shed_core::algo::encode_wkb_multi_polygon;
-use shed_core::staged::{
+use pourpoint_core::algo::encode_wkb_multi_polygon;
+use pourpoint_core::staged::{
     DissolvedWatershed, LevelResolvedOutlet, LevelSelection, PreMergeDrainageUnits,
     SameLevelUpstreamUnits, SelectedLevel, TerminalRefinement,
 };
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 
 /// Python-visible HFX level selection.
 #[pyclass(name = "LevelSelection", eq)]

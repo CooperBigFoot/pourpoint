@@ -8,9 +8,9 @@ use std::env;
 use std::error::Error;
 use std::time::Instant;
 
-use shed_core::session::DatasetSession;
-use shed_core::testutil::DatasetBuilder;
-use shed_core::{DelineationOptions, Engine, RefinementMode};
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::DatasetBuilder;
+use pourpoint_core::{DelineationOptions, Engine, RefinementMode};
 
 const DEFAULT_ATOMS: usize = 2_500;
 const DEFAULT_COORDS_PER_RING: usize = 1_500;
@@ -26,8 +26,8 @@ struct BenchConfig {
 impl BenchConfig {
     fn from_env_and_args() -> Result<Self, Box<dyn Error>> {
         let mut config = Self {
-            atoms: read_env_usize("SHED_BENCH_ATOMS")?.unwrap_or(DEFAULT_ATOMS),
-            coords_per_ring: read_env_usize("SHED_BENCH_COORDS_PER_RING")?
+            atoms: read_env_usize("POURPOINT_BENCH_ATOMS")?.unwrap_or(DEFAULT_ATOMS),
+            coords_per_ring: read_env_usize("POURPOINT_BENCH_COORDS_PER_RING")?
                 .unwrap_or(DEFAULT_COORDS_PER_RING),
         };
 
@@ -113,6 +113,6 @@ fn parse_positive_usize(name: &str, value: &str) -> Result<usize, Box<dyn Error>
 fn print_usage() {
     eprintln!(
         "usage: bench_delineation [--atoms N] [--coords-per-ring N]\n\
-         env: SHED_BENCH_ATOMS, SHED_BENCH_COORDS_PER_RING"
+         env: POURPOINT_BENCH_ATOMS, POURPOINT_BENCH_COORDS_PER_RING"
     );
 }

@@ -3,11 +3,11 @@
 use std::sync::OnceLock;
 
 use geo::BoundingRect;
+use pourpoint_core::algo::encode_wkb_multi_polygon;
+use pourpoint_core::engine::DelineationAreaOnlyResult;
+use pourpoint_core::{DelineationResult, RefinementOutcome};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use shed_core::algo::encode_wkb_multi_polygon;
-use shed_core::engine::DelineationAreaOnlyResult;
-use shed_core::{DelineationResult, RefinementOutcome};
 
 use crate::geojson::result_to_geojson_feature;
 

@@ -1,7 +1,7 @@
-"""Pytest fixtures for pyshed behavioral tests.
+"""Pytest fixtures for pourpoint behavioral tests.
 
 Creates a synthetic 3-unit HFX dataset using pyarrow that mirrors the
-schema produced by shed-core's DatasetBuilder test utility.
+schema produced by pourpoint-core's DatasetBuilder test utility.
 """
 
 import json
@@ -195,7 +195,7 @@ def _write_catchments(root):
     )
 
     # Open the file explicitly to avoid pyarrow filesystem registration
-    # conflicts with pyshed's Arrow/GDAL runtime (which registers the
+    # conflicts with pourpoint's Arrow/GDAL runtime (which registers the
     # 'file' scheme on import).
     with open(root / "catchments.parquet", "wb") as fh:
         with pa.parquet.ParquetWriter(fh, schema) as writer:

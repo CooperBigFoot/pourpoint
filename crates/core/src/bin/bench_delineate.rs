@@ -7,11 +7,11 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use pourpoint_core::algo::GeoCoord;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::source_telemetry::HttpStatsSnapshot;
+use pourpoint_core::{DelineationOptions, Engine, ResolverConfig, SearchRadiusMetres};
 use serde_json::{Map, Value, json};
-use shed_core::algo::GeoCoord;
-use shed_core::session::DatasetSession;
-use shed_core::source_telemetry::HttpStatsSnapshot;
-use shed_core::{DelineationOptions, Engine, ResolverConfig, SearchRadiusMetres};
 use tracing_subscriber::prelude::*;
 
 const R2_DATASET: &str = "https://basin-delineations-public.upstream.tech/grit/1.0.0/";
@@ -52,7 +52,7 @@ fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let cache_parent = config
         .cache_root
         .clone()
-        .unwrap_or_else(|| env::temp_dir().join("shed-bench-cache"));
+        .unwrap_or_else(|| env::temp_dir().join("pourpoint-bench-cache"));
     fs::create_dir_all(&cache_parent)?;
     let cache_dir = unique_child_dir(&cache_parent, "run")?;
 
@@ -135,7 +135,7 @@ fn run_hot(
         let trace = temp_trace_path(iteration)?;
         let _env = BenchEnv::set(&hot_cache, Some(&trace));
         let start = Instant::now();
-        let (layer, guard) = shed_core::telemetry::jsonl::JsonlLayer::from_path(&trace)?;
+        let (layer, guard) = pourpoint_core::telemetry::jsonl::JsonlLayer::from_path(&trace)?;
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             engine.delineate(config.outlet, &options)
@@ -189,7 +189,7 @@ fn run_once(
     let _env = BenchEnv::set(cache_dir, trace);
     let start = Instant::now();
     let http_stats = if let Some(trace_path) = trace {
-        let (layer, guard) = shed_core::telemetry::jsonl::JsonlLayer::from_path(trace_path)?;
+        let (layer, guard) = pourpoint_core::telemetry::jsonl::JsonlLayer::from_path(trace_path)?;
         let subscriber = tracing_subscriber::registry().with(layer);
         let http_stats = tracing::subscriber::with_default(subscriber, || {
             run_engine_once(dataset, outlet, search_radius)
@@ -355,16 +355,16 @@ fn resolve_dataset(dataset: &str) -> Result<String, Box<dyn Error>> {
 
 #[cfg(feature = "test-fixtures")]
 fn local_fixture_dataset() -> Result<String, Box<dyn Error>> {
-    let builder = shed_core::testutil::DatasetBuilder::new(8).with_longitude_span(-1.0, 1.0);
+    let builder = pourpoint_core::testutil::DatasetBuilder::new(8).with_longitude_span(-1.0, 1.0);
     let (_dir, root) = builder.build();
-    let persistent_root = unique_child_dir(&env::temp_dir(), "shed-bench-local-fixture")?;
+    let persistent_root = unique_child_dir(&env::temp_dir(), "pourpoint-bench-local-fixture")?;
     copy_dir(&root, &persistent_root)?;
     Ok(persistent_root.display().to_string())
 }
 
 #[cfg(not(feature = "test-fixtures"))]
 fn local_fixture_dataset() -> Result<String, Box<dyn Error>> {
-    Err("--dataset local requires building shed-core with --features test-fixtures; pass an explicit dataset path otherwise".into())
+    Err("--dataset local requires building pourpoint-core with --features test-fixtures; pass an explicit dataset path otherwise".into())
 }
 
 #[cfg(feature = "test-fixtures")]
@@ -383,7 +383,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn temp_trace_path(iteration: usize) -> Result<PathBuf, Box<dyn Error>> {
-    let dir = env::temp_dir().join("shed-bench-traces");
+    let dir = env::temp_dir().join("pourpoint-bench-traces");
     fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("trace-{}-{iteration}.jsonl", unique_suffix()?)))
 }
@@ -542,18 +542,18 @@ struct BenchEnv {
 impl BenchEnv {
     fn set(cache_dir: &Path, trace: Option<&Path>) -> Self {
         let env = Self {
-            previous_trace: env::var_os("PYSHED_BENCH_TRACE"),
-            previous_net: env::var_os("PYSHED_BENCH_NET"),
+            previous_trace: env::var_os("POURPOINT_BENCH_TRACE"),
+            previous_net: env::var_os("POURPOINT_BENCH_NET"),
             previous_cache: env::var_os("HFX_CACHE_DIR"),
         };
         // SAFETY: this single-threaded benchmark harness mutates process env only
         // around synchronous Engine construction and delineation calls.
         unsafe {
             match trace {
-                Some(path) => env::set_var("PYSHED_BENCH_TRACE", path),
-                None => env::remove_var("PYSHED_BENCH_TRACE"),
+                Some(path) => env::set_var("POURPOINT_BENCH_TRACE", path),
+                None => env::remove_var("POURPOINT_BENCH_TRACE"),
             }
-            env::set_var("PYSHED_BENCH_NET", "1");
+            env::set_var("POURPOINT_BENCH_NET", "1");
             env::set_var("HFX_CACHE_DIR", cache_dir);
         }
         env
@@ -564,8 +564,8 @@ impl Drop for BenchEnv {
     fn drop(&mut self) {
         // SAFETY: see [`BenchEnv::set`].
         unsafe {
-            restore_env("PYSHED_BENCH_TRACE", self.previous_trace.take());
-            restore_env("PYSHED_BENCH_NET", self.previous_net.take());
+            restore_env("POURPOINT_BENCH_TRACE", self.previous_trace.take());
+            restore_env("POURPOINT_BENCH_NET", self.previous_net.take());
             restore_env("HFX_CACHE_DIR", self.previous_cache.take());
         }
     }
@@ -582,8 +582,8 @@ unsafe fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
 mod tests {
     use std::collections::BTreeMap;
 
+    use pourpoint_core::source_telemetry::{HttpStatsSnapshot, PathCounters};
     use serde_json::json;
-    use shed_core::source_telemetry::{HttpStatsSnapshot, PathCounters};
 
     fn args(extra: &[&str]) -> Vec<String> {
         let mut args = vec![

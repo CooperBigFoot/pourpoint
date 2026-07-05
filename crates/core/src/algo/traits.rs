@@ -1,6 +1,6 @@
 //! Trait boundaries for external capabilities (raster I/O, geometry repair).
 //!
-//! These traits are defined in `shed-core` and implemented by `shed-gdal`.
+//! These traits are defined in `pourpoint-core` and implemented by `pourpoint-gdal`.
 
 use geo::{MultiPolygon, Rect};
 
@@ -76,7 +76,7 @@ pub enum GeometryRepairError {
 
 /// Load windowed raster tiles from GeoTIFF files or GDAL virtual paths.
 ///
-/// The canonical implementation uses GDAL and lives in `shed-gdal`.
+/// The canonical implementation uses GDAL and lives in `pourpoint-gdal`.
 pub trait RasterSource {
     /// Load flow direction values within `bbox` from the raster URI at `uri`.
     ///
@@ -115,7 +115,7 @@ pub trait RasterSource {
 
 /// Repair invalid geometries using external geometry libraries.
 ///
-/// The canonical implementation uses GDAL/GEOS and lives in `shed-gdal`.
+/// The canonical implementation uses GDAL/GEOS and lives in `pourpoint-gdal`.
 pub trait GeometryRepair {
     /// Validate and repair a multi-polygon, returning a geometrically valid result.
     ///

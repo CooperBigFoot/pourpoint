@@ -16,13 +16,13 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
-use shed_core::algo::coord::GeoCoord;
-use shed_core::resolve_outlet;
-use shed_core::resolver::{
+use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::resolve_outlet;
+use pourpoint_core::resolver::{
     OutletResolutionError, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
 };
-use shed_core::session::DatasetSession;
-use shed_core::testutil::{bbox_struct_array, bbox_struct_field};
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
 
 // ---------------------------------------------------------------------------
 // WKB helpers
@@ -597,7 +597,7 @@ fn pip_upstream_area_tie_break() {
         matches!(
             result.method,
             ResolutionMethod::PointInPolygon {
-                tie_break: Some(shed_core::resolver::PipTieBreak::HighestUpstreamArea),
+                tie_break: Some(pourpoint_core::resolver::PipTieBreak::HighestUpstreamArea),
                 ..
             }
         ),
