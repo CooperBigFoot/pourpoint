@@ -1,4 +1,4 @@
-# Contributing to shed / pyshed
+# Contributing to pourpoint
 
 ## Building from source
 
@@ -50,21 +50,21 @@ by maintainers; `./scripts/bump-version.sh` is invoked only during release
 preparation. Release tags use the `v*` namespace and are created by a human at
 release time.
 
-### Pyshed release process (standalone)
+### Pourpoint release process (standalone)
 
-`crates/python/` (`pyshed`) has its own standalone release process. Its version
+`crates/python/` (`pourpoint`) has its own standalone release process. Its version
 changes only on intentional PyPI releases and uses a separate tag namespace
-(`pyshed-v*`) so it does not collide with the workspace `v*` tags.
+(`pourpoint-v*`) so it does not collide with the workspace `v*` tags.
 
 ```bash
 # Stable release
-./scripts/bump-pyshed-version.sh patch   # 0.1.0 → 0.1.1
+./scripts/bump-pourpoint-version.sh patch   # 0.1.0 → 0.1.1
 
 # Release candidate (PEP 440 input, SemVer 2.0 written to Cargo.toml)
-./scripts/bump-pyshed-version.sh set 0.1.0rc1
+./scripts/bump-pourpoint-version.sh set 0.1.0rc1
 
 # Final release after rc
-./scripts/bump-pyshed-version.sh set 0.1.0
+./scripts/bump-pourpoint-version.sh set 0.1.0
 ```
 
 The `set` mode is required for prereleases because `cargo metadata` rejects
@@ -72,10 +72,10 @@ PEP 440 prerelease syntax (`0.1.0rc1`) but accepts SemVer 2.0 (`0.1.0-rc.1`).
 The script writes the PEP 440 form to `pyproject.toml` and the SemVer 2.0
 equivalent to `Cargo.toml` automatically.
 
-Update `crates/python/CHANGELOG.md` for every pyshed version bump, then tag:
+Update `crates/python/CHANGELOG.md` for every pourpoint version bump, then tag:
 
 ```bash
-git tag pyshed-v0.1.0rc1   # use the PEP 440 form for the tag
+git tag pourpoint-v0.1.0rc1   # use the PEP 440 form for the tag
 ```
 
 ## Wanted: wheel contributions for other platforms
@@ -103,7 +103,7 @@ release candidates, PyPI for real releases) run automatically on tag push.
 ### 1. Create a PyPI project-scoped API token
 
 Go to https://pypi.org/manage/account/token/ and create a token scoped to
-the `pyshed` project (create the project first by uploading once manually,
+the `pourpoint` project (create the project first by uploading once manually,
 or use the account-scoped token and tighten after first release). Copy the
 token (starts with `pypi-`).
 
@@ -116,8 +116,8 @@ Same flow on https://test.pypi.org/manage/account/token/. Copy that token.
 From the repo root:
 
 ```bash
-gh secret set PYPI_TOKEN     --repo CooperBigFoot/shed  # paste PyPI token
-gh secret set TESTPYPI_TOKEN --repo CooperBigFoot/shed  # paste TestPyPI token
+gh secret set PYPI_TOKEN     --repo CooperBigFoot/pourpoint  # paste PyPI token
+gh secret set TESTPYPI_TOKEN --repo CooperBigFoot/pourpoint  # paste TestPyPI token
 ```
 
 The `build-wheels.yaml` workflow reads these via `secrets.PYPI_TOKEN` and

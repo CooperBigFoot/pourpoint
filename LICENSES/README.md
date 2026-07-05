@@ -1,7 +1,7 @@
 # Bundled Library Licenses
 
 This directory contains the license texts for native libraries bundled inside
-the `pyshed` wheel. Each file corresponds to one upstream library.
+the `pourpoint` wheel. Each file corresponds to one upstream library.
 
 | Library | SPDX Identifier | Upstream URL | License file |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-The `pyshed` wheel bundles the following native libraries. Their license texts
+The `pourpoint` wheel bundles the following native libraries. Their license texts
 are in [`LICENSES/`](LICENSES/).
 
 | Library | Version | SPDX Identifier | Upstream URL | License file | Bundled in wheel? |
@@ -25,7 +25,7 @@ are in [`LICENSES/`](LICENSES/).
 ### GEOS (LGPL-2.1-only)
 
 GEOS is licensed under the GNU Lesser General Public License v2.1 and is
-**dynamically linked** into the `pyshed` wheel (via `delocate` on macOS).
+**dynamically linked** into the `pourpoint` wheel (via `delocate` on macOS).
 Redistributors must preserve the LGPL-2.1 license text (see
 [`LICENSES/GEOS.txt`](LICENSES/GEOS.txt)). End users have the right to replace
 the bundled GEOS shared library with a compatible version of their own choosing.
@@ -37,5 +37,5 @@ OpenSSL 3.x is licensed under the Apache License 2.0 and is bundled because
 license text is at [`LICENSES/openssl.txt`](LICENSES/openssl.txt).
 
 Note: whether OpenSSL is bundled in a given wheel depends on the build
-environment. Confirm by inspecting the wheel with `unzip -l pyshed-*.whl` and
-checking for `libssl`/`libcrypto` in `pyshed/.dylibs/`.
+environment. Confirm by inspecting the wheel with `unzip -l pourpoint-*.whl` and
+checking for `libssl`/`libcrypto` in `pourpoint/.dylibs/`.

@@ -7,8 +7,8 @@ remote-I/O counters for harnesses without depending on internal Rust APIs.
 
 | Variable | Effect |
 |---|---|
-| `PYSHED_BENCH_TRACE` | Emits JSONL stage records for benchmark consumers. |
-| `PYSHED_BENCH_NET=1` | Enables aggregate object-store network counters. |
+| `POURPOINT_BENCH_TRACE` | Emits JSONL stage records for benchmark consumers. |
+| `POURPOINT_BENCH_NET=1` | Enables aggregate object-store network counters. |
 
 Network counters are aggregate process counters. They are useful for comparing
 whole benchmark runs, but they are not per-span attribution and should not be

@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-`shed` is intended to be the watershed extraction engine that consumes compiled HFX datasets from the sibling [`../hfx`](../hfx) repository. `../hfx` defines the open HydroFabric Exchange contract, validator, and adapter-side normalization rules; this repository is the runtime engine that should load those HFX artifacts and perform outlet resolution, upstream traversal, terminal refinement, and final watershed geometry extraction.
+`pourpoint` is intended to be the watershed extraction engine that consumes compiled HFX datasets from the sibling [`../hfx`](../hfx) repository. `../hfx` defines the open HydroFabric Exchange contract, validator, and adapter-side normalization rules; this repository is the runtime engine that should load those HFX artifacts and perform outlet resolution, upstream traversal, terminal refinement, and final watershed geometry extraction.
 
-Treat `../hfx/spec/HFX_SPEC.md` as the canonical contract for on-disk inputs. In practical terms, `shed` should read `manifest.json`, `catchments.parquet`, and `graph.parquet`; optional snap and D8 raster artifacts are declared by `manifest.json` auxiliaries. Keep all source-fabric-specific logic out of the hot path. If a question comes up about file layout, schema, topology semantics, snapping rules, or raster refinement behavior, read `../hfx` first and align this repo with the spec rather than inventing a parallel contract here.
+Treat `../hfx/spec/HFX_SPEC.md` as the canonical contract for on-disk inputs. In practical terms, `pourpoint` should read `manifest.json`, `catchments.parquet`, and `graph.parquet`; optional snap and D8 raster artifacts are declared by `manifest.json` auxiliaries. Keep all source-fabric-specific logic out of the hot path. If a question comes up about file layout, schema, topology semantics, snapping rules, or raster refinement behavior, read `../hfx` first and align this repo with the spec rather than inventing a parallel contract here.
 
 ## Behavioral Guidelines
 
@@ -46,25 +46,25 @@ Regular commits carry NO version bump and NO tag.
 **Rules:**
 
 - **Regular commits**: Use conventional commit messages. Do NOT bump the version and do NOT create tags.
-- **Agents never create or push tags.** Tags in the `v*` (workspace) and `pyshed-v*` (pyshed) namespaces are cut by a human at release time.
+- **Agents never create or push tags.** Tags in the `v*` (workspace) and `pourpoint-v*` (pourpoint) namespaces are cut by a human at release time.
 - **Workspace release bump**: `./scripts/bump-version.sh <patch|minor|major>` edits the root `Cargo.toml` version field. It is invoked only as part of preparing a curated release — never as part of a normal commit.
 
 > **Note:** `cargo bump` does not support Cargo workspaces (it panics). Use `./scripts/bump-version.sh` instead — it edits `Cargo.toml` directly.
 
-### Pyshed releases (standalone)
+### Pourpoint releases (standalone)
 
-The `pyshed` crate (`crates/python/`) follows its own standalone release process and uses the separate `pyshed-v*` tag namespace:
+The `pourpoint` crate (`crates/python/`) follows its own standalone release process and uses the separate `pourpoint-v*` tag namespace:
 
-- Bump with `./scripts/bump-pyshed-version.sh <patch|minor|major|set <PEP440-version>>`.
+- Bump with `./scripts/bump-pourpoint-version.sh <patch|minor|major|set <PEP440-version>>`.
 - `set` mode is required for prereleases (e.g. `set 0.1.0rc1`): the script writes the SemVer 2.0 form (`0.1.0-rc.1`) to `Cargo.toml` and the PEP 440 form (`0.1.0rc1`) to `pyproject.toml`.
-- Tag pyshed releases `pyshed-v*` (e.g. `pyshed-v0.3.0`), by a human at release time, to avoid colliding with the workspace's `v*` tags.
+- Tag pourpoint releases `pourpoint-v*` (e.g. `pourpoint-v0.3.0`), by a human at release time, to avoid colliding with the workspace's `v*` tags.
 
 ### Quick Reference
 
 | Command | Effect |
 |---|---|
 | `./scripts/bump-version.sh patch` | `0.1.0` → `0.1.1` (workspace, release time) |
-| `./scripts/bump-pyshed-version.sh patch` | `0.3.0` → `0.3.1` (pyshed, release time) |
+| `./scripts/bump-pourpoint-version.sh patch` | `0.3.0` → `0.3.1` (pourpoint, release time) |
 | `grep '^version' Cargo.toml` | Show current workspace version |
 
 ## Rust Coding Conventions
@@ -250,7 +250,7 @@ Good candidates for typestate: delineation pipeline stages, raster processing ch
 
 ## Python Coding Conventions (`crates/python/`)
 
-These apply to the `pyshed` Python surface — the `.pyi` stub, the Python package under `crates/python/python/`, and the Python tests under `crates/python/tests/`. The compiled extension itself is Rust; see the Rust conventions above for that code.
+These apply to the `pourpoint` Python surface — the `.pyi` stub, the Python package under `crates/python/python/`, and the Python tests under `crates/python/tests/`. The compiled extension itself is Rust; see the Rust conventions above for that code.
 
 ### Tooling: `uv`, `ruff`, `ty`
 
