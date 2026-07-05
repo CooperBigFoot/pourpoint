@@ -65,7 +65,7 @@ typically `~/Library/Caches/hfx`. See
 
 ### Canonical Hosted Dataset
 
-The canonical public dataset for examples is the GRIT HFX v0.3.0 fabric at:
+The canonical public dataset for examples is GRIT (Global River Topology) 2.0.0, the source river network, compiled to the HFX v0.3.0 format, at:
 
 ```text
 https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/

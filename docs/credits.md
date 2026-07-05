@@ -26,6 +26,16 @@ combining raster and vector methods for watershed delineation traces back to
 **Djokic and Ye (1999)**; Heberger's contribution is the modern open-source, free,
 and global implementation that made the hybrid method fast and widely usable.
 
+## The GRIT hydrofabric
+
+pourpoint's canonical hosted example dataset is **GRIT (Global River Topology)**,
+a global river-network dataset by Wortmann et al. GRIT is a separate work from the
+delineation algorithm; if you delineate over the GRIT hydrofabric, cite it
+alongside Heberger's method:
+
+> Wortmann, M., et al. (2025). Global River Topology (GRIT).
+> doi:[10.1029/2024WR038308](https://doi.org/10.1029/2024WR038308)
+
 ## How to cite Heberger's work
 
 If the delineation algorithm matters to your work, please cite Heberger.

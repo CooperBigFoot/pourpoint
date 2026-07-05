@@ -25,7 +25,7 @@ if you want to help port the build.
 
 ## Zero-download quickstart
 
-Use the hosted public GRIT dataset without downloading it first:
+Use the hosted public GRIT (Global River Topology) dataset without downloading it first:
 
 ```python
 import pourpoint
@@ -37,9 +37,9 @@ print(result.area_km2)
 ```
 
 The engine fetches only the pieces of the dataset it needs, so the full dataset
-never lands on your machine. GRIT 2.0.0 is the one public dataset hosted today.
-To use a different HFX dataset, change the URL and nothing else in your code
-changes.
+never lands on your machine. The one public dataset hosted today is GRIT 2.0.0
+(the source river network), compiled to HFX v0.3.0 (the format version). To use a
+different HFX dataset, change the URL and nothing else in your code changes.
 
 ## Local quickstart
 
