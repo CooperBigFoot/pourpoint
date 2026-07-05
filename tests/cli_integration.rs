@@ -1,24 +1,24 @@
 use std::io::Write;
 
 use assert_cmd::Command;
+use pourpoint_core::testutil::DatasetBuilder;
 use serde_json::Value;
-use shed_core::testutil::DatasetBuilder;
 use tempfile::NamedTempFile;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn shed() -> Command {
-    Command::cargo_bin("shed").unwrap()
+fn pourpoint() -> Command {
+    Command::cargo_bin("pourpoint").unwrap()
 }
 
 // ── help flags ────────────────────────────────────────────────────────────────
 
 #[test]
 fn cli_help_succeeds() {
-    let output = shed()
+    let output = pourpoint()
         .arg("--help")
         .output()
-        .expect("failed to execute shed --help");
+        .expect("failed to execute pourpoint --help");
 
     assert!(
         output.status.success(),
@@ -27,17 +27,17 @@ fn cli_help_succeeds() {
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
-        stdout.contains("shed"),
-        "stdout should mention 'shed': {stdout}"
+        stdout.contains("pourpoint"),
+        "stdout should mention 'pourpoint': {stdout}"
     );
 }
 
 #[test]
 fn cli_delineate_help_succeeds() {
-    let output = shed()
+    let output = pourpoint()
         .args(["delineate", "--help"])
         .output()
-        .expect("failed to execute shed delineate --help");
+        .expect("failed to execute pourpoint delineate --help");
 
     assert!(
         output.status.success(),
@@ -57,7 +57,7 @@ fn cli_delineate_help_succeeds() {
 fn cli_single_outlet_geojson() {
     let (_dir, root) = DatasetBuilder::new(3).build();
 
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -68,7 +68,7 @@ fn cli_single_outlet_geojson() {
             "1.70",
         ])
         .output()
-        .expect("failed to execute shed delineate");
+        .expect("failed to execute pourpoint delineate");
 
     assert!(
         output.status.success(),
@@ -101,7 +101,7 @@ fn cli_single_outlet_geojson() {
 fn cli_single_outlet_invalid_coord() {
     let (_dir, root) = DatasetBuilder::new(3).build();
 
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -112,7 +112,7 @@ fn cli_single_outlet_invalid_coord() {
             "999.0",
         ])
         .output()
-        .expect("failed to execute shed delineate");
+        .expect("failed to execute pourpoint delineate");
 
     assert!(
         !output.status.success(),
@@ -132,7 +132,7 @@ fn cli_batch_csv() {
     writeln!(csv_file, "0.20,0.70").unwrap();
     csv_file.flush().unwrap();
 
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -141,7 +141,7 @@ fn cli_batch_csv() {
             csv_file.path().to_str().unwrap(),
         ])
         .output()
-        .expect("failed to execute shed delineate --outlets");
+        .expect("failed to execute pourpoint delineate --outlets");
 
     assert!(
         output.status.success(),
@@ -167,7 +167,7 @@ fn cli_batch_csv() {
 
 #[test]
 fn cli_missing_dataset() {
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -178,7 +178,7 @@ fn cli_missing_dataset() {
             "0.0",
         ])
         .output()
-        .expect("failed to execute shed delineate");
+        .expect("failed to execute pourpoint delineate");
 
     assert!(
         !output.status.success(),
@@ -192,7 +192,7 @@ fn cli_missing_dataset() {
 fn cli_json_envelope() {
     let (_dir, root) = DatasetBuilder::new(3).build();
 
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -204,7 +204,7 @@ fn cli_json_envelope() {
             "--json",
         ])
         .output()
-        .expect("failed to execute shed delineate --json");
+        .expect("failed to execute pourpoint delineate --json");
 
     assert!(
         output.status.success(),
@@ -240,7 +240,7 @@ fn cli_json_batch_with_failure() {
     writeln!(csv_file, "50.0,50.0").unwrap(); // valid coord but outside all catchments
     csv_file.flush().unwrap();
 
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -250,7 +250,7 @@ fn cli_json_batch_with_failure() {
             "--json",
         ])
         .output()
-        .expect("failed to execute shed delineate --json");
+        .expect("failed to execute pourpoint delineate --json");
 
     // Exit code must be non-zero because one outlet failed.
     assert!(
@@ -306,7 +306,7 @@ fn cli_json_batch_with_failure() {
 fn cli_no_refine_flag() {
     let (_dir, root) = DatasetBuilder::new(3).build();
 
-    let output = shed()
+    let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
@@ -318,7 +318,7 @@ fn cli_no_refine_flag() {
             "--no-refine",
         ])
         .output()
-        .expect("failed to execute shed delineate --no-refine");
+        .expect("failed to execute pourpoint delineate --no-refine");
 
     assert!(
         output.status.success(),

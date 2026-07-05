@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Builds the native dependency stack (GDAL + friends) for pyshed wheel builds.
+# Builds the native dependency stack (GDAL + friends) for pourpoint wheel builds.
 #
 # Ported from https://github.com/rasterio/rasterio/blob/main/ci/config.sh
 # with the following intentional divergences:
 #   - macOS arm64 only (no Linux/Windows paths).
 #   - Dropped: hdf5, libaec, netcdf, openjpeg, lerc, json-c (external),
-#     libwebp, lcms2, giflib, blosc, pcre2, expat — not needed by pyshed.
-#   - GDAL_USE_GEOS=ON (rasterio disables it on macOS; pyshed needs GEOS for
+#     libwebp, lcms2, giflib, blosc, pcre2, expat — not needed by pourpoint.
+#   - GDAL_USE_GEOS=ON (rasterio disables it on macOS; pourpoint needs GEOS for
 #     geometry repair).
 #   - Minimal GDAL driver set: GTiff, VRT, MEM (raster) + GeoJSON, Shape (OGR).
 #
 # Environment variables consumed (set by cibuildwheel via CIBW_ENVIRONMENT_MACOS):
-#   BUILD_PREFIX           — install root (e.g. ${GITHUB_WORKSPACE}/pyshed_libs)
+#   BUILD_PREFIX           — install root (e.g. ${GITHUB_WORKSPACE}/pourpoint_libs)
 #   CMAKE_OSX_ARCHITECTURES — e.g. arm64
 #   MACOSX_DEPLOYMENT_TARGET — e.g. 11.0
 #   GDAL_VERSION           — e.g. 3.12.1 (may be overridden by caller)
@@ -39,7 +39,7 @@ LIBPNG_VERSION=1.6.54
 # ---------------------------------------------------------------------------
 # Build prefix and basic exports
 # ---------------------------------------------------------------------------
-BUILD_PREFIX="${BUILD_PREFIX:-${GITHUB_WORKSPACE}/pyshed_libs}"
+BUILD_PREFIX="${BUILD_PREFIX:-${GITHUB_WORKSPACE}/pourpoint_libs}"
 
 export GDAL_CONFIG="$BUILD_PREFIX/bin/gdal-config"
 export PROJ_DATA="$BUILD_PREFIX/share/proj"

@@ -16,9 +16,9 @@ use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
 use hfx_core::{BoundingBox, Level, Topology, UnitId};
-use shed_core::SessionError;
-use shed_core::session::DatasetSession;
-use shed_core::testutil::{bbox_struct_array, bbox_struct_field};
+use pourpoint_core::SessionError;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
 
 // ---------------------------------------------------------------------------
 // WKB helpers
@@ -618,7 +618,7 @@ fn test_open_hfx_v030_struct_bbox_dataset_with_snap() {
 
 #[test]
 fn test_open_missing_root() {
-    let result = DatasetSession::open("/nonexistent/shed/test/path/xyz123");
+    let result = DatasetSession::open("/nonexistent/pourpoint/test/path/xyz123");
     assert!(
         matches!(result, Err(SessionError::RootNotFound { .. })),
         "expected RootNotFound, got: {result:?}"
@@ -627,7 +627,7 @@ fn test_open_missing_root() {
 
 #[test]
 fn test_open_unsupported_remote_source() {
-    let err = DatasetSession::open("gs://shed-test/example/root").unwrap_err();
+    let err = DatasetSession::open("gs://pourpoint-test/example/root").unwrap_err();
 
     assert!(matches!(err, SessionError::UnsupportedDatasetSource { .. }));
 }

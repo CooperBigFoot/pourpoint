@@ -1,4 +1,4 @@
-//! Emit stable stage telemetry for shed delineation work.
+//! Emit stable stage telemetry for pourpoint delineation work.
 //!
 //! JSONL schema target for later layers:
 //! - Each record is an event object with a stable record kind such as
@@ -424,7 +424,7 @@ mod tests {
             record_bytes(4096);
             record_requests(3);
             record_cache_status("hit");
-            record_path("/tmp/shed/cache.bin");
+            record_path("/tmp/pourpoint/cache.bin");
             record_row_groups(8);
             record_rows(144);
             record_matches(13);
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(span.fields.get("cache_status"), Some(&"hit".to_owned()));
         assert_eq!(
             span.fields.get("path"),
-            Some(&"/tmp/shed/cache.bin".to_owned())
+            Some(&"/tmp/pourpoint/cache.bin".to_owned())
         );
         assert_eq!(span.fields.get("row_groups"), Some(&"8".to_owned()));
         assert_eq!(span.fields.get("rows"), Some(&"144".to_owned()));

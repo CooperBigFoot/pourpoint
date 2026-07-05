@@ -4,13 +4,13 @@ use geo::Rect;
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use hfx_core::UnitId;
-use serde::Deserialize;
-use shed_core::algo::{
+use pourpoint_core::algo::{
     GeoCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon, refine_terminal_from_source,
 };
-use shed_core::session::DatasetSession;
-use shed_core::test_raster_source::LocalTiffRasterSource;
-use shed_gdal::GdalRasterSource;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::test_raster_source::LocalTiffRasterSource;
+use pourpoint_gdal::GdalRasterSource;
+use serde::Deserialize;
 
 const FIXTURE_ROOT: &str = "../core/tests/fixtures/parity/v01_synthetic_refined";
 const MERIT_URL: &str = "https://basin-delineations-public.upstream.tech/merit-basins/0.1.0/";
@@ -58,9 +58,9 @@ fn synthetic_b_tiff_matches_gdal() {
 #[ignore = "requires network-materialized MERIT C windows and GDAL runtime"]
 fn merit_c_windows_tiff_match_gdal() {
     assert_eq!(
-        std::env::var("SHED_PARITY_R2_CAPTURE").as_deref(),
+        std::env::var("POURPOINT_PARITY_R2_CAPTURE").as_deref(),
         Ok("1"),
-        "SHED_PARITY_R2_CAPTURE=1 is required for the MERIT C decode proof"
+        "POURPOINT_PARITY_R2_CAPTURE=1 is required for the MERIT C decode proof"
     );
 
     let root = hfx_cache_root().join(MERIT_WINDOW_ROOT);

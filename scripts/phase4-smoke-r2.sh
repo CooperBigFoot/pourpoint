@@ -396,7 +396,7 @@ run_remote() {
     non_cog_bytes_on_wire=0
   else
     start=$(date +%s)
-    rss_json=$(RUST_LOG=shed_core=debug,object_store=trace scripts/measure-rss.sh --bin ./target/release/shed -- delineate --dataset "$PUBLIC_ROOT" --lat "$LAT" --lon "$LON" --output "$REMOTE_OUTPUT" 2>"$trace_file")
+    rss_json=$(RUST_LOG=pourpoint_core=debug,object_store=trace scripts/measure-rss.sh --bin ./target/release/pourpoint -- delineate --dataset "$PUBLIC_ROOT" --lat "$LAT" --lon "$LON" --output "$REMOTE_OUTPUT" 2>"$trace_file")
     wrapper_exit_code=$?
     end=$(date +%s)
 
@@ -473,7 +473,7 @@ run_local() {
     seconds=1.000
   else
     start=$(date +%s)
-    rss_json=$(scripts/measure-rss.sh --bin ./target/release/shed -- delineate --dataset "$dataset_root" --lat "$LAT" --lon "$LON" --output "$LOCAL_OUTPUT" 2>"$stderr_log_file")
+    rss_json=$(scripts/measure-rss.sh --bin ./target/release/pourpoint -- delineate --dataset "$dataset_root" --lat "$LAT" --lon "$LON" --output "$LOCAL_OUTPUT" 2>"$stderr_log_file")
     wrapper_exit_code=$?
     end=$(date +%s)
 

@@ -18,7 +18,7 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
 /// Environment variable holding the JSONL trace output path.
-pub const TRACE_ENV_VAR: &str = "PYSHED_BENCH_TRACE";
+pub const TRACE_ENV_VAR: &str = "POURPOINT_BENCH_TRACE";
 
 /// Keeps the JSONL writer alive and flushes it on drop.
 #[derive(Debug)]
@@ -350,7 +350,7 @@ mod tests {
             record_bytes(4096);
             record_requests(3);
             record_cache_status("hit");
-            record_path("/tmp/shed/cache.bin");
+            record_path("/tmp/pourpoint/cache.bin");
             record_row_groups(8);
             record_rows(144);
             record_matches(13);
@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(records[0]["bytes"], 4096);
         assert_eq!(records[0]["requests"], 3);
         assert_eq!(records[0]["cache_status"], "hit");
-        assert_eq!(records[0]["path"], "/tmp/shed/cache.bin");
+        assert_eq!(records[0]["path"], "/tmp/pourpoint/cache.bin");
         assert_eq!(records[0]["row_groups"], 8);
         assert_eq!(records[0]["rows"], 144);
         assert_eq!(records[0]["matches"], 13);

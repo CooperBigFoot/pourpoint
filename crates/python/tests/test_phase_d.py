@@ -1,9 +1,9 @@
-"""Phase D integration tests for pyshed.
+"""Phase D integration tests for pourpoint.
 
 Covers kwarg validation, set_log_level, delineate_batch progress callback, and
 parquet cache behaviour.
 
-Network-dependent tests are gated by the PYSHED_TEST_REMOTE_URL environment
+Network-dependent tests are gated by the POURPOINT_TEST_REMOTE_URL environment
 variable and marked with ``@pytest.mark.network``.
 """
 
@@ -15,14 +15,14 @@ import os
 
 import pytest
 
-import pyshed
+import pourpoint
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_REMOTE_URL = os.environ.get("PYSHED_TEST_REMOTE_URL", "")
-_CRATE_LOGGER_NAMES = ("pyshed", "_pyshed", "shed_core", "hfx_core")
+_REMOTE_URL = os.environ.get("POURPOINT_TEST_REMOTE_URL", "")
+_CRATE_LOGGER_NAMES = ("pourpoint", "_pourpoint", "pourpoint_core", "hfx_core")
 
 # Three outlets inside the GRIT dataset.  Only used in network tests.
 _REMOTE_OUTLETS = [
@@ -33,7 +33,7 @@ _REMOTE_OUTLETS = [
 
 network_skip = pytest.mark.skipif(
     not _REMOTE_URL,
-    reason="requires PYSHED_TEST_REMOTE_URL",
+    reason="requires POURPOINT_TEST_REMOTE_URL",
 )
 
 
@@ -76,11 +76,11 @@ class TestKwargValidation:
         If no fixture is available, falls back to the dummy path when we only
         need to exercise kwarg validation (errors fire before I/O).
         """
-        return pyshed.Engine(self._path, **kw)
+        return pourpoint.Engine(self._path, **kw)
 
     # Test 1
     def test_delineate_rejects_constructor_kwarg(self, hfx_dataset):
-        engine = pyshed.Engine(hfx_dataset)
+        engine = pourpoint.Engine(hfx_dataset)
         with pytest.raises(TypeError) as exc_info:
             engine.delineate(lat=0.20, lon=1.70, snap_radius=5000)
         msg = str(exc_info.value)
@@ -89,7 +89,7 @@ class TestKwargValidation:
 
     # Test 2
     def test_delineate_typo_lat(self, hfx_dataset):
-        engine = pyshed.Engine(hfx_dataset)
+        engine = pourpoint.Engine(hfx_dataset)
         with pytest.raises(TypeError) as exc_info:
             engine.delineate(lattitude=0.20, lon=1.70)
         msg = str(exc_info.value)
@@ -97,7 +97,7 @@ class TestKwargValidation:
 
     # Test 3
     def test_delineate_unknown_kwarg_close_match(self, hfx_dataset):
-        engine = pyshed.Engine(hfx_dataset)
+        engine = pourpoint.Engine(hfx_dataset)
         with pytest.raises(TypeError) as exc_info:
             engine.delineate(lat=0.20, lon=1.70, geomtry=True)
         msg = str(exc_info.value)
@@ -105,7 +105,7 @@ class TestKwargValidation:
 
     # Test 4
     def test_delineate_unknown_kwarg_no_match(self, hfx_dataset):
-        engine = pyshed.Engine(hfx_dataset)
+        engine = pourpoint.Engine(hfx_dataset)
         with pytest.raises(TypeError) as exc_info:
             engine.delineate(lat=0.20, lon=1.70, foobar=1)
         msg = str(exc_info.value)
@@ -116,7 +116,7 @@ class TestKwargValidation:
     # Test 5
     def test_constructor_rejects_delineate_kwarg(self):
         with pytest.raises(TypeError) as exc_info:
-            pyshed.Engine(self._path, lat=0)
+            pourpoint.Engine(self._path, lat=0)
         msg = str(exc_info.value)
         # Message should mention that lat belongs on delineate, not the constructor.
         assert "lat" in msg
@@ -125,19 +125,19 @@ class TestKwargValidation:
     # Test 12 – max_mb=0 validation fires before I/O
     def test_parquet_cache_max_mb_validation(self):
         with pytest.raises(ValueError, match="parquet_cache_max_mb"):
-            pyshed.Engine(self._path, parquet_cache=True, parquet_cache_max_mb=0)
+            pourpoint.Engine(self._path, parquet_cache=True, parquet_cache_max_mb=0)
 
     def test_parquet_cache_max_mb_upper_bound_validation(self):
         with pytest.raises(ValueError, match="parquet_cache_max_mb"):
-            pyshed.Engine(self._path, parquet_cache=True, parquet_cache_max_mb=1048577)
+            pourpoint.Engine(self._path, parquet_cache=True, parquet_cache_max_mb=1048577)
 
     def test_delineate_batch_progress_must_be_callable(self, hfx_dataset):
-        engine = pyshed.Engine(hfx_dataset)
+        engine = pourpoint.Engine(hfx_dataset)
         with pytest.raises(TypeError, match="progress must be callable"):
             engine.delineate_batch([], progress=123)
 
     def test_delineate_batch_rejects_per_outlet_kwargs(self, hfx_dataset):
-        engine = pyshed.Engine(hfx_dataset)
+        engine = pourpoint.Engine(hfx_dataset)
         with pytest.raises(TypeError) as exc_info:
             engine.delineate_batch([{"lat": 47, "lon": 8}], lat=47, lon=8)
         msg = str(exc_info.value)
@@ -145,8 +145,8 @@ class TestKwargValidation:
         assert "outlets" in msg
 
     def test_set_log_level_accepts_warning_and_critical(self):
-        pyshed.set_log_level("warning")
-        pyshed.set_log_level("critical")
+        pourpoint.set_log_level("warning")
+        pourpoint.set_log_level("critical")
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +158,9 @@ class TestKwargValidation:
 @pytest.mark.network
 def test_delineate_happy_path_unchanged():
     """geometry=False returns an AreaOnlyResult with area and terminal_unit_id."""
-    engine = pyshed.Engine(_REMOTE_URL)
+    engine = pourpoint.Engine(_REMOTE_URL)
     result = engine.delineate(lat=47.3769, lon=8.5417, geometry=False)
-    assert isinstance(result, pyshed.AreaOnlyResult)
+    assert isinstance(result, pourpoint.AreaOnlyResult)
     assert result.area_km2 > 0
     assert result.terminal_unit_id > 0
 
@@ -174,9 +174,9 @@ def test_delineate_happy_path_unchanged():
 @pytest.mark.network
 def test_set_log_level_emits_records(caplog):
     """Opening a remote dataset with INFO enabled produces ≥4 log records."""
-    pyshed.set_log_level("info")
+    pourpoint.set_log_level("info")
     with crate_caplog(caplog):
-        pyshed.Engine(_REMOTE_URL)
+        pourpoint.Engine(_REMOTE_URL)
 
     all_records = caplog.records
     assert len(all_records) >= 4, (
@@ -194,7 +194,7 @@ def test_set_log_level_emits_records(caplog):
 @pytest.mark.network
 def test_delineate_batch_progress_callback():
     """Progress callback is invoked exactly N times with monotonically increasing index."""
-    engine = pyshed.Engine(_REMOTE_URL)
+    engine = pourpoint.Engine(_REMOTE_URL)
     events: list[dict] = []
 
     def capture(event):
@@ -223,7 +223,7 @@ def test_delineate_batch_progress_callback():
 @pytest.mark.network
 def test_delineate_batch_parallel_sequential_equivalence():
     """progress=None uses parallel batch; progress=callable uses the sequential callback path."""
-    engine = pyshed.Engine(_REMOTE_URL)
+    engine = pourpoint.Engine(_REMOTE_URL)
 
     parallel_results = engine.delineate_batch(_REMOTE_OUTLETS)
     sequential_results = engine.delineate_batch(_REMOTE_OUTLETS, progress=lambda _: None)
@@ -247,9 +247,9 @@ def test_delineate_batch_parallel_sequential_equivalence():
 @pytest.mark.network
 def test_parquet_cache_off_default(caplog):
     """Engine() with no parquet_cache kwarg must not emit a 'parquet_cache enabled' log."""
-    pyshed.set_log_level("info")
+    pourpoint.set_log_level("info")
     with crate_caplog(caplog):
-        engine = pyshed.Engine(_REMOTE_URL)
+        engine = pourpoint.Engine(_REMOTE_URL)
         engine.delineate(lat=47.3769, lon=8.5417)
 
     cache_enabled_lines = [
@@ -271,10 +271,10 @@ def test_parquet_cache_on_off_results_identical():
     """Same outlet produces identical area_km2 and terminal_unit_id with and without cache."""
     outlet = {"lat": 47.3769, "lon": 8.5417}
 
-    engine_off = pyshed.Engine(_REMOTE_URL, parquet_cache=False)
+    engine_off = pourpoint.Engine(_REMOTE_URL, parquet_cache=False)
     result_off = engine_off.delineate(**outlet, geometry=False)
 
-    engine_on = pyshed.Engine(_REMOTE_URL, parquet_cache=True, parquet_cache_max_mb=512)
+    engine_on = pourpoint.Engine(_REMOTE_URL, parquet_cache=True, parquet_cache_max_mb=512)
     result_on = engine_on.delineate(**outlet, geometry=False)
 
     assert result_off.area_km2 == pytest.approx(result_on.area_km2, rel=1e-6)
@@ -290,8 +290,8 @@ def test_parquet_cache_on_off_results_identical():
 @pytest.mark.network
 def test_parquet_cache_miss_then_hit(caplog):
     """Two adjacent delineations with parquet_cache=True show ≥1 miss then ≥1 hit."""
-    pyshed.set_log_level("debug")
-    engine = pyshed.Engine(_REMOTE_URL, parquet_cache=True, parquet_cache_max_mb=512)
+    pourpoint.set_log_level("debug")
+    engine = pourpoint.Engine(_REMOTE_URL, parquet_cache=True, parquet_cache_max_mb=512)
 
     with crate_caplog(caplog):
         engine.delineate(lat=47.3769, lon=8.5417)

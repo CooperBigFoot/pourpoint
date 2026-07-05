@@ -7,10 +7,10 @@ use arrow::record_batch::RecordBatch;
 use hfx_core::{BoundingBox, SnapId, StemRole};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use pourpoint_core::error::SessionError;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
 use serde_json::{Value, json};
-use shed_core::error::SessionError;
-use shed_core::session::DatasetSession;
-use shed_core::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
 
 struct SnapFixtureRow {
     id: i64,

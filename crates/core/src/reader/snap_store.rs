@@ -741,7 +741,7 @@ async fn read_all_snap_membership_refs_from_store_async(
         row_groups = num_row_groups,
         concurrency = LEAN_VALIDATION_ROW_GROUP_CONCURRENCY,
         concurrency_bound =
-            "shed scheduler row-group bound; object_store transport may cap requests",
+            "pourpoint scheduler row-group bound; object_store transport may cap requests",
         projected_columns = "id,unit_id",
         "reading snap membership refs for cold validation"
     );
@@ -768,7 +768,7 @@ async fn read_all_snap_membership_refs_from_store_async(
         membership_rows = stats.membership_rows,
         concurrency = LEAN_VALIDATION_ROW_GROUP_CONCURRENCY,
         concurrency_bound =
-            "shed scheduler row-group bound; object_store transport may cap requests",
+            "pourpoint scheduler row-group bound; object_store transport may cap requests",
         elapsed_ms = started.elapsed().as_millis(),
         projected_columns = "id,unit_id",
         "cold snap membership read complete"

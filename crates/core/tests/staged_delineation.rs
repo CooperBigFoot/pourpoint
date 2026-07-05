@@ -4,18 +4,18 @@ use std::path::{Path, PathBuf};
 
 use geo::{BoundingRect, LineString, MultiPolygon, Polygon};
 use hfx_core::{AreaKm2, Level, OutletCoord, UnitId};
-use rayon::ThreadPoolBuilder;
-use serde::Deserialize;
-use shed_core::algo::canonical_wkb_multi_polygon;
-use shed_core::algo::coord::GeoCoord;
-use shed_core::session::DatasetSession;
-use shed_core::testutil::DatasetBuilder;
-use shed_core::{
+use pourpoint_core::algo::canonical_wkb_multi_polygon;
+use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::testutil::DatasetBuilder;
+use pourpoint_core::{
     AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, DelineationOptions,
     Engine, EngineError, LevelSelection, PreMergeDrainageUnit, PreMergeDrainageUnits,
     RefinementMode, RefinementOutcome, RefinementProvenance, RefinementStrategyName, SelectedLevel,
     TerminalRefinement,
 };
+use rayon::ThreadPoolBuilder;
+use serde::Deserialize;
 
 const PARITY_FIXTURE_DIR: &str = "tests/fixtures/parity";
 const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";
@@ -158,7 +158,10 @@ fn staged_refine_off_v021_fixture_reproduces_committed_step6_golden() {
         golden.upstream_ids
     );
     assert_area_within_golden_policy(staged.area_km2().as_f64(), golden.area_km2, &golden);
-    assert_eq!(staged.refinement(), &shed_core::RefinementOutcome::Disabled);
+    assert_eq!(
+        staged.refinement(),
+        &pourpoint_core::RefinementOutcome::Disabled
+    );
     assert_eq!(golden.refinement_outcome.status, "Disabled");
 }
 
@@ -364,7 +367,7 @@ fn staged_dissolve_bypasses_bad_whole_terminal_when_refined_override_exists() {
 
 fn pre_merge_for_nested_fixture(
     engine: &Engine,
-) -> (shed_core::LevelResolvedOutlet, PreMergeDrainageUnits) {
+) -> (pourpoint_core::LevelResolvedOutlet, PreMergeDrainageUnits) {
     let selected = engine
         .select_level(LevelSelection::Finest)
         .expect("finest level should resolve");
@@ -385,7 +388,7 @@ fn explicit_staged_composition(
     engine: &Engine,
     outlet: GeoCoord,
     options: &DelineationOptions,
-) -> Result<shed_core::DelineationResult, EngineError> {
+) -> Result<pourpoint_core::DelineationResult, EngineError> {
     let selected_level = engine.select_level(LevelSelection::Finest)?;
     let resolved =
         engine.resolve_outlet_at_level(outlet, selected_level, options.resolver_config())?;
@@ -398,8 +401,8 @@ fn explicit_staged_composition(
 }
 
 fn assert_delineation_results_equal(
-    direct: &shed_core::DelineationResult,
-    staged: &shed_core::DelineationResult,
+    direct: &pourpoint_core::DelineationResult,
+    staged: &pourpoint_core::DelineationResult,
 ) {
     assert_eq!(direct.terminal_unit_id(), staged.terminal_unit_id());
     assert_eq!(direct.input_outlet(), staged.input_outlet());

@@ -10,7 +10,7 @@ const MAX_WORKER_THREADS: usize = 16;
 const FALLBACK_WORKER_THREADS: usize = 8;
 
 pub(crate) static RT: LazyLock<Runtime> =
-    LazyLock::new(|| build_runtime(std::env::var("PYSHED_TOKIO_WORKERS").ok().as_deref()));
+    LazyLock::new(|| build_runtime(std::env::var("POURPOINT_TOKIO_WORKERS").ok().as_deref()));
 
 pub(crate) fn build_runtime(env_value: Option<&str>) -> Runtime {
     match Builder::new_multi_thread()

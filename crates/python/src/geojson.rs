@@ -1,8 +1,8 @@
 //! GeoJSON serialization for [`DelineationResult`].
 
-use shed_core::DelineationResult;
-use shed_core::RefinementOutcome;
-use shed_core::ResolutionMethod;
+use pourpoint_core::DelineationResult;
+use pourpoint_core::RefinementOutcome;
+use pourpoint_core::ResolutionMethod;
 
 /// Serialize a [`DelineationResult`] as a GeoJSON Feature string.
 pub fn result_to_geojson_feature(result: &DelineationResult) -> Result<String, serde_json::Error> {

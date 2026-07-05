@@ -3,24 +3,24 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use geo::BoundingRect;
-use serde::Deserialize;
-use shed_core::algo::SnapThreshold;
-use shed_core::algo::canonical_wkb_multi_polygon;
-use shed_core::algo::coord::GeoCoord;
-use shed_core::session::DatasetSession;
-use shed_core::test_raster_source::LocalTiffRasterSource;
-use shed_core::{
+use pourpoint_core::algo::SnapThreshold;
+use pourpoint_core::algo::canonical_wkb_multi_polygon;
+use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::session::DatasetSession;
+use pourpoint_core::test_raster_source::LocalTiffRasterSource;
+use pourpoint_core::{
     AppliedRefinementReason, DelineationOptions, Engine, LevelSelection, PreMergeDrainageUnit,
     PreMergeDrainageUnits, RefinementOutcome, RefinementProvenance, RefinementStrategyName,
     ResolverConfig, SearchRadiusMetres, SessionError, TerminalRefinement,
 };
+use serde::Deserialize;
 
 const PARITY_FIXTURE_DIR: &str = "tests/fixtures/parity";
 const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";
 const M1_SYNTHETIC_REFINED_GOLDEN: &str =
     "goldens/v01_synthetic_refined/oracle_b_synthetic_refined.json";
 const REAL_MERIT_V020_URL: &str = "https://basin-delineations-public.upstream.tech/merit/0.2.0/";
-const REAL_D8_ENV: &str = "SHED_HFX_V02_REAL_D8_REFINEMENT";
+const REAL_D8_ENV: &str = "POURPOINT_HFX_V02_REAL_D8_REFINEMENT";
 const REAL_MERIT_SEARCH_RADIUS_M: f64 = 5_000.0;
 const EXPECTED_REAL_MERIT_D8_DECLS: usize = 60;
 const EXPECTED_REAL_MERIT_SNAP_DECLS: usize = 1;
@@ -138,7 +138,7 @@ fn applied_d8_carve_replaces_whole_terminal_in_final_dissolve() {
 }
 
 #[test]
-#[ignore = "network-gated MERIT v0.2.0 D8 refinement readiness proof; set SHED_HFX_V02_REAL_D8_REFINEMENT=1"]
+#[ignore = "network-gated MERIT v0.2.0 D8 refinement readiness proof; set POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1"]
 fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
     if std::env::var(REAL_D8_ENV).as_deref() != Ok("1") {
         println!(
@@ -154,7 +154,7 @@ fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
     // (identical values in the overlap), so selection collapses to the
     // manifest-first covering declaration and the carve proceeds rather than
     // surfacing AmbiguousD8Coverage.
-    let _bench_net = ScopedEnvVar::set("PYSHED_BENCH_NET", "1");
+    let _bench_net = ScopedEnvVar::set("POURPOINT_BENCH_NET", "1");
 
     let probe_session =
         DatasetSession::open(REAL_MERIT_V020_URL).expect("real MERIT v0.2.0 should open");
@@ -191,7 +191,7 @@ fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
     assert_real_merit_manifest(&session);
     assert!(
         session.http_stats().is_some(),
-        "PYSHED_BENCH_NET should expose remote request counters"
+        "POURPOINT_BENCH_NET should expose remote request counters"
     );
 
     let selected_index = match session.select_d8_raster_for_bbox(terminal_bbox) {
@@ -343,7 +343,7 @@ fn assert_real_merit_manifest(session: &DatasetSession) {
     }
 }
 
-fn assert_no_root_raster_reads(snapshot: &shed_core::source_telemetry::HttpStatsSnapshot) {
+fn assert_no_root_raster_reads(snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot) {
     for path in snapshot.per_path.keys() {
         assert!(
             !path.ends_with("merit/0.2.0/flow_dir.tif")
@@ -354,7 +354,7 @@ fn assert_no_root_raster_reads(snapshot: &shed_core::source_telemetry::HttpStats
 }
 
 fn assert_only_extent_headers_for_all_d8(
-    snapshot: &shed_core::source_telemetry::HttpStatsSnapshot,
+    snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot,
 ) {
     for (path, counters) in snapshot
         .per_path
@@ -369,7 +369,7 @@ fn assert_only_extent_headers_for_all_d8(
     }
 }
 
-fn d8_bytes_in(snapshot: &shed_core::source_telemetry::HttpStatsSnapshot) -> u64 {
+fn d8_bytes_in(snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot) -> u64 {
     snapshot
         .per_path
         .iter()
@@ -386,7 +386,7 @@ struct ScopedEnvVar {
 impl ScopedEnvVar {
     fn set(key: &'static str, value: &str) -> Self {
         let previous = std::env::var_os(key);
-        // SAFETY: this ignored test mutates PYSHED_BENCH_NET before creating
+        // SAFETY: this ignored test mutates POURPOINT_BENCH_NET before creating
         // sessions and restores it before returning.
         unsafe {
             std::env::set_var(key, value);

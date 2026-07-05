@@ -1,9 +1,9 @@
 //! Engine configuration bridged from Python keyword arguments.
 
+use pourpoint_core::algo::{CleanEpsilon, DEFAULT_CLEANING_EPSILON, SnapThreshold};
+use pourpoint_core::resolver::{ResolverConfig, SearchRadiusMetres, SnapStrategy};
+use pourpoint_core::{DelineationOptions, RefinementMode};
 use pyo3::types::PyAnyMethods;
-use shed_core::algo::{CleanEpsilon, DEFAULT_CLEANING_EPSILON, SnapThreshold};
-use shed_core::resolver::{ResolverConfig, SearchRadiusMetres, SnapStrategy};
-use shed_core::{DelineationOptions, RefinementMode};
 
 /// Selects the optional external geometry repair backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
