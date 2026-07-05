@@ -1,7 +1,7 @@
 # Datasets
 
-pyshed reads a *hydrofabric*: a pre-built dataset of catchments and how they
-connect upstream and downstream. shed reads any hydrofabric published in the open
+pourpoint reads a *hydrofabric*: a pre-built dataset of catchments and how they
+connect upstream and downstream. pourpoint reads any hydrofabric published in the open
 [HFX (HydroFabric Exchange)](https://github.com/CooperBigFoot/hfx) format, a
 folder of pre-built river-network files, so the same engine works over GRIT,
 MERIT-Basins, and any other HFX dataset.
@@ -23,7 +23,7 @@ that omits them still delineates; it just skips the corresponding step.
 
 ## The canonical hosted dataset
 
-To get started without downloading anything, point pyshed at the hosted GRIT
+To get started without downloading anything, point pourpoint at the hosted GRIT
 hydrofabric:
 
 ```text
@@ -32,7 +32,7 @@ https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
 
 This is the GRIT global river network, compiled to HFX v0.3.0. Public hosting is
 sponsored by [Upstream Tech](https://www.upstream.tech/) as an in-kind
-contribution to the open HFX ecosystem; shed is independent open-source software
+contribution to the open HFX ecosystem; pourpoint is independent open-source software
 and the hosting implies no endorsement. The GRIT dataset ships no D8 raster, so
 terminal refinement is skipped automatically (see
 [Raster cache](../raster-cache.md)).
@@ -43,19 +43,19 @@ The first argument to `Engine` is the dataset root, a local directory or a URL.
 Your delineation code does not change when you switch datasets; you swap the path.
 
 ```python
-import pyshed
+import pourpoint
 
 # Hosted dataset over HTTPS (read over the network, nothing downloaded).
-engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
+engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 
 # Local directory.
-engine = pyshed.Engine("/data/hfx/rhine")
+engine = pourpoint.Engine("/data/hfx/rhine")
 
 # Local file URL.
-engine = pyshed.Engine("file:///data/hfx/rhine")
+engine = pourpoint.Engine("file:///data/hfx/rhine")
 
 # Amazon S3.
-engine = pyshed.Engine("s3://bucket/path/to/hfx/rhine")
+engine = pourpoint.Engine("s3://bucket/path/to/hfx/rhine")
 ```
 
 Only HFX v0.3.0 datasets load; older HFX format versions are rejected as an
@@ -63,7 +63,7 @@ unsupported version.
 
 ## Remote datasets
 
-For remote datasets, pyshed fetches only the pieces of each file it needs over
+For remote datasets, pourpoint fetches only the pieces of each file it needs over
 the network; the full dataset is never copied to your machine. Dataset metadata
 is cached between runs under `HFX_CACHE_DIR`, or the OS cache directory if that
 variable is unset. The first open of a large dataset fetches dataset metadata

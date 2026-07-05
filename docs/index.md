@@ -1,10 +1,10 @@
-# shed
+# pourpoint
 
-**shed** is a watershed-delineation engine: give `shed` a point on a river and
-it returns the whole upstream area that drains to it, the watershed. `pyshed` is
+**pourpoint** is a watershed-delineation engine: give `pourpoint` a point on a river and
+it returns the whole upstream area that drains to it, the watershed. `pourpoint` is
 its Python interface.
 
-shed reads any hydrofabric published in the open
+pourpoint reads any hydrofabric published in the open
 [HFX (HydroFabric Exchange)](https://github.com/CooperBigFoot/hfx) format, a
 folder of pre-built river-network files. The same delineation runs over GRIT,
 MERIT-Basins, and any other HFX dataset. A hosted GRIT dataset is available to
@@ -21,10 +21,10 @@ with GDAL bundled inside the wheel, so there is no system GDAL to install.
 ## Install
 
 ```bash
-uv add pyshed
+uv add pourpoint
 ```
 
-(or pip install pyshed)
+(or pip install pourpoint)
 
 Wheels are currently published for Apple Silicon macOS only
 (`macosx_11_0_arm64`).
@@ -33,15 +33,15 @@ Wheels are currently published for Apple Silicon macOS only
 
 - **[Quickstart](quickstart.md)**: from install to a first delineated watershed
   in one script.
-- **[How it works](how-it-works.md)**: how shed finds every catchment upstream
+- **[How it works](how-it-works.md)**: how pourpoint finds every catchment upstream
   of your point and merges them into one watershed, using connections the
   hydrofabric has already computed.
 - **[Datasets](guide/datasets.md)**: what an HFX hydrofabric is and how to point
-  pyshed at one.
+  pourpoint at one.
 - **[Staged API](guide/staged-api.md)**: run the delineation pipeline stage by
   stage.
 - **[Basin GeoParquet Export](basin-geoparquet-export.md)**: write basins to
   GeoParquet for downstream analysis.
-- **[API Reference](api-reference.md)**: the complete public `pyshed` surface.
+- **[API Reference](api-reference.md)**: the complete public `pourpoint` surface.
 - **[Credits & Citation](credits.md)**: the algorithm's origin and how to cite
-  shed.
+  pourpoint.

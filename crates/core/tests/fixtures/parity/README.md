@@ -2,11 +2,11 @@
 
 Milestone 1 parity goldens are loader-independent JSON records. Geometry truth is
 the `canonical_wkb_hex` field: little-endian 2D WKB emitted by
-`shed-core::algo::canonical_wkb_multi_polygon`.
+`pourpoint-core::algo::canonical_wkb_multi_polygon`.
 
 ## Canonicalizer
 
-- `canonicalizer_version`: `shed-canonical-wkb-v1`
+- `canonicalizer_version`: `pourpoint-canonical-wkb-v1`
 - Coordinate precision: 6 decimal places (`CANONICAL_WKB_DECIMAL_PRECISION = 6`)
 - Coordinate absolute epsilon: `0.000001`
 - Ring closure: explicit first vertex repeated as last
@@ -47,18 +47,18 @@ canonicalizer version and invalidates captured goldens.
 Offline M4 gate:
 
 ```bash
-cargo build --workspace --exclude pyshed
-cargo check -p pyshed
-cargo test -p shed-core --test d8_refinement_parity
-cargo test -p shed-core --test d8_aux_accessor
-cargo test -p shed-core --test parity_golden_artifacts
-cargo test -p shed-core --test staged_delineation
+cargo build --workspace --exclude pourpoint-python
+cargo check -p pourpoint-python
+cargo test -p pourpoint-core --test d8_refinement_parity
+cargo test -p pourpoint-core --test d8_aux_accessor
+cargo test -p pourpoint-core --test parity_golden_artifacts
+cargo test -p pourpoint-core --test staged_delineation
 ```
 
 Network-gated capture and refresh:
 
 ```bash
-SHED_PARITY_R2_CAPTURE=1 cargo test -p shed-core --test parity_v01_oracle_capture -- --ignored --nocapture
+POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-core --test parity_v01_oracle_capture -- --ignored --nocapture
 ```
 
 Golden refresh is intentionally explicit. Do not regenerate or re-bless M1
@@ -67,7 +67,7 @@ goldens during offline comparison work.
 Network-gated M4 ambiguity-boundary proof:
 
 ```bash
-SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
+POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
 ```
 
 ## Synthetic Refined Raster Fixture
@@ -81,7 +81,7 @@ the existing `simple_convergent_5x5` refinement geometry with real TIFF bytes.
 - Origin: upper-left PixelIsArea corner `(0, 0)`
 - Pixel size: `1 x -1` degrees
 - Extent: `x=[0, 5]`, `y=[-5, 0]`
-- Pixel interpretation: GeoTIFF `GTRasterTypeGeoKey=PixelIsArea`; shed uses
+- Pixel interpretation: GeoTIFF `GTRasterTypeGeoKey=PixelIsArea`; pourpoint uses
   pixel centers for raster refinement, so cell `(row=2, col=2)` is
   `(lon=2.5, lat=-2.5)`
 - Flow direction samples: one-band unsigned 8-bit, ESRI D8 encoding, nodata
@@ -124,7 +124,7 @@ carve assertion. It is both `#[ignore]`d and env-gated, so offline tests compile
 it but do not open the network:
 
 ```bash
-SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
+POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
 ```
 
 That proof opens `https://basin-delineations-public.upstream.tech/merit/0.2.0/`,
@@ -132,7 +132,7 @@ expects format version `0.2.1`, 60 `hfx.aux.d8_raster.v1` declarations under
 `aux/d8/pfaf_NN/flow_{dir,acc}.tif`, and one snap declaration. It resolves the
 `rhine_basel` terminal bbox, proves D8 selection uses bounded extent-header
 reads rather than legacy root `flow_dir.tif`/`flow_acc.tif` downloads, and then
-asserts that shed selects the manifest-first covering declaration and carves
+asserts that pourpoint selects the manifest-first covering declaration and carves
 successfully for overlapping Pfaf declarations. D8 coverage uses inclusive
 rectangle semantics, so exact bbox equality and edge-touching count. MERIT-Hydro
 D8 rasters are per-Pfaf-02 basin windows; irregular basins have overlapping
@@ -150,7 +150,7 @@ ambiguity boundary.
 GDAL parity proof command:
 
 ```bash
-cargo test -p shed-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture
+cargo test -p pourpoint-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture
 ```
 
 M1 already proved TIFF-vs-GDAL tile identity for B and for the accepted C

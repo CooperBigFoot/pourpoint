@@ -1,6 +1,6 @@
-# shed-core
+# pourpoint-core
 
-Pure-Rust core library for the shed watershed extraction engine. It handles two responsibilities: loading HFX datasets from disk (`session` + `reader`), and providing all watershed-delineation algorithms (`algo`). External capabilities — GDAL raster I/O, GEOS geometry repair — are kept behind traits defined here and implemented in `shed-gdal`, so the hot path has no native dependencies.
+Pure-Rust core library for the pourpoint watershed extraction engine. It handles two responsibilities: loading HFX datasets from disk (`session` + `reader`), and providing all watershed-delineation algorithms (`algo`). External capabilities — GDAL raster I/O, GEOS geometry repair — are kept behind traits defined here and implemented in `pourpoint-gdal`, so the hot path has no native dependencies.
 
 ## Snap Strategy
 
@@ -112,7 +112,7 @@ graph TD
     algo --> geometry[Geometry Processing\ndissolve · clean_topology · hole_fill\nlargest_polygon · watershed_area\nself_intersection]
     algo --> pipeline[Pipeline + Traits\nwatershed_geometry · traits]
 
-    traits[traits.rs] -.->|implemented by| shed_gdal[shed-gdal]
+    traits[traits.rs] -.->|implemented by| pourpoint_gdal[pourpoint-gdal]
 ```
 
 **Data flow for a delineation:**
@@ -121,7 +121,7 @@ graph TD
 sequenceDiagram
     participant S as DatasetSession
     participant R as BuiltInD8 strategy
-    participant T as RasterSource (shed-gdal)
+    participant T as RasterSource (pourpoint-gdal)
     participant A as algo/
 
     S->>S: open() — validate layout, load graph, prepare Parquet readers
@@ -180,18 +180,18 @@ fully covers it) and `NoCoveringD8Tile` still hard-error.
 Regression gates for the D8 strategy seam and synthetic parity goldens:
 
 ```bash
-cargo build --workspace --exclude pyshed
-cargo check -p pyshed
-cargo test -p shed-core --test d8_refinement_parity
-cargo test -p shed-core --test d8_aux_accessor
-cargo test -p shed-core --test parity_golden_artifacts
-cargo test -p shed-core --test staged_delineation
+cargo build --workspace --exclude pourpoint-python
+cargo check -p pourpoint-python
+cargo test -p pourpoint-core --test d8_refinement_parity
+cargo test -p pourpoint-core --test d8_aux_accessor
+cargo test -p pourpoint-core --test parity_golden_artifacts
+cargo test -p pourpoint-core --test staged_delineation
 ```
 
 Network-gated boundary proof:
 
 ```bash
-SHED_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p shed-core --test d8_refinement_parity -- --ignored --nocapture
+POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
 ```
 
 These gates do not verify successful real-data carving on overlapping-Pfaf
@@ -247,5 +247,5 @@ ambiguity boundary is surfaced for real MERIT coverage conflicts.
 | `trace_upstream` | `algo/trace.rs` | DFS upstream traversal returning a `CatchmentMask` |
 | `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` |
 | `dissolve` | `algo/dissolve.rs` | Parallel boolean union of polygon slices |
-| `RasterSource` | `algo/traits.rs` | Trait for windowed GeoTIFF reads; implemented by `shed-gdal::GdalRasterSource` |
-| `GeometryRepair` | `algo/traits.rs` | Trait for geometry repair; implemented by `shed-gdal::GdalGeometryRepair` |
+| `RasterSource` | `algo/traits.rs` | Trait for windowed GeoTIFF reads; implemented by `pourpoint-gdal::GdalRasterSource` |
+| `GeometryRepair` | `algo/traits.rs` | Trait for geometry repair; implemented by `pourpoint-gdal::GdalGeometryRepair` |

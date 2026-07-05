@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-`shed` is intended to be the watershed extraction engine that consumes compiled HFX datasets from the sibling `../hfx` repository. `../hfx` defines the open HydroFabric Exchange contract, validator, and adapter-side normalization rules; this repository is the runtime engine that should load those HFX artifacts and perform outlet resolution, upstream traversal, terminal refinement, and final watershed geometry extraction.
+`pourpoint` is intended to be the watershed extraction engine that consumes compiled HFX datasets from the sibling `../hfx` repository. `../hfx` defines the open HydroFabric Exchange contract, validator, and adapter-side normalization rules; this repository is the runtime engine that should load those HFX artifacts and perform outlet resolution, upstream traversal, terminal refinement, and final watershed geometry extraction.
 
-Treat `../hfx/spec/HFX_SPEC.md` as the canonical contract for on-disk inputs. In practical terms, `shed` should read `manifest.json`, `catchments.parquet`, `graph.arrow`, and optionally `snap.parquet`, `flow_dir.tif`, and `flow_acc.tif`, while keeping all source-fabric-specific logic out of the hot path. If a question comes up about file layout, schema, topology semantics, snapping rules, or raster refinement behavior, read `../hfx` first and align this repo with the spec rather than inventing a parallel contract here.
+Treat `../hfx/spec/HFX_SPEC.md` as the canonical contract for on-disk inputs. In practical terms, `pourpoint` should read `manifest.json`, `catchments.parquet`, `graph.arrow`, and optionally `snap.parquet`, `flow_dir.tif`, and `flow_acc.tif`, while keeping all source-fabric-specific logic out of the hot path. If a question comes up about file layout, schema, topology semantics, snapping rules, or raster refinement behavior, read `../hfx` first and align this repo with the spec rather than inventing a parallel contract here.
 
 ## Behavioral Guidelines
 
@@ -50,17 +50,17 @@ These guidelines are guardrails against common LLM coding mistakes. They bias to
 
 > **Note:** `cargo bump` does not support Cargo workspaces (it panics). Use `./scripts/bump-version.sh` instead — it edits `Cargo.toml` directly.
 
-### Pyshed releases (standalone)
+### Pourpoint releases (standalone)
 
-The `pyshed` crate (`crates/python/`) follows its own standalone release process. Its
+The `pourpoint` crate (`crates/python/`) follows its own standalone release process. Its
 version evolves only on intentional PyPI releases and uses a separate tag namespace:
 
-- Bump with `./scripts/bump-pyshed-version.sh <patch|minor|major|set <PEP440-version>>`.
+- Bump with `./scripts/bump-pourpoint-version.sh <patch|minor|major|set <PEP440-version>>`.
 - The `set` mode is required for prereleases (e.g. `set 0.1.0rc1`) — `cargo metadata` rejects
   PEP 440 prerelease syntax, so the script writes the SemVer 2.0 equivalent (`0.1.0-rc.1`)
   to `Cargo.toml` while writing the PEP 440 form (`0.1.0rc1`) to `pyproject.toml`.
-- Tag pyshed releases with the `pyshed-v*` prefix (e.g. `pyshed-v0.1.0rc1`,
-  `pyshed-v0.1.0`) to avoid colliding with the workspace's `v*` tags.
+- Tag pourpoint releases with the `pourpoint-v*` prefix (e.g. `pourpoint-v0.1.0rc1`,
+  `pourpoint-v0.1.0`) to avoid colliding with the workspace's `v*` tags.
 
 ### Quick Reference
 

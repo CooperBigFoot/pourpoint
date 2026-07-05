@@ -1,6 +1,6 @@
 # Quickstart
 
-This guide takes you from installing pyshed to your first delineated watershed.
+This guide takes you from installing pourpoint to your first delineated watershed.
 
 ## Terms
 
@@ -9,34 +9,34 @@ This guide takes you from installing pyshed to your first delineated watershed.
 - **Delineation**: computing that watershed by finding every piece of land
   upstream of the outlet and returning it as a polygon.
 - **HFX dataset**: a *hydrofabric*, the pre-built river-network and catchment
-  data shed reads to delineate. It follows the open
-  [HFX](https://github.com/CooperBigFoot/hfx) format, and you point pyshed at one
+  data pourpoint reads to delineate. It follows the open
+  [HFX](https://github.com/CooperBigFoot/hfx) format, and you point pourpoint at one
   by path or URL. See [Datasets](guide/datasets.md).
 
 ## 1. Install
 
 ```bash
-uv add pyshed
+uv add pourpoint
 ```
 
-(or pip install pyshed)
+(or pip install pourpoint)
 
-pyshed ships as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside,
+pourpoint ships as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside,
 so there is nothing else to install. Wheels are currently built for Apple Silicon
 macOS only (`macosx_11_0_arm64`).
 
 ## 2. Delineate your first watershed
 
-You do not need a local dataset. pyshed reads the hosted GRIT hydrofabric
+You do not need a local dataset. pourpoint reads the hosted GRIT hydrofabric
 directly over the network, fetching only the bytes it needs; the full dataset is
 never downloaded to your machine.
 
 ```python
-import pyshed
+import pourpoint
 
 # Open the engine against the hosted GRIT hydrofabric (read over the network;
 # nothing is copied to disk).
-engine = pyshed.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
+engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 
 # Delineate the watershed draining to an outlet near Zurich, Switzerland.
 result = engine.delineate(lat=47.3769, lon=8.5417)
@@ -70,7 +70,7 @@ those steps yourself and inspect the intermediate results, see the
 
 ## Next steps
 
-- Point pyshed at other datasets, local or remote:
+- Point pourpoint at other datasets, local or remote:
   [Datasets](guide/datasets.md).
 - Export many basins to GeoParquet:
   [Basin GeoParquet Export](basin-geoparquet-export.md).

@@ -8,7 +8,7 @@ hfx-core = "0.4.0"
 
 [package]
 name = "pourpoint"
-version = "0.1.188"
+version = "0.1.189"
 edition = "2024"
 
 [dependencies]

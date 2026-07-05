@@ -23,7 +23,7 @@ Real-data D8 parity is achieved through `rhine_basel`. The
 `5000 m` search radius remains deferred and is not a required or gating golden.
 After the deterministic dissolve fix, it still showed residual run-to-run
 canonical-WKB drift at continental scale. The suspected source is downstream of
-shed's dissolve path, likely floating-point nondeterminism in
+pourpoint's dissolve path, likely floating-point nondeterminism in
 `geo::BooleanOps::union`; this is tracked as follow-up work rather than part of
 the Step 4b gate. The durable artifact test requires only C `rhine_basel`; it
 must not treat Mekong as a missing required case.
@@ -48,7 +48,7 @@ MERIT raster contract recorded in the JSON:
 - `float32` accumulation with source nodata decoded as `NaN`
 
 `localize_raster_window()` is `pub(crate)`, so the GDAL proof cannot call it
-directly from `shed-gdal`. The proof first materializes windows by running the
+directly from `pourpoint-gdal`. The proof first materializes windows by running the
 core capture delineations, then reads the cached `.tif` files through both
 `LocalTiffRasterSource` and `GdalRasterSource`. For the blessed `rhine_basel`
 window, it verifies matching tile geotransforms, sample values, nodata handling,
@@ -68,11 +68,11 @@ may re-run the C proof if the reader implementation changes.
 Refresh command:
 
 ```bash
-SHED_PARITY_R2_CAPTURE=1 cargo test -p shed-core --test parity_v01_oracle_capture -- --ignored --nocapture
+POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-core --test parity_v01_oracle_capture -- --ignored --nocapture
 ```
 
 Decode proof command, after capture has populated `HFX_CACHE_DIR`:
 
 ```bash
-SHED_PARITY_R2_CAPTURE=1 cargo test -p shed-gdal --test raster_decode_parity merit_c_windows_tiff_match_gdal -- --ignored --nocapture
+POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-gdal --test raster_decode_parity merit_c_windows_tiff_match_gdal -- --ignored --nocapture
 ```

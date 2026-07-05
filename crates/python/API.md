@@ -1,13 +1,13 @@
-# pyshed API Reference
+# pourpoint API Reference
 
-Developer-oriented reference for the supported public `pyshed` Python API.
+Developer-oriented reference for the supported public `pourpoint` Python API.
 This file mirrors the runtime surface re-exported from
-[`python/pyshed/__init__.py`](python/pyshed/__init__.py) and the shipped
-PEP 561 stub in [`python/pyshed/__init__.pyi`](python/pyshed/__init__.pyi).
+[`python/pourpoint/__init__.py`](python/pourpoint/__init__.py) and the shipped
+PEP 561 stub in [`python/pourpoint/__init__.pyi`](python/pourpoint/__init__.pyi).
 
 ## Public Exports
 
-The `pyshed` package exports these names:
+The `pourpoint` package exports these names:
 
 - `Engine`
 - `DelineationResult`
@@ -23,7 +23,7 @@ The `pyshed` package exports these names:
 - `DissolvedWatershed`
 - `BasinGeoParquetWriter`
 - `UnitBundleGeoParquetWriter`
-- `ShedError`
+- `PourpointError`
 - `DatasetError`
 - `ResolutionError`
 - `AssemblyError`
@@ -31,7 +31,7 @@ The `pyshed` package exports these names:
 - `set_log_level`
 - `__version__`
 
-`_pyshed` exists as a compiled implementation detail, but its helper functions
+`_pourpoint` exists as a compiled implementation detail, but its helper functions
 are not part of the supported public API.
 
 ## set_log_level
@@ -48,11 +48,11 @@ Sets the active log level for both the Rust tracing bridge and the Python
 | `level` | `str` | Case-insensitive level name: `"trace"`, `"debug"`, `"info"`, `"warn"`/`"warning"`, or `"error"`/`"critical"` |
 
 Records from Rust code route through pyo3-log under loggers named after their
-crate (`_pyshed.*`, `shed_core.*`, `hfx_core.*`). If any relevant logger has no
+crate (`_pourpoint.*`, `pourpoint_core.*`, `hfx_core.*`). If any relevant logger has no
 handler, a `StreamHandler` is added to that logger automatically, so first-time
 users see output without calling `logging.basicConfig`.
 
-Set `PYSHED_LOG` to one of the same level names to opt in at import time.
+Set `POURPOINT_LOG` to one of the same level names to opt in at import time.
 
 ## bench_trace
 
@@ -175,7 +175,7 @@ Engine.delineate(*, lat: float, lon: float, geometry=False) -> AreaOnlyResult
 - `ResolutionError` when the outlet cannot be resolved to a terminal catchment.
 - `DatasetError` when underlying dataset reads fail during delineation.
 - `AssemblyError` when watershed geometry assembly fails.
-- `ShedError` for other engine failures such as traversal or refinement errors.
+- `PourpointError` for other engine failures such as traversal or refinement errors.
 
 ```python
 delineate_batch(
@@ -220,7 +220,7 @@ Without `progress`, the batch runs in parallel via Rayon.
 
 - `KeyError` when an outlet dict is missing `"lat"` or `"lon"`.
 - `ValueError` when any outlet contains invalid coordinates.
-- The same typed `pyshed` exceptions as `delineate()` for engine failures.
+- The same typed `pourpoint` exceptions as `delineate()` for engine failures.
 
 ### Staged Methods
 
@@ -413,10 +413,10 @@ provide `geometry_wkb`, `geometry_bbox`, or `to_geojson()`.
 ## Exceptions
 
 ```python
-class ShedError(Exception): ...
-class DatasetError(ShedError): ...
-class ResolutionError(ShedError): ...
-class AssemblyError(ShedError): ...
+class PourpointError(Exception): ...
+class DatasetError(PourpointError): ...
+class ResolutionError(PourpointError): ...
+class AssemblyError(PourpointError): ...
 ```
 
 These typed exceptions are raised by the engine so callers can distinguish
@@ -429,4 +429,4 @@ failures from broader engine errors.
 __version__: str
 ```
 
-Installed package version reported by `importlib.metadata.version("pyshed")`.
+Installed package version reported by `importlib.metadata.version("pourpoint")`.
