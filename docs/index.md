@@ -4,12 +4,16 @@
 it returns the whole upstream area that drains to it, the watershed. `pourpoint` is
 its Python interface.
 
-pourpoint reads any hydrofabric published in the open
+A *hydrofabric* is a pre-built map of a river network — its streams, the land
+patches (catchments) that drain into each stream, and which catchment flows into
+which downstream — of the same kind hydrologists already work with in NHDPlus,
+HydroSHEDS, or MERIT-Hydro. pourpoint reads any hydrofabric published in the open
 [HFX (HydroFabric Exchange)](https://github.com/CooperBigFoot/hfx) format, a
-folder of pre-built river-network files. The same delineation runs over GRIT,
-MERIT-Basins, and any other HFX dataset. A hosted GRIT dataset is available to
-point at directly, so you can delineate your first watershed without downloading
-anything.
+folder of pre-built river-network files. The same delineation runs over GRIT
+(Global River Topology; [Wortmann et al.
+2025](https://doi.org/10.1029/2024WR038308)), MERIT-Basins, and any other HFX
+dataset. A hosted GRIT dataset is available to point at directly, so you can
+delineate your first watershed without downloading anything.
 
 ## Who it's for
 

@@ -11,7 +11,7 @@ across overlapping watersheds.
 
 The default `refine=True` is best-effort: if a dataset declares no D8 raster, the
 engine skips terminal refinement and returns whole source units. The canonical
-public GRIT dataset ships no D8 raster, so refinement is skipped automatically —
+public GRIT (Global River Topology) dataset ships no D8 raster, so refinement is skipped automatically —
 you do not need to change anything.
 
 When several D8 declarations overlap and each fully covers the terminal catchment

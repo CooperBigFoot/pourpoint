@@ -27,7 +27,7 @@ Repeated delineations in the same session reuse data already fetched, so overlap
 
 Developers who need each stage separately can use the [Staged API](guide/staged-api.md).
 
-As one optional last refinement step, when a dataset includes a D8 flow-direction raster `pourpoint` trims the outlet's own catchment to the exact point, and since the hosted GRIT dataset ships no raster `pourpoint` keeps that catchment whole and still returns the full watershed.
+As one optional last refinement step, when a dataset includes a D8 flow-direction raster `pourpoint` trims the outlet's own catchment to the exact point, and since the hosted GRIT (Global River Topology) dataset ships no raster `pourpoint` keeps that catchment whole and still returns the full watershed.
 
 This approach comes from Matthew Heberger's open-source `delineator` project, which inspired `pourpoint`.
 Full credit and citations are on the [Credits & Citation](credits.md) page.

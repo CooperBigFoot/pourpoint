@@ -8,10 +8,16 @@ This guide takes you from installing pourpoint to your first delineated watershe
   longitude)` coordinate. Everything upstream of the outlet is its watershed.
 - **Delineation**: computing that watershed by finding every piece of land
   upstream of the outlet and returning it as a polygon.
+- **Hydrofabric**: a pre-built map of a river network — its streams, the
+  catchments that drain into them, and how those catchments connect — of the same
+  kind as NHDPlus, HydroSHEDS, or MERIT-Hydro. pourpoint reads one to delineate.
 - **HFX dataset**: a *hydrofabric*, the pre-built river-network and catchment
   data pourpoint reads to delineate. It follows the open
   [HFX](https://github.com/CooperBigFoot/hfx) format, and you point pourpoint at one
   by path or URL. See [Datasets](guide/datasets.md).
+- **GRIT**: Global River Topology, a global river-network dataset ([Wortmann et
+  al. 2025](https://doi.org/10.1029/2024WR038308)). The hosted example is GRIT
+  2.0.0 (the source data) compiled to the HFX v0.3.0 format.
 
 ## 1. Install
 
