@@ -56,6 +56,10 @@ jobs:
             platform: linux
             arch: aarch64
             cibw_build: cp39-manylinux_aarch64
+          - os: windows-2025
+            platform: windows
+            arch: amd64
+            cibw_build: cp39-win_amd64
 
     steps:
       - name: Checkout
@@ -68,11 +72,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Host Rust is only used by the macOS legs; the Linux build runs inside
-      # the manylinux container, which installs its own Rust via rustup in
-      # CIBW_BEFORE_ALL_LINUX.
+      # Host Rust is used by the macOS and Windows legs; the Linux build runs
+      # inside the manylinux container, which installs its own Rust via rustup
+      # in CIBW_BEFORE_ALL_LINUX. On Windows the default host triple is
+      # x86_64-pc-windows-msvc — the MSVC ABI required by the conda-forge GDAL
+      # import library.
       - name: Install Rust toolchain
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' || runner.os == 'Windows'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build wheels
@@ -84,6 +90,10 @@ jobs:
           CIBW_BUILD: "${{ matrix.cibw_build }}"
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          # cibuildwheel expects "AMD64" (platform.machine() casing); the
+          # matrix arch stays lowercase "amd64" for artifact naming. There is
+          # only one Windows leg, so this is a constant.
+          CIBW_ARCHS_WINDOWS: AMD64
           CIBW_ENVIRONMENT_MACOS: >-
             CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
             MACOSX_DEPLOYMENT_TARGET=11.0
@@ -112,6 +122,20 @@ jobs:
             LD_LIBRARY_PATH=/project/pourpoint_libs/lib
             LIBCLANG_PATH=/usr/lib64
             PATH=$HOME/.cargo/bin:$PATH
+          # Windows: prebuilt GDAL stack from conda-forge (libgdal-core pinned
+          # to the same GDAL_VERSION the other legs build from source),
+          # installed to C:\gdal by CIBW_BEFORE_ALL_WINDOWS. CIBW_ENVIRONMENT
+          # is parsed with bash syntax even on Windows, hence the single
+          # quotes; forward slashes are accepted by Rust, clang, and the MSVC
+          # linker alike. gdal-sys resolves the import library from
+          # GDAL_LIB_DIR; bindgen gets libclang from the runner image's LLVM.
+          CIBW_ENVIRONMENT_WINDOWS: >-
+            BUILD_PREFIX='C:/gdal/Library'
+            GDAL_HOME='C:/gdal/Library'
+            GDAL_INCLUDE_DIR='C:/gdal/Library/include'
+            GDAL_LIB_DIR='C:/gdal/Library/lib'
+            GDAL_VERSION=${{ env.GDAL_VERSION }}
+            LIBCLANG_PATH='C:/Program Files/LLVM/bin'
           CIBW_BEFORE_ALL_MACOS: |
             brew remove -f --ignore-dependencies liblerc webp zstd libtiff libxcb libxdcmp lcms2 xmlto ghostscript lz4 openjpeg jpeg-turbo libpng xz giflib rtmpdump brotli snappy libavif libzip
             HOMEBREW_NO_AUTO_UPDATE=1 brew install autoconf automake libtool coreutils cmake wget
@@ -126,6 +150,21 @@ jobs:
             dnf install -y wget bzip2 cmake perl perl-IPC-Cmd clang-devel
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
             bash ./ci/config.sh
+          # Runs under cmd.exe (cibuildwheel uses shell=True, i.e. cmd, on
+          # Windows), folded to a single &&-chained line. Miniconda is
+          # preinstalled on the runner image at C:\Miniconda (not on PATH).
+          # conda-forge ships the GDAL import library as gdal.lib (GDAL >=3.5
+          # CMake naming) but gdal-sys 0.12 looks for gdal_i.lib first, so a
+          # shim copy puts it where the build script's deterministic branch
+          # finds it. The trailing dir fails loudly (and shows what exists)
+          # if no import library materialized.
+          CIBW_BEFORE_ALL_WINDOWS: >-
+            C:\Miniconda\Scripts\conda.exe create --yes --prefix C:\gdal
+            --override-channels --channel conda-forge
+            libgdal-core=${{ env.GDAL_VERSION }} &&
+            (if not exist C:\gdal\Library\lib\gdal_i.lib copy /Y
+            C:\gdal\Library\lib\gdal.lib C:\gdal\Library\lib\gdal_i.lib) &&
+            dir C:\gdal\Library\lib\gdal*.lib
           CIBW_BEFORE_BUILD_MACOS: |
             export DYLD_LIBRARY_PATH=${BUILD_PREFIX}/lib:$DYLD_LIBRARY_PATH
             bash ./ci/copy_gdal_data.sh
@@ -133,6 +172,14 @@ jobs:
           # delocate_preflight.sh is Mach-O-only and deliberately not run here.
           CIBW_BEFORE_BUILD_LINUX: |
             bash ./ci/copy_gdal_data.sh
+          # cibuildwheel v3.4.1 ships no default Windows repair command and
+          # does not install delvewheel itself; the documented pattern is a
+          # pip install in before-build. copy_gdal_data.sh is OS-agnostic
+          # bash; the runner's Git Bash is invoked by absolute path so the
+          # hook does not depend on bash being on cmd's PATH.
+          CIBW_BEFORE_BUILD_WINDOWS: >-
+            pip install delvewheel &&
+            "C:\Program Files\Git\bin\bash.exe" ./ci/copy_gdal_data.sh
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
             export DYLD_LIBRARY_PATH=${GITHUB_WORKSPACE}/pourpoint_libs/lib:$DYLD_LIBRARY_PATH &&
             delocate-listdeps --depending --all {wheel} &&
@@ -145,6 +192,13 @@ jobs:
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
             LD_LIBRARY_PATH=/project/pourpoint_libs/lib
             auditwheel repair -w {dest_dir} {wheel}
+          # delvewheel vendors gdal.dll and its transitive conda-forge DLLs
+          # (proj, geos, sqlite, curl, openssl, ...) into the wheel;
+          # --add-path points it at the conda env's DLL directory. The MSVC
+          # runtime is intentionally not vendored (standard wheel practice;
+          # CPython itself installs it).
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >-
+            delvewheel repair --add-path C:\gdal\Library\bin -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: |
             python -c "
             import pourpoint
@@ -163,6 +217,14 @@ jobs:
             _pourpoint._self_test_proj()
             print('wheel self-test passed; version=' + pourpoint.__version__)
             "
+          # cmd.exe cannot execute the multi-line `python -c` above (newlines
+          # inside a quoted argument break cmd parsing), so the identical
+          # assertions live in ci/wheel_smoke_test.py. The platform-specific
+          # option overrides the generic CIBW_TEST_COMMAND on Windows only;
+          # tests still run from cibuildwheel's temp dir against the
+          # installed (repaired) wheel.
+          CIBW_TEST_COMMAND_WINDOWS: >-
+            python "{project}/ci/wheel_smoke_test.py"
 
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v7
