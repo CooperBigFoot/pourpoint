@@ -1,6 +1,6 @@
 [package]
 name = "pourpoint-python"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 edition = "2024"
 description = "Python bindings for the pourpoint watershed delineation engine"
 license = "MIT"
