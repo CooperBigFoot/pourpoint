@@ -31,7 +31,7 @@ env:
 jobs:
 
   build_wheels:
-    name: Build macOS ${{ matrix.arch }} wheel
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }} wheel
     runs-on: ${{ matrix.os }}
     if: >-
       github.event_name != 'release' ||
@@ -41,9 +41,21 @@ jobs:
       matrix:
         include:
           - os: macos-14
+            platform: macos
             arch: arm64
+            cibw_build: cp39-macosx_arm64
           - os: macos-15-intel
+            platform: macos
             arch: x86_64
+            cibw_build: cp39-macosx_x86_64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x86_64
+            cibw_build: cp39-manylinux_x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+            cibw_build: cp39-manylinux_aarch64
 
     steps:
       - name: Checkout
@@ -56,7 +68,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Host Rust is only used by the macOS legs; the Linux build runs inside
+      # the manylinux container, which installs its own Rust via rustup in
+      # CIBW_BEFORE_ALL_LINUX.
       - name: Install Rust toolchain
+        if: runner.os == 'macOS'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build wheels
@@ -65,8 +81,9 @@ jobs:
           package-dir: crates/python
           output-dir: wheelhouse
         env:
-          CIBW_BUILD: "cp39-macosx_${{ matrix.arch }}"
+          CIBW_BUILD: "${{ matrix.cibw_build }}"
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
           CIBW_ENVIRONMENT_MACOS: >-
             CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
             MACOSX_DEPLOYMENT_TARGET=11.0
@@ -79,18 +96,55 @@ jobs:
             PKG_CONFIG_PATH=${GITHUB_WORKSPACE}/pourpoint_libs/lib/pkgconfig
             LDFLAGS=-Wl,-rpath,${GITHUB_WORKSPACE}/pourpoint_libs/lib
             LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib
+          # Container paths: the project is copied to /project inside the
+          # manylinux container; host env (incl. GITHUB_WORKSPACE) does not
+          # exist in there. No LDFLAGS rpath — auditwheel sets ELF rpaths at
+          # repair time. LD_LIBRARY_PATH lets curl's configure, the maturin
+          # link step, and auditwheel resolve the freshly built stack.
+          CIBW_ENVIRONMENT_LINUX: >-
+            BUILD_PREFIX=/project/pourpoint_libs
+            GDAL_HOME=/project/pourpoint_libs
+            GDAL_INCLUDE_DIR=/project/pourpoint_libs/include
+            GDAL_LIB_DIR=/project/pourpoint_libs/lib
+            GDAL_VERSION=${{ env.GDAL_VERSION }}
+            PROJ_DATA=/project/pourpoint_libs/share/proj
+            PKG_CONFIG_PATH=/project/pourpoint_libs/lib/pkgconfig
+            LD_LIBRARY_PATH=/project/pourpoint_libs/lib
+            LIBCLANG_PATH=/usr/lib64
+            PATH=$HOME/.cargo/bin:$PATH
           CIBW_BEFORE_ALL_MACOS: |
             brew remove -f --ignore-dependencies liblerc webp zstd libtiff libxcb libxdcmp lcms2 xmlto ghostscript lz4 openjpeg jpeg-turbo libpng xz giflib rtmpdump brotli snappy libavif libzip
             HOMEBREW_NO_AUTO_UPDATE=1 brew install autoconf automake libtool coreutils cmake wget
+            bash ./ci/config.sh
+          # Runs inside the manylinux_2_28 (AlmaLinux 8) container as root,
+          # cwd=/project. dnf, never apt. clang-devel provides libclang for
+          # the gdal crate's bindgen; perl-IPC-Cmd is required by OpenSSL 3's
+          # Configure; bzip2 unpacks the GEOS tarball. The manylinux image
+          # ships no Rust: install rustup (pattern from cibuildwheel's FAQ).
+          CIBW_BEFORE_ALL_LINUX: |
+            set -euo pipefail
+            dnf install -y wget bzip2 cmake perl perl-IPC-Cmd clang-devel
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
             bash ./ci/config.sh
           CIBW_BEFORE_BUILD_MACOS: |
             export DYLD_LIBRARY_PATH=${BUILD_PREFIX}/lib:$DYLD_LIBRARY_PATH
             bash ./ci/copy_gdal_data.sh
             bash ./ci/delocate_preflight.sh
+          # delocate_preflight.sh is Mach-O-only and deliberately not run here.
+          CIBW_BEFORE_BUILD_LINUX: |
+            bash ./ci/copy_gdal_data.sh
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
             export DYLD_LIBRARY_PATH=${GITHUB_WORKSPACE}/pourpoint_libs/lib:$DYLD_LIBRARY_PATH &&
             delocate-listdeps --depending --all {wheel} &&
             delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+          # cibuildwheel's Linux default command, made explicit, with the
+          # built stack on LD_LIBRARY_PATH so the vendored GDAL/GEOS/PROJ
+          # chain resolves while auditwheel grafts it into the wheel. This is
+          # the single repair pass; maturin's own auditwheel stays "skip" in
+          # pyproject.toml so the wheel is never repaired twice.
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
+            LD_LIBRARY_PATH=/project/pourpoint_libs/lib
+            auditwheel repair -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: |
             python -c "
             import pourpoint
@@ -113,7 +167,7 @@ jobs:
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v7
         with:
-          name: wheels-macos-${{ matrix.arch }}
+          name: wheels-${{ matrix.platform }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
 
   build_sdist:
