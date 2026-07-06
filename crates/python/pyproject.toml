@@ -20,6 +20,7 @@ classifiers = [
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
@@ -54,5 +55,9 @@ markers = [
 features = ["pyo3/extension-module"]
 module-name = "pourpoint._pourpoint"
 python-source = "python"
+# This is maturin's own built-in auditwheel pass, not cibuildwheel's. It must
+# stay "skip": on Linux the wheel is repaired exactly once by cibuildwheel's
+# CIBW_REPAIR_WHEEL_COMMAND_LINUX (auditwheel repair); letting maturin repair
+# it too would vendor the native GDAL stack into the wheel twice.
 auditwheel = "skip"
 include = [{ path = "python/pourpoint/_data/**/*", format = "wheel" }]
