@@ -46,7 +46,7 @@ fn fixture_builder_emits_distinct_single_multilevel_and_dag_shapes() {
     let (_single_dir, single_root) = DatasetBuilder::new(3).build();
     let single = DatasetSession::open_path(&single_root).unwrap();
     assert_eq!(single.manifest().unit_count().get(), 3);
-    assert_eq!(single.topology(), hfx_core::Topology::Tree);
+    assert_eq!(single.topology(), hfx::Topology::Tree);
     assert_eq!(
         graph_levels(&single_root.join("graph.parquet")),
         BTreeSet::from([0])
@@ -55,7 +55,7 @@ fn fixture_builder_emits_distinct_single_multilevel_and_dag_shapes() {
     let (_nested_dir, nested_root) = DatasetBuilder::new(1).with_multilevel_nested().build();
     let nested = DatasetSession::open_path(&nested_root).unwrap();
     assert_eq!(nested.manifest().unit_count().get(), 4);
-    assert_eq!(nested.topology(), hfx_core::Topology::Tree);
+    assert_eq!(nested.topology(), hfx::Topology::Tree);
     assert_eq!(
         graph_levels(&nested_root.join("graph.parquet")),
         BTreeSet::from([0, 1])
@@ -65,10 +65,10 @@ fn fixture_builder_emits_distinct_single_multilevel_and_dag_shapes() {
     let (_dag_dir, dag_root) = DatasetBuilder::new(3).with_dag().build();
     let dag = DatasetSession::open_path(&dag_root).unwrap();
     assert_eq!(dag.manifest().unit_count().get(), 7);
-    assert_eq!(dag.topology(), hfx_core::Topology::Dag);
+    assert_eq!(dag.topology(), hfx::Topology::Dag);
     assert_eq!(
         dag.graph()
-            .get(hfx_core::UnitId::new(6).unwrap())
+            .get(hfx::UnitId::new(6).unwrap())
             .unwrap()
             .upstream_ids()
             .len(),
@@ -76,7 +76,7 @@ fn fixture_builder_emits_distinct_single_multilevel_and_dag_shapes() {
     );
     assert_eq!(
         dag.graph()
-            .get(hfx_core::UnitId::new(7).unwrap())
+            .get(hfx::UnitId::new(7).unwrap())
             .unwrap()
             .upstream_ids()
             .len(),

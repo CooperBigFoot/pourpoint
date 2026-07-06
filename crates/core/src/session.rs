@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use bytes::BytesMut;
 use futures_util::StreamExt;
 use geo::Rect;
-use hfx_core::{DrainageGraph, Level, Manifest, Topology, UnitId};
+use hfx::{DrainageGraph, Level, Manifest, Topology, UnitId};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
 use tracing::{debug, info, instrument, warn};
@@ -97,7 +97,7 @@ pub struct DatasetSession {
     root: PathBuf,
     manifest: Manifest,
     aux_declarations: AuxDeclarations,
-    graph: hfx_core::DrainageGraph,
+    graph: hfx::DrainageGraph,
     catchments: CatchmentStore,
     snap_stores: Vec<DeclaredSnapStore>,
     raster_paths: Option<RasterPaths>,
@@ -613,7 +613,7 @@ impl DatasetSession {
     }
 
     /// Return a reference to the in-memory drainage graph.
-    pub fn graph(&self) -> &hfx_core::DrainageGraph {
+    pub fn graph(&self) -> &hfx::DrainageGraph {
         &self.graph
     }
 
@@ -1367,7 +1367,7 @@ mod tests {
     use crate::source::DatasetSource;
     use crate::telemetry::jsonl::JsonlLayer;
     use crate::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
-    use hfx_core::{BoundingBox, SnapId, UnitId};
+    use hfx::{BoundingBox, SnapId, UnitId};
 
     static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
     const REAL_GRIT_V200_URL: &str = "https://basin-delineations-public.upstream.tech/grit/2.0.0/";

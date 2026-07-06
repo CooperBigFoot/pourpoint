@@ -3,7 +3,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use hfx_core::{Manifest, UnitId};
+use hfx::{Manifest, UnitId};
 
 use crate::export::ExportError;
 
@@ -317,7 +317,7 @@ fn single_ascii_digit_1_to_9(value: &str) -> Option<()> {
 
 #[cfg(test)]
 mod export_identity_tests {
-    use hfx_core::{BoundingBox, Crs, FormatVersion, ManifestBuilder, Topology, UnitCount, UnitId};
+    use hfx::{BoundingBox, Crs, FormatVersion, ManifestBuilder, Topology, UnitCount, UnitId};
 
     use super::*;
 

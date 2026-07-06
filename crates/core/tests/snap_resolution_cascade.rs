@@ -7,8 +7,8 @@ use arrow::array::{
 use geo::{Closest, ClosestPoint, Geometry};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::WkbGeometry;
-use hfx_core::{SnapId, UnitId};
+use hfx::WkbGeometry;
+use hfx::{SnapId, UnitId};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;

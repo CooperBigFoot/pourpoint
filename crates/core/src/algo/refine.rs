@@ -296,7 +296,7 @@ pub fn refine_terminal_from_source(
 #[cfg(test)]
 mod tests {
     use geo::{LineString, Polygon, Rect};
-    use hfx_core::FlowDirEncoding;
+    use hfx::FlowDirEncoding;
 
     use super::*;
     use crate::algo::coord::{GeoCoord, GridCoord, GridDims};

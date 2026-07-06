@@ -1,4 +1,4 @@
-//! Manifest reader — parses manifest.json into an hfx_core::Manifest plus
+//! Manifest reader — parses manifest.json into an hfx::Manifest plus
 //! pourpoint-side auxiliary declarations.
 //!
 //! HFX v0.3.0 hard-cut: only `format_version == "0.3.0"` and `crs ==
@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::str::FromStr;
 
-use hfx_core::{
+use hfx::{
     AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, Crs, FlowDirEncoding,
     FormatVersion, Manifest, ManifestBuilder, Topology, UnitCount,
 };

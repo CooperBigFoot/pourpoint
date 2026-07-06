@@ -63,7 +63,7 @@ from pourpoint._pourpoint import (
 )
 
 
-_LOGGER_NAMES = ("pourpoint", "_pourpoint", "pourpoint_core", "hfx_core")
+_LOGGER_NAMES = ("pourpoint", "_pourpoint", "pourpoint_core", "hfx")
 _LOG_LEVELS = {
     "trace": ("trace", logging.DEBUG),
     "debug": ("debug", logging.DEBUG),
@@ -94,7 +94,7 @@ def set_log_level(level: str) -> None:
     has no handler, a default ``StreamHandler`` is attached to that logger.
 
     Records originating from Rust route through pyo3-log under loggers named
-    after their Rust crate (``_pourpoint.*``, ``pourpoint_core.*``, ``hfx_core.*``).
+    after their Rust crate (``_pourpoint.*``, ``pourpoint_core.*``, ``hfx.*``).
     We therefore set the level on each of those roots in addition to the
     Python ``pourpoint`` facade.
 

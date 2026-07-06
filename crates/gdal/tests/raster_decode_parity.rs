@@ -3,7 +3,7 @@
 use geo::Rect;
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::UnitId;
+use hfx::UnitId;
 use pourpoint_core::algo::{
     GeoCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon, refine_terminal_from_source,
 };

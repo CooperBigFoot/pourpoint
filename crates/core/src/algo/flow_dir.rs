@@ -4,7 +4,7 @@
 //! TauDEM D8 encoding: 1=E, 2=NE, 3=N, 4=NW, 5=W, 6=SW, 7=S, 8=SE (counter-clockwise).
 //! 0 = nodata for both encodings.
 
-use hfx_core::FlowDirEncoding;
+use hfx::FlowDirEncoding;
 
 /// Error returned when a byte is not a valid D8 encoding.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -230,7 +230,7 @@ impl TryFrom<u8> for FlowDir {
 
 #[cfg(test)]
 mod tests {
-    use hfx_core::FlowDirEncoding;
+    use hfx::FlowDirEncoding;
 
     use super::{FlowDir, InvalidFlowDir};
 

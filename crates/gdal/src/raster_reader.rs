@@ -6,7 +6,7 @@
 
 use gdal::Dataset;
 use geo::Rect;
-use hfx_core::FlowDirEncoding;
+use hfx::FlowDirEncoding;
 use tracing::{debug, instrument};
 
 use pourpoint_core::algo::accumulation_tile::AccumulationTile;

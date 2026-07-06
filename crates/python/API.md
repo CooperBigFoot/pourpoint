@@ -48,7 +48,7 @@ Sets the active log level for both the Rust tracing bridge and the Python
 | `level` | `str` | Case-insensitive level name: `"trace"`, `"debug"`, `"info"`, `"warn"`/`"warning"`, or `"error"`/`"critical"` |
 
 Records from Rust code route through pyo3-log under loggers named after their
-crate (`_pourpoint.*`, `pourpoint_core.*`, `hfx_core.*`). If any relevant logger has no
+crate (`_pourpoint.*`, `pourpoint_core.*`, `hfx.*`). If any relevant logger has no
 handler, a `StreamHandler` is added to that logger automatically, so first-time
 users see output without calling `logging.basicConfig`.
 

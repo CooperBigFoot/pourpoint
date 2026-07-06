@@ -15,7 +15,7 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
-use hfx_core::{BoundingBox, Level, Topology, UnitId};
+use hfx::{BoundingBox, Level, Topology, UnitId};
 use pourpoint_core::SessionError;
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};

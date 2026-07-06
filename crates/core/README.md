@@ -203,7 +203,7 @@ ambiguity boundary is surfaced for real MERIT coverage conflicts.
 | Term | Meaning |
 |---|---|
 | Unit | Fundamental spatial unit in HFX — one catchment polygon with an ID, area, and WKB geometry |
-| UnitId | Unique positive `i64` identifier for a unit (newtype in `hfx_core`) |
+| UnitId | Unique positive `i64` identifier for a unit (newtype in `hfx`) |
 | D8 | Eight-direction flow model where each raster cell drains to exactly one of its 8 neighbours |
 | ESRI D8 | D8 encoding using powers of two: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128 |
 | TauDEM D8 | D8 encoding counter-clockwise from east: E=1, NE=2, N=3, NW=4, W=5, SW=6, S=7, SE=8 |

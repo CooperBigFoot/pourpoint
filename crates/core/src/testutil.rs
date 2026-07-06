@@ -8,7 +8,7 @@ use arrow::array::{
     Int64Array, Int64Builder, ListBuilder, RecordBatch, StringBuilder, StructArray,
 };
 use arrow::datatypes::{DataType, Field, Schema};
-use hfx_core::{Level, UnitId};
+use hfx::{Level, UnitId};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use serde_json::json;
@@ -957,7 +957,7 @@ mod tests {
         let session = DatasetSession::open_path(&root).expect("dag dataset should open");
         // DAG mode adds 4 extra units
         assert_eq!(session.manifest().unit_count().get(), 7);
-        assert_eq!(session.topology(), hfx_core::Topology::Dag);
+        assert_eq!(session.topology(), hfx::Topology::Dag);
     }
 
     #[test]
@@ -966,7 +966,7 @@ mod tests {
         let session =
             DatasetSession::open_path(&root).expect("multi-level nested dataset should open");
         assert_eq!(session.manifest().unit_count().get(), 4);
-        assert_eq!(session.topology(), hfx_core::Topology::Tree);
+        assert_eq!(session.topology(), hfx::Topology::Tree);
         assert_eq!(session.graph().len(), 4);
     }
 
