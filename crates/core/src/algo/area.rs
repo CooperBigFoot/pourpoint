@@ -27,8 +27,8 @@ impl fmt::Display for AreaKm2 {
     }
 }
 
-impl From<hfx_core::AreaKm2> for AreaKm2 {
-    fn from(a: hfx_core::AreaKm2) -> Self {
+impl From<hfx::AreaKm2> for AreaKm2 {
+    fn from(a: hfx::AreaKm2) -> Self {
         AreaKm2::new(a.get() as f64)
     }
 }
@@ -62,8 +62,8 @@ mod tests {
     }
 
     #[test]
-    fn from_hfx_core_area_km2() {
-        let hfx_area = hfx_core::AreaKm2::new(123.45).unwrap();
+    fn from_hfx_area_km2() {
+        let hfx_area = hfx::AreaKm2::new(123.45).unwrap();
         let area: AreaKm2 = hfx_area.into();
         assert!(
             (area.as_f64() - 123.45_f64).abs() < 1e-4,

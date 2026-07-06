@@ -11,7 +11,7 @@ mod catchment_store_perf_tests;
 
 use arrow::array::{Array, Float32Array, StructArray};
 use arrow::datatypes::{DataType, Schema};
-use hfx_core::BoundingBox;
+use hfx::BoundingBox;
 use parquet::file::metadata::RowGroupMetaData;
 use parquet::file::statistics::Statistics;
 

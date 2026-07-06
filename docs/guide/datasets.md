@@ -3,7 +3,7 @@
 pourpoint reads a *hydrofabric*: a pre-built dataset of catchments and how they
 connect upstream and downstream. pourpoint reads any hydrofabric published in the open
 [HFX (HydroFabric Exchange)](https://github.com/CooperBigFoot/hfx) format, a
-folder of pre-built river-network files, so the same engine works over GRIT,
+folder of pre-built river-network files, so the same engine works over GRIT (Global River Topology),
 MERIT-Basins, and any other HFX dataset.
 
 ## What's in an HFX dataset
@@ -30,7 +30,7 @@ hydrofabric:
 https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
 ```
 
-This is the GRIT global river network, compiled to HFX v0.3.0. Public hosting is
+This is GRIT 2.0.0, the source river network, compiled to the HFX v0.3.0 format. Public hosting is
 sponsored by [Upstream Tech](https://www.upstream.tech/) as an in-kind
 contribution to the open HFX ecosystem; pourpoint is independent open-source software
 and the hosting implies no endorsement. The GRIT dataset ships no D8 raster, so

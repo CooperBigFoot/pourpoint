@@ -2,7 +2,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use hfx_core::{DrainageGraph, UnitId};
+use hfx::{DrainageGraph, UnitId};
 use tracing::{debug, instrument};
 
 // ── TraversalError ────────────────────────────────────────────────────────────
@@ -183,7 +183,7 @@ pub fn collect_upstream(
 mod tests {
     use std::collections::HashSet;
 
-    use hfx_core::{AdjacencyRow, Level};
+    use hfx::{AdjacencyRow, Level};
 
     use super::*;
 

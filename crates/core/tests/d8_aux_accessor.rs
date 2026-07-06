@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use geo::{Rect, coord};
-use hfx_core::FlowDirEncoding;
+use hfx::FlowDirEncoding;
 use pourpoint_core::algo::coord::GeoCoord;
 use pourpoint_core::algo::{
     AccumulationTile, FlowDirectionTile, RasterSource, RasterSourceError, Raw,

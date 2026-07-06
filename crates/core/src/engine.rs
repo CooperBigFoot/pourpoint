@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use geo::MultiPolygon;
-use hfx_core::{Level, OutletCoord, UnitId};
+use hfx::{Level, OutletCoord, UnitId};
 use rayon::prelude::*;
 use tracing::instrument;
 
@@ -62,8 +62,8 @@ pub enum RefinementOutcome {
 pub struct DelineationUnitMetadata {
     id: UnitId,
     level: Level,
-    area: hfx_core::AreaKm2,
-    up_area: Option<hfx_core::AreaKm2>,
+    area: hfx::AreaKm2,
+    up_area: Option<hfx::AreaKm2>,
     outlet: OutletCoord,
 }
 
@@ -89,12 +89,12 @@ impl DelineationUnitMetadata {
     }
 
     /// Return the local drainage area from `catchments.parquet`.
-    pub fn area(&self) -> hfx_core::AreaKm2 {
+    pub fn area(&self) -> hfx::AreaKm2 {
         self.area
     }
 
     /// Return the total upstream drainage area from `catchments.parquet`, if present.
-    pub fn up_area(&self) -> Option<hfx_core::AreaKm2> {
+    pub fn up_area(&self) -> Option<hfx::AreaKm2> {
         self.up_area
     }
 
@@ -434,9 +434,9 @@ pub enum EngineError {
         /// The raw unit ID whose stored level does not match the selected level.
         unit_id: i64,
         /// The selected level required by this staged run.
-        selected_level: hfx_core::Level,
+        selected_level: hfx::Level,
         /// The stored level for the unit, if the level index contains it.
-        actual_level: Option<hfx_core::Level>,
+        actual_level: Option<hfx::Level>,
     },
 
     /// Fired when pre-merge catchment metadata or geometry cannot be fetched.
@@ -1072,7 +1072,7 @@ impl From<TerminalRefinementError> for EngineError {
 #[cfg(test)]
 mod tests {
     use geo::Rect;
-    use hfx_core::FlowDirEncoding;
+    use hfx::FlowDirEncoding;
 
     use super::*;
     use crate::algo::{
@@ -1240,7 +1240,7 @@ mod tests {
             .expect("terminal metadata should be present");
         assert_eq!(terminal.level().get(), 0);
         assert_eq!(terminal.area().get(), 33.0);
-        assert_eq!(terminal.up_area().map(hfx_core::AreaKm2::get), Some(66.0));
+        assert_eq!(terminal.up_area().map(hfx::AreaKm2::get), Some(66.0));
         assert_eq!(terminal.outlet().lon(), 1.7);
         assert_eq!(terminal.outlet().lat(), 0.2);
     }

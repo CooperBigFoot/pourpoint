@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use geo::{BoundingRect, LineString, MultiPolygon, Polygon};
-use hfx_core::{AreaKm2, Level, OutletCoord, UnitId};
+use hfx::{AreaKm2, Level, OutletCoord, UnitId};
 use pourpoint_core::algo::canonical_wkb_multi_polygon;
 use pourpoint_core::algo::coord::GeoCoord;
 use pourpoint_core::session::DatasetSession;

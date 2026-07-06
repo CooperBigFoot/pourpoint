@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use geo::Rect;
-use hfx_core::FlowDirEncoding;
+use hfx::FlowDirEncoding;
 
 use crate::algo::{
     AccumulationTile, FlowDirectionTile, GridDims, RasterSource, RasterSourceError, RasterTile, Raw,

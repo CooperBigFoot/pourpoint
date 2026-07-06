@@ -5,7 +5,7 @@ use std::path::Path;
 
 use arrow::array::{Array, Int16Array, Int64Array, LargeListArray, ListArray};
 use arrow::datatypes::DataType;
-use hfx_core::{AdjacencyRow, DrainageGraph, GraphError, Level, UnitId};
+use hfx::{AdjacencyRow, DrainageGraph, GraphError, Level, UnitId};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::file::statistics::Statistics;
 use tracing::{debug, info, instrument};

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
-use hfx_core::{DrainageGraph, Manifest};
+use hfx::{DrainageGraph, Manifest};
 use object_store::path::Path as ObjectPath;
 use tracing::{debug, warn};
 use url::Url;

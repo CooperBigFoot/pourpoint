@@ -6,7 +6,7 @@ use arrow::array::{
     Int64Builder, ListBuilder, RecordBatch,
 };
 use arrow::datatypes::{DataType, Field, Schema};
-use hfx_core::UnitId;
+use hfx::UnitId;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use pourpoint_core::error::SessionError;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arrow::array::{BinaryBuilder, Float32Builder, Int64Builder, StringBuilder};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use hfx_core::{BoundingBox, SnapId, StemRole};
+use hfx::{BoundingBox, SnapId, StemRole};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use pourpoint_core::error::SessionError;

@@ -63,7 +63,7 @@
 //! ```
 
 use geo::MultiPolygon;
-use hfx_core::{Level, OutletCoord, UnitId};
+use hfx::{Level, OutletCoord, UnitId};
 
 use crate::algo::coord::GeoCoord;
 use crate::algo::{AreaKm2, UpstreamUnits};
@@ -205,8 +205,8 @@ impl SameLevelUpstreamUnits {
 pub struct PreMergeDrainageUnit {
     id: UnitId,
     level: Level,
-    area: hfx_core::AreaKm2,
-    up_area: Option<hfx_core::AreaKm2>,
+    area: hfx::AreaKm2,
+    up_area: Option<hfx::AreaKm2>,
     outlet: OutletCoord,
     geometry: MultiPolygon<f64>,
 }
@@ -216,8 +216,8 @@ impl PreMergeDrainageUnit {
     pub(crate) fn new(
         id: UnitId,
         level: Level,
-        area: hfx_core::AreaKm2,
-        up_area: Option<hfx_core::AreaKm2>,
+        area: hfx::AreaKm2,
+        up_area: Option<hfx::AreaKm2>,
         outlet: OutletCoord,
         geometry: MultiPolygon<f64>,
     ) -> Self {
@@ -236,8 +236,8 @@ impl PreMergeDrainageUnit {
     pub fn new_for_test(
         id: UnitId,
         level: Level,
-        area: hfx_core::AreaKm2,
-        up_area: Option<hfx_core::AreaKm2>,
+        area: hfx::AreaKm2,
+        up_area: Option<hfx::AreaKm2>,
         outlet: OutletCoord,
         geometry: MultiPolygon<f64>,
     ) -> Self {
@@ -255,12 +255,12 @@ impl PreMergeDrainageUnit {
     }
 
     /// Return the local drainage area from `catchments.parquet`.
-    pub fn area(&self) -> hfx_core::AreaKm2 {
+    pub fn area(&self) -> hfx::AreaKm2 {
         self.area
     }
 
     /// Return the total upstream drainage area from `catchments.parquet`, if present.
-    pub fn up_area(&self) -> Option<hfx_core::AreaKm2> {
+    pub fn up_area(&self) -> Option<hfx::AreaKm2> {
         self.up_area
     }
 
