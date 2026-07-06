@@ -189,9 +189,15 @@ jobs:
           # chain resolves while auditwheel grafts it into the wheel. This is
           # the single repair pass; maturin's own auditwheel stays "skip" in
           # pyproject.toml so the wheel is never repaired twice.
+          # --strip: the from-source GDAL/GEOS/PROJ stack is compiled with -g
+          # (ci/config.sh linux CFLAGS/CXXFLAGS), and on ELF the DWARF debug
+          # info stays in the linked .so. Unstripped, the grafted libs pushed
+          # the manylinux wheels to ~169 MB, over PyPI's 100 MB per-file
+          # limit; --strip runs binutils strip on them inside the
+          # (native-arch) manylinux container so the debug sections are gone.
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
             LD_LIBRARY_PATH=/project/pourpoint_libs/lib
-            auditwheel repair -w {dest_dir} {wheel}
+            auditwheel repair --strip -w {dest_dir} {wheel}
           # delvewheel vendors gdal.dll and its transitive conda-forge DLLs
           # (proj, geos, sqlite, curl, openssl, ...) into the wheel;
           # --add-path points it at the conda env's DLL directory. The MSVC
@@ -290,6 +296,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
 
   publish:
     name: Publish to PyPI
@@ -313,3 +320,5 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          skip-existing: true
