@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pourpoint"
-version = "0.3.0"
+version = "0.1.0rc1"
 requires-python = ">=3.9"
 description = "Python bindings for the pourpoint watershed delineation engine"
 readme = "README.md"
