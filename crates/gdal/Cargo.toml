@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 pourpoint-core = { path = "../core" }
 hfx.workspace = true
-gdal = { version = "0.19", features = ["bindgen"] }
+gdal = "0.19"
 geo = "0.29"
 thiserror = "2"
 tracing = "0.1"

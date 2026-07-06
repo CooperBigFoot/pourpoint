@@ -3,17 +3,18 @@
 #
 # Ported from https://github.com/rasterio/rasterio/blob/main/ci/config.sh
 # with the following intentional divergences:
-#   - macOS arm64 only (no Linux/Windows paths).
+#   - macOS (arm64/x86_64) and manylinux (x86_64/aarch64) only (no Windows).
 #   - Dropped: hdf5, libaec, netcdf, openjpeg, lerc, json-c (external),
 #     libwebp, lcms2, giflib, blosc, pcre2, expat — not needed by pourpoint.
 #   - GDAL_USE_GEOS=ON (rasterio disables it on macOS; pourpoint needs GEOS for
 #     geometry repair).
 #   - Minimal GDAL driver set: GTiff, VRT, MEM (raster) + GeoJSON, Shape (OGR).
 #
-# Environment variables consumed (set by cibuildwheel via CIBW_ENVIRONMENT_MACOS):
+# Environment variables consumed (set by cibuildwheel via CIBW_ENVIRONMENT_MACOS
+# or CIBW_ENVIRONMENT_LINUX):
 #   BUILD_PREFIX           — install root (e.g. ${GITHUB_WORKSPACE}/pourpoint_libs)
-#   CMAKE_OSX_ARCHITECTURES — e.g. arm64
-#   MACOSX_DEPLOYMENT_TARGET — e.g. 11.0
+#   CMAKE_OSX_ARCHITECTURES — e.g. arm64 (macOS only)
+#   MACOSX_DEPLOYMENT_TARGET — e.g. 11.0 (macOS only)
 #   GDAL_VERSION           — e.g. 3.12.1 (may be overridden by caller)
 
 set -euo pipefail
@@ -49,7 +50,7 @@ echo "GDAL_CONFIG:  $GDAL_CONFIG"
 echo "PROJ_DATA:    $PROJ_DATA"
 
 # ---------------------------------------------------------------------------
-# Platform detection (macOS arm64 only)
+# Platform detection (macOS + manylinux)
 # ---------------------------------------------------------------------------
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -59,13 +60,19 @@ Darwin)
     IS_MACOS=1
     lib_ext="dylib"
     ;;
+Linux)
+    IS_MACOS=0
+    lib_ext="so"
+    ;;
 *)
-    echo "Unsupported OS: $OS — this script targets macOS arm64 only." >&2
+    echo "Unsupported OS: $OS — this script targets macOS and Linux only." >&2
     exit 1
     ;;
 esac
 
 echo "Platform: ${OS}-${ARCH}"
+
+if [ "$IS_MACOS" = "1" ]; then
 
 # Set arch/optimisation flags for autoconf-based builds.
 export CFLAGS="${CFLAGS:-} -arch ${CMAKE_OSX_ARCHITECTURES} -g -O2"
@@ -80,6 +87,40 @@ x86_64)  TARGET="darwin64-x86_64-cc" ;;
     exit 1
     ;;
 esac
+
+else
+
+# Linux: no -arch flag (that is a Mach-O fat-binary concept; ELF toolchains
+# build the host architecture natively and lipo does not exist).
+export CFLAGS="${CFLAGS:-} -g -O2"
+export CXXFLAGS="${CXXFLAGS:-} -g -O2"
+
+# CMake's OSX_* and INSTALL_NAME_DIR cache variables are ignored on non-Apple
+# platforms; export them empty so the shared build functions (which run under
+# set -u) can pass them through unchanged.
+export CMAKE_OSX_ARCHITECTURES="${CMAKE_OSX_ARCHITECTURES:-}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-}"
+
+# 64-bit RPM-family defaults: CMake's GNUInstallDirs (libdeflate, zstd, proj,
+# geos, gdal) and OpenSSL's linux-* targets (multilib "64") install libraries
+# to $PREFIX/lib64 on AlmaLinux 8 — for ANY prefix. Everything downstream
+# (this script's -D*_LIBRARY paths, update_env_for_build_prefix, and the
+# workflow's GDAL_LIB_DIR / PKG_CONFIG_PATH / LD_LIBRARY_PATH) assumes
+# $BUILD_PREFIX/lib. Fold lib64 into lib before anything installs.
+mkdir -p "$BUILD_PREFIX/lib"
+ln -sfn lib "$BUILD_PREFIX/lib64"
+
+# OpenSSL Configure target by machine architecture.
+case "$ARCH" in
+x86_64)   TARGET="linux-x86_64" ;;
+aarch64)  TARGET="linux-aarch64" ;;
+*)
+    echo "Unsupported Linux architecture: $ARCH" >&2
+    exit 1
+    ;;
+esac
+
+fi
 
 # Saved copies — restored by update_env_for_build_prefix on each call.
 export CPPFLAGS_BACKUP="${CPPFLAGS:-}"
@@ -120,6 +161,9 @@ function update_env_for_build_prefix {
 }
 
 function fix_install_name_ids {
+    # Mach-O install-name IDs only exist on macOS; ELF needs no rewrite —
+    # auditwheel sets the rpaths during wheel repair.
+    if [ "$IS_MACOS" != "1" ]; then return 0; fi
     local pattern="$1"
     local libs
     libs=$(find "$BUILD_PREFIX/lib" -maxdepth 1 -type f -name "$pattern" -print)

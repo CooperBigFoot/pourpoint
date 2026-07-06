@@ -26,7 +26,7 @@ tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
 pyo3-log = "0.12"
 log = "0.4"
-gdal = { version = "0.19", features = ["bindgen"] }
+gdal = "0.19"
 gdal-sys = "=0.12.0"
 strsim = "0.11"
 
