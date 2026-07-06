@@ -1,8 +1,8 @@
 //! Terminal refinement strategy contract and provenance types.
 
 use geo::{BoundingRect, MultiPolygon};
-use hfx_core::FlowDirEncoding;
-use hfx_core::UnitId;
+use hfx::FlowDirEncoding;
+use hfx::UnitId;
 use object_store::path::Path as ObjectPath;
 
 use crate::algo::coord::GeoCoord;

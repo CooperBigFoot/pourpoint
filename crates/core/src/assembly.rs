@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
 use geo::{MultiPolygon, Polygon};
-use hfx_core::UnitId;
+use hfx::UnitId;
 use tracing::{debug, instrument};
 
 use crate::algo::{
@@ -277,7 +277,7 @@ mod tests {
     use arrow::datatypes::{DataType, Field, Schema};
     use geo::algorithm::winding_order::Winding;
     use geo::{Area, LineString, MultiPolygon, Polygon};
-    use hfx_core::{AdjacencyRow, DrainageGraph};
+    use hfx::{AdjacencyRow, DrainageGraph};
     use parquet::arrow::ArrowWriter;
     use parquet::file::properties::{EnabledStatistics, WriterProperties};
     use tempfile::NamedTempFile;
@@ -756,7 +756,7 @@ mod tests {
                 } else {
                     vec![aid(ids[idx - 1])]
                 };
-                AdjacencyRow::new(aid(*raw), hfx_core::Level::new(0).unwrap(), upstream_ids)
+                AdjacencyRow::new(aid(*raw), hfx::Level::new(0).unwrap(), upstream_ids)
             })
             .collect();
         let graph = DrainageGraph::new(rows).unwrap();

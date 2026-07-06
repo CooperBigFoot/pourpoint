@@ -21,7 +21,7 @@ use futures_util::{StreamExt, stream};
 use geo::{Geometry, MultiPolygon};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::{AreaKm2, BoundingBox, CatchmentUnit, Level, OutletCoord, UnitId, WkbGeometry};
+use hfx::{AreaKm2, BoundingBox, CatchmentUnit, Level, OutletCoord, UnitId, WkbGeometry};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};

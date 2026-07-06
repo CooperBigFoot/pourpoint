@@ -120,12 +120,12 @@ pub enum SessionError {
     },
 
     /// Fired when the parsed manifest fields are individually valid but
-    /// `hfx_core::ManifestBuilder::new` or `.build()` rejects the combination
+    /// `hfx::ManifestBuilder::new` or `.build()` rejects the combination
     /// (e.g. uppercase fabric name).
     #[error("manifest domain validation failed: {source}")]
     ManifestDomain {
-        /// Underlying domain error from `hfx_core`.
-        source: hfx_core::ManifestError,
+        /// Underlying domain error from `hfx`.
+        source: hfx::ManifestError,
     },
 
     /// Fired when `manifest.format_version` is not the only supported on-disk
@@ -292,11 +292,11 @@ pub enum SessionError {
     },
 
     /// Fired when the graph record batch is valid but
-    /// `hfx_core::DrainageGraph::new` rejects the content (e.g. an empty graph).
+    /// `hfx::DrainageGraph::new` rejects the content (e.g. an empty graph).
     #[error("graph domain validation failed: {source}")]
     GraphDomain {
-        /// Underlying domain error from `hfx_core`.
-        source: hfx_core::GraphError,
+        /// Underlying domain error from `hfx`.
+        source: hfx::GraphError,
     },
 
     /// Fired when a Parquet file exists but cannot be opened or decoded by

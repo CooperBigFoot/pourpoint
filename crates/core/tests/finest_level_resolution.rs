@@ -5,7 +5,7 @@ use arrow::array::{Array, BinaryArray, Float32Array, Int16Array, Int64Array, Lar
 use geo::{Contains, Geometry, Intersects};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::{Level, UnitId, WkbGeometry};
+use hfx::{Level, UnitId, WkbGeometry};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;

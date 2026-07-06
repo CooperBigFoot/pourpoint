@@ -1,7 +1,7 @@
 //! Spatial helpers for basin GeoParquet export rows.
 
 use geo::{Area, BoundingRect, Centroid, MultiPolygon};
-use hfx_core::UnitId;
+use hfx::UnitId;
 
 use crate::export::{BasinId, DelineationLabel, ExportError};
 

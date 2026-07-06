@@ -9,7 +9,7 @@
 use std::fmt;
 
 use geo::{Contains, Intersects};
-use hfx_core::{BoundingBox, CatchmentUnit, SnapId, StemRole, UnitId, Weight};
+use hfx::{BoundingBox, CatchmentUnit, SnapId, StemRole, UnitId, Weight};
 use tracing::{debug, info, instrument, warn};
 
 use crate::algo::coord::GeoCoord;
@@ -304,7 +304,7 @@ fn snap_nearest_point(outlet: GeoCoord, geom: &geo::Geometry<f64>) -> Option<(f6
 
 /// Scored snap candidate after distance computation.
 struct ScoredCandidate {
-    target: hfx_core::SnapTarget,
+    target: hfx::SnapTarget,
     distance_m: f64,
     nearest_coord: GeoCoord,
 }
@@ -1039,7 +1039,7 @@ mod tests {
                 strategy: SnapStrategy::DistanceFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx_core::SnapId::new(11).unwrap()
+            } if snap_id == hfx::SnapId::new(11).unwrap()
         ));
     }
 
@@ -1090,7 +1090,7 @@ mod tests {
                 strategy: SnapStrategy::WeightFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx_core::SnapId::new(22).unwrap()
+            } if snap_id == hfx::SnapId::new(22).unwrap()
         ));
     }
 
@@ -1183,7 +1183,7 @@ mod tests {
                 snap_id,
                 strategy: SnapStrategy::WeightFirst,
                 ..
-            } if snap_id == hfx_core::SnapId::new(22).unwrap()
+            } if snap_id == hfx::SnapId::new(22).unwrap()
         ));
 
         let distance_catchments = vec![TestCatchment {
@@ -1221,7 +1221,7 @@ mod tests {
                 snap_id,
                 strategy: SnapStrategy::WeightFirst,
                 ..
-            } if snap_id == hfx_core::SnapId::new(33).unwrap()
+            } if snap_id == hfx::SnapId::new(33).unwrap()
         ));
     }
 
@@ -1275,7 +1275,7 @@ mod tests {
                 strategy: SnapStrategy::DistanceFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx_core::SnapId::new(11).unwrap()
+            } if snap_id == hfx::SnapId::new(11).unwrap()
         ));
     }
 
@@ -1338,7 +1338,7 @@ mod tests {
                 strategy: SnapStrategy::WeightFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx_core::SnapId::new(22).unwrap()
+            } if snap_id == hfx::SnapId::new(22).unwrap()
         ));
     }
 }

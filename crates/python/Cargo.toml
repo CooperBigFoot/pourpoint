@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 [dependencies]
 pourpoint-core = { path = "../core" }
 pourpoint-gdal = { path = "../gdal" }
-hfx-core.workspace = true
+hfx.workspace = true
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"] }
 geo = "0.29"
 serde_json = "1"

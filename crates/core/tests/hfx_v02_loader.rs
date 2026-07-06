@@ -8,7 +8,7 @@ use arrow::datatypes::DataType;
 use geo::Geometry;
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx_core::{Topology, WkbGeometry};
+use hfx::{Topology, WkbGeometry};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;

@@ -65,7 +65,7 @@ pub fn trace_upstream<S>(pour_point: GridCoord, flow_dir: &FlowDirectionTile<S>)
 
 #[cfg(test)]
 mod tests {
-    use hfx_core::FlowDirEncoding;
+    use hfx::FlowDirEncoding;
 
     use super::*;
     use crate::algo::coord::{GeoCoord, GridCoord, GridDims};

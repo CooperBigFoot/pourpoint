@@ -22,7 +22,7 @@ import pourpoint
 # ---------------------------------------------------------------------------
 
 _REMOTE_URL = os.environ.get("POURPOINT_TEST_REMOTE_URL", "")
-_CRATE_LOGGER_NAMES = ("pourpoint", "_pourpoint", "pourpoint_core", "hfx_core")
+_CRATE_LOGGER_NAMES = ("pourpoint", "_pourpoint", "pourpoint_core", "hfx")
 
 # Three outlets inside the GRIT dataset.  Only used in network tests.
 _REMOTE_OUTLETS = [

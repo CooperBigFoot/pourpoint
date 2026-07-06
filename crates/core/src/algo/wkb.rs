@@ -7,7 +7,7 @@ use geo::{Geometry, LineString, MultiPolygon, Polygon};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use geozero::{GeomProcessor, GeozeroGeometry};
-use hfx_core::WkbGeometry;
+use hfx::WkbGeometry;
 
 /// Errors from WKB decoding.
 #[derive(Debug, thiserror::Error)]

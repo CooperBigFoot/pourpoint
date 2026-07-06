@@ -13,7 +13,7 @@ use arrow::datatypes::DataType;
 use chrono::{DateTime, Utc};
 use futures_util::{StreamExt, stream};
 use geo::{BoundingRect, Geometry};
-use hfx_core::{BoundingBox, SnapId, SnapTarget, StemRole, UnitId, Weight, WkbGeometry};
+use hfx::{BoundingBox, SnapId, SnapTarget, StemRole, UnitId, Weight, WkbGeometry};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
@@ -624,7 +624,7 @@ impl SnapStore {
     /// | `unit_id` column missing | [`SessionError::ParquetSchema`] |
     /// | Row contains a null `unit_id` | [`SessionError::InvalidRow`] |
     /// | `unit_id` value fails domain validation | [`SessionError::InvalidRow`] |
-    pub fn read_all_unit_ids(&self) -> Result<Vec<hfx_core::UnitId>, SessionError> {
+    pub fn read_all_unit_ids(&self) -> Result<Vec<hfx::UnitId>, SessionError> {
         match &self.snap_refs {
             SnapRefsState::Loaded(refs) => {
                 Ok(refs.iter().map(|snap_ref| snap_ref.unit_id).collect())

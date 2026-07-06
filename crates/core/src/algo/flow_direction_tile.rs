@@ -2,7 +2,7 @@
 
 use std::marker::PhantomData;
 
-use hfx_core::FlowDirEncoding;
+use hfx::FlowDirEncoding;
 use tracing::instrument;
 
 use crate::algo::catchment_mask::CatchmentMask;

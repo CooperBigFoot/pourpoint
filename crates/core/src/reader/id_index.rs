@@ -12,7 +12,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamReader;
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
-use hfx_core::UnitId;
+use hfx::UnitId;
 use serde::{Deserialize, Serialize};
 
 use crate::error::SessionError;
@@ -286,7 +286,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use hfx_core::UnitId;
+    use hfx::UnitId;
     use tempfile::tempdir;
 
     use super::IdIndex;
