@@ -30,8 +30,13 @@ uv add pourpoint
 
 (or pip install pourpoint)
 
-Wheels are currently published for Apple Silicon macOS only
-(`macosx_11_0_arm64`).
+Prebuilt wheels are published for:
+
+- macOS (Apple Silicon + Intel)
+- Linux (x86_64 + aarch64)
+- Windows (x86_64)
+
+as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
 
 ## Where to go next
 

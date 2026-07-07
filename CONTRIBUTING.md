@@ -78,23 +78,6 @@ Update `crates/python/CHANGELOG.md` for every pourpoint version bump, then tag:
 git tag pourpoint-v0.1.0rc1   # use the PEP 440 form for the tag
 ```
 
-## Wanted: wheel contributions for other platforms
-
-**Current support:** Apple Silicon macOS only (`macosx_11_0_arm64`).
-
-Linux x86_64, Linux aarch64, macOS x86_64, and Windows x86_64 wheels are not
-yet built. If you want to help port the build, `ci/config.sh` (added in the
-CI phase) is the build-script template — it compiles the full native stack
-(GDAL, PROJ, GEOS, libtiff, SQLite, curl, OpenSSL, etc.) from source for a
-self-contained wheel. Adding a new platform means:
-
-1. Adding a `runs-on` entry in `.github/workflows/build-wheels.yaml`.
-2. Adapting `ci/config.sh` for the target OS/arch (swap Homebrew for a Linux
-   package manager or cross-compilation toolchain).
-3. Opening a PR with the new job and a sample wheel artifact.
-
-Reach out via a GitHub issue if you want to coordinate before starting.
-
 ## Maintainers: first-time PyPI setup
 
 These steps are performed once, then both release paths (TestPyPI for

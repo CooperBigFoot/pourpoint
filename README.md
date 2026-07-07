@@ -20,8 +20,15 @@ uv add pourpoint
 
 (or `pip install pourpoint`)
 
-Current PyPI wheels are Apple Silicon macOS only (`macosx_11_0_arm64`). See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for local builds and platform notes.
+Prebuilt wheels are published for:
+
+- macOS (Apple Silicon + Intel)
+- Linux (x86_64 + aarch64)
+- Windows (x86_64)
+
+as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local builds.
 
 ```python
 import pourpoint

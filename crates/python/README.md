@@ -17,11 +17,13 @@ uv add pourpoint
 
 (or `pip install pourpoint`)
 
-**Platform support:** Apple Silicon macOS only (`macosx_11_0_arm64`).
-Linux, Intel macOS, and Windows wheels are not yet built. Community
-contributions are welcome; see
-[CONTRIBUTING.md](https://github.com/CooperBigFoot/pourpoint/blob/main/CONTRIBUTING.md)
-if you want to help port the build.
+Prebuilt wheels are published for:
+
+- macOS (Apple Silicon + Intel)
+- Linux (x86_64 + aarch64)
+- Windows (x86_64)
+
+as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
 
 ## Zero-download quickstart
 

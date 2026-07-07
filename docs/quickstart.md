@@ -28,8 +28,13 @@ uv add pourpoint
 (or pip install pourpoint)
 
 pourpoint ships as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside,
-so there is nothing else to install. Wheels are currently built for Apple Silicon
-macOS only (`macosx_11_0_arm64`).
+so there is nothing else to install. Prebuilt wheels are published for:
+
+- macOS (Apple Silicon + Intel)
+- Linux (x86_64 + aarch64)
+- Windows (x86_64)
+
+as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
 
 ## 2. Delineate your first watershed
 
