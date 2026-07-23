@@ -1,11 +1,11 @@
 //! Terminal refinement strategy contract and provenance types.
 
-use geo::{BoundingRect, MultiPolygon};
+use geo::{BoundingRect, Coord, LineString, MultiPolygon, Polygon};
 use hfx::{D8RasterMetadataV2, EpsgCode, FlowAccumulationUnits, FlowDirEncoding, UnitId};
 use object_store::path::Path as ObjectPath;
 
 use crate::algo::coord::GeoCoord;
-use crate::algo::projection::NativeCoord;
+use crate::algo::projection::{Crs, NativeCoord, ProjectionError, forward, inverse};
 use crate::algo::{RasterSource, RefinementError, SnapThreshold, refine_terminal_from_source};
 use crate::error::SessionError;
 use crate::session::{DatasetSession, RasterKind};
@@ -67,21 +67,20 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         input: TerminalRefinementInput<'_>,
         pantry: &D8RefinementPantry<'_>,
     ) -> Result<TerminalRefinementDecision, TerminalRefinementError> {
-        let terminal_bbox =
-            input
-                .terminal_geometry
+        let (handle, native_terminal) = pantry
+            .session
+            .select_d8_raster_for_terminal(input.terminal_geometry)
+            .map_err(|source| TerminalRefinementError::D8Selection {
+                unit_id: input.terminal_unit.get(),
+                source,
+            })?;
+        let native_bbox =
+            native_terminal
                 .bounding_rect()
                 .ok_or(TerminalRefinementError::Algorithm {
                     unit_id: input.terminal_unit.get(),
                     source: RefinementError::DegenerateTerminalPolygon,
                 })?;
-        let handle = pantry
-            .session
-            .select_d8_raster_for_bbox(terminal_bbox)
-            .map_err(|source| TerminalRefinementError::D8Selection {
-                unit_id: input.terminal_unit.get(),
-                source,
-            })?;
 
         let Some(raster_source) = pantry.raster_source else {
             return Ok(TerminalRefinementDecision::BestEffortSkipped {
@@ -96,7 +95,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
             let _guard = StageGuard::enter(Stage::RasterLocalizeFlowDir);
             let flow_dir = pantry
                 .session
-                .localize_d8_raster_window(&handle, RasterKind::FlowDir, terminal_bbox)
+                .localize_d8_raster_window(&handle, RasterKind::FlowDir, native_bbox)
                 .map_err(|source| TerminalRefinementError::RasterLocalize {
                     unit_id: input.terminal_unit.get(),
                     kind: RasterKind::FlowDir,
@@ -113,7 +112,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
             let _guard = StageGuard::enter(Stage::RasterLocalizeFlowAcc);
             let flow_acc = pantry
                 .session
-                .localize_d8_raster_window(&handle, RasterKind::FlowAcc, terminal_bbox)
+                .localize_d8_raster_window(&handle, RasterKind::FlowAcc, native_bbox)
                 .map_err(|source| TerminalRefinementError::RasterLocalize {
                     unit_id: input.terminal_unit.get(),
                     kind: RasterKind::FlowAcc,
@@ -140,7 +139,10 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         );
         let flow_dir_uri = flow_dir.path().to_string_lossy();
         let flow_acc_uri = flow_acc.path().to_string_lossy();
-        let native_outlet = NativeCoord::new(input.resolved_outlet.lon, input.resolved_outlet.lat);
+        let selected_crs = handle.projection_crs();
+        let epsg = handle.epsg();
+        let flow_accumulation_units = handle.flow_accumulation_units();
+        let native_outlet = forward(selected_crs, input.resolved_outlet);
 
         let refinement_result = {
             let _refine_guard = StageGuard::enter(Stage::TerminalRefine);
@@ -148,9 +150,11 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
                 raster_source,
                 flow_dir_uri.as_ref(),
                 flow_acc_uri.as_ref(),
-                input.terminal_geometry,
+                &native_terminal,
                 native_outlet,
                 input.snap_threshold,
+                flow_accumulation_units,
+                epsg,
             )
             .map_err(|source| TerminalRefinementError::Algorithm {
                 unit_id: input.terminal_unit.get(),
@@ -158,14 +162,23 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
             })?
         };
 
-        let snapped_coord = refinement_result.snapped_coord();
-        let refined_outlet = GeoCoord::new(snapped_coord.x(), snapped_coord.y());
-        let geometry =
-            ContainedTerminalPolygon::new_unchecked_from_d8_carve(refinement_result.into_polygon())
-                .map_err(|_source| TerminalRefinementError::Algorithm {
+        let refined_outlet =
+            inverse(selected_crs, refinement_result.snapped_coord()).map_err(|source| {
+                TerminalRefinementError::Algorithm {
                     unit_id: input.terminal_unit.get(),
-                    source: RefinementError::EmptyPolygonization,
-                })?;
+                    source: RefinementError::InverseProjection { epsg, source },
+                }
+            })?;
+        let geographic_polygon = inverse_terminal(&refinement_result.into_polygon(), selected_crs)
+            .map_err(|source| TerminalRefinementError::Algorithm {
+                unit_id: input.terminal_unit.get(),
+                source: RefinementError::InverseProjection { epsg, source },
+            })?;
+        let geometry = ContainedTerminalPolygon::new_unchecked_from_d8_carve(geographic_polygon)
+            .map_err(|_source| TerminalRefinementError::Algorithm {
+                unit_id: input.terminal_unit.get(),
+                source: RefinementError::EmptyPolygonization,
+            })?;
 
         Ok(TerminalRefinementDecision::Applied {
             refined_outlet,
@@ -189,10 +202,13 @@ pub struct D8RasterHandle {
     remote_flow_dir_path: Option<ObjectPath>,
     remote_flow_acc_path: Option<ObjectPath>,
     metadata: D8RasterMetadataV2,
+    projection_crs: Crs,
+    epsg: u32,
 }
 
 impl D8RasterHandle {
     /// Construct a D8 handle after path resolution and coverage checks pass.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         declaration_index: usize,
         flow_dir_uri: String,
@@ -200,6 +216,8 @@ impl D8RasterHandle {
         remote_flow_dir_path: Option<ObjectPath>,
         remote_flow_acc_path: Option<ObjectPath>,
         metadata: D8RasterMetadataV2,
+        projection_crs: Crs,
+        epsg: u32,
     ) -> Self {
         Self {
             declaration_index,
@@ -208,6 +226,8 @@ impl D8RasterHandle {
             remote_flow_dir_path,
             remote_flow_acc_path,
             metadata,
+            projection_crs,
+            epsg,
         }
     }
 
@@ -246,10 +266,54 @@ impl D8RasterHandle {
         self.metadata.crs()
     }
 
+    /// Return the parsed built-in projection selected at the session boundary.
+    pub fn projection_crs(&self) -> Crs {
+        self.projection_crs
+    }
+
+    /// Return the numeric declared EPSG identifier.
+    pub fn epsg(&self) -> u32 {
+        self.epsg
+    }
+
     /// Return the declared flow-accumulation units.
     pub fn flow_accumulation_units(&self) -> FlowAccumulationUnits {
         self.metadata.flow_acc_units()
     }
+}
+
+fn inverse_terminal(
+    terminal: &MultiPolygon<f64>,
+    crs: Crs,
+) -> Result<MultiPolygon<f64>, ProjectionError> {
+    terminal
+        .0
+        .iter()
+        .map(|polygon| {
+            Ok(Polygon::new(
+                inverse_ring(polygon.exterior(), crs)?,
+                polygon
+                    .interiors()
+                    .iter()
+                    .map(|ring| inverse_ring(ring, crs))
+                    .collect::<Result<Vec<_>, ProjectionError>>()?,
+            ))
+        })
+        .collect::<Result<Vec<_>, ProjectionError>>()
+        .map(MultiPolygon::new)
+}
+
+fn inverse_ring(ring: &LineString<f64>, crs: Crs) -> Result<LineString<f64>, ProjectionError> {
+    ring.0
+        .iter()
+        .map(|coordinate| {
+            inverse(crs, NativeCoord::new(coordinate.x, coordinate.y)).map(|geographic| Coord {
+                x: geographic.lon,
+                y: geographic.lat,
+            })
+        })
+        .collect::<Result<Vec<_>, ProjectionError>>()
+        .map(LineString::new)
 }
 
 /// Refined terminal polygon produced by the built-in D8 carve.

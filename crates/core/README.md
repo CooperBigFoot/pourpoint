@@ -157,10 +157,33 @@ rasterize terminal -> mask flow-dir + accumulation -> snap -> masked trace -> po
 
 Inside this carve stack, `GeoTransform`, rasterization, snapping, tracing,
 polygonization, `SnappedPoint`, and `RefinementResult` use raster-native x/y
-coordinates. The current built-in strategy performs identity field moves
-between public EPSG:4326 `GeoCoord` values and `NativeCoord` at its boundary.
-Projection `forward` and `inverse` calls are not wired into this step, so this
-does not yet provide EPSG:8857 execution.
+coordinates. The complete data flow is:
+
+```text
+EPSG:4326 terminal -> per-declaration forward projection -> native coverage and localization
+-> native raster carve and snap -> inverse carved rings and outlet only -> EPSG:4326 result
+```
+
+D8 grids are never warped, resampled, or reprojected. Supported declaration
+CRSs are exactly the existing `Crs` variants. An unsupported declaration CRS is
+a D8 selection error. The selected carved rings and snapped outlet are the only
+values inverse-transformed, and component, ring, and vertex order is retained.
+The EPSG:4326 identity path remains byte-exact because its forward and inverse
+operations only move coordinate fields.
+
+For `cells`, snapping preserves `threshold.as_f32()` behavior. For `km2`, the
+effective threshold is evaluated as
+`threshold_cells as f64 * (pixel_width * pixel_height).abs() / 1_000_000.0`;
+the completed result is cast exactly once to `f32` and compared directly with
+the raw `f32` accumulation sample. EPSG:4326 plus `km2` is a refinement error
+because geographic pixel area is not approximated.
+
+`forward` remains instrumented, so selection produces one existing-default-level
+span per ring vertex per candidate declaration. Unsupported CRS failures travel
+through `EngineError::D8Selection` and map to Python `DatasetError`.
+Geographic-`km2` and inverse failures travel through `EngineError::Refinement`
+and map to generic Python `PourpointError`; this classification difference
+preserves the existing `EngineError` variants.
 
 There is no vector clamp, intersection, or cleaning pass in the refinement
 algorithm. Final watershed assembly is always merge-after: preserve pristine
