@@ -7,7 +7,7 @@ use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use hfx::{FlowDirEncoding, UnitId};
 use pourpoint_core::algo::{
-    GeoCoord, GridCoord, GridDims, RasterSource, SnapThreshold, canonical_wkb_multi_polygon,
+    GridCoord, GridDims, NativeCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon,
     refine_terminal_from_source,
 };
 use pourpoint_core::session::DatasetSession;
@@ -313,9 +313,9 @@ struct Outlet {
     lat: f64,
 }
 
-impl From<Outlet> for GeoCoord {
+impl From<Outlet> for NativeCoord {
     fn from(outlet: Outlet) -> Self {
-        GeoCoord::new(outlet.lon, outlet.lat)
+        NativeCoord::new(outlet.lon, outlet.lat)
     }
 }
 

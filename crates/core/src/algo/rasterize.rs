@@ -6,6 +6,7 @@ use tracing::instrument;
 
 use crate::algo::coord::GridDims;
 use crate::algo::geo_transform::GeoTransform;
+use crate::algo::projection::NativeCoord;
 
 /// Grid cell count above which rasterization runs scanlines in parallel.
 const PARALLEL_THRESHOLD: usize = 100_000;
@@ -24,7 +25,7 @@ fn collect_all_vertices(multi_polygon: &MultiPolygon<f64>, geo: &GeoTransform) -
         let ext_verts: Vec<(f64, f64)> = polygon
             .exterior()
             .coords()
-            .map(|c| geo.coord_to_pixel_f64(c.x, c.y))
+            .map(|c| geo.coord_to_pixel_f64(NativeCoord::new(c.x, c.y)))
             .collect();
         all_vertices.extend_from_slice(&ext_verts);
         // Sentinel separates rings so edges don't bleed across ring boundaries.
@@ -34,7 +35,7 @@ fn collect_all_vertices(multi_polygon: &MultiPolygon<f64>, geo: &GeoTransform) -
         for hole in polygon.interiors() {
             let hole_verts: Vec<(f64, f64)> = hole
                 .coords()
-                .map(|c| geo.coord_to_pixel_f64(c.x, c.y))
+                .map(|c| geo.coord_to_pixel_f64(NativeCoord::new(c.x, c.y)))
                 .collect();
             all_vertices.extend_from_slice(&hole_verts);
             all_vertices.push((f64::NAN, f64::NAN));
@@ -90,6 +91,8 @@ fn fill_row_multi(r: usize, cols: usize, vertices: &[(f64, f64)], row_cells: &mu
 }
 
 /// Rasterize a [`MultiPolygon`] into a flat boolean grid using the even-odd scanline fill rule.
+///
+/// Polygon ordinates are interpreted as raster-native x/y coordinates.
 ///
 /// Returns a `Vec<bool>` of length `dims.rows * dims.cols` where `true` indicates the pixel
 /// center falls inside the MultiPolygon (accounting for holes via the even-odd rule).
@@ -154,7 +157,8 @@ mod tests {
     use geo::{LineString, MultiPolygon, Polygon, polygon};
 
     use super::*;
-    use crate::algo::coord::{GeoCoord, GridDims};
+    use crate::algo::coord::GridDims;
+    use crate::algo::projection::NativeCoord;
 
     /// Simple 1-unit-per-pixel GeoTransform.
     ///
@@ -162,7 +166,7 @@ mod tests {
     /// - pixel (row=r, col=c) center is at x = c + 0.5, y = -(r + 0.5)
     /// - pixel (row=r, col=c) covers x in [c, c+1], y in [-(r+1), -r]
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     fn idx(row: usize, col: usize, width: usize) -> usize {

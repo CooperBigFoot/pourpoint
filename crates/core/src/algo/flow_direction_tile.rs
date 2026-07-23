@@ -196,10 +196,11 @@ fn decode(raw: u8, encoding: FlowDirEncoding) -> Option<FlowDir> {
 mod tests {
     use super::*;
     use crate::algo::catchment_mask::CatchmentMask;
-    use crate::algo::coord::{GeoCoord, GridCoord, GridDims};
+    use crate::algo::coord::{GridCoord, GridDims};
+    use crate::algo::projection::NativeCoord;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     // ── Ported ESRI tests ────────────────────────────────────────────────────

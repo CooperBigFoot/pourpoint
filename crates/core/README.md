@@ -132,11 +132,11 @@ sequenceDiagram
     S->>T: load_accumulation(bbox)
     T-->>R: FlowDirectionTile<Raw>
     T-->>R: AccumulationTile<Raw>
-    A->>A: rasterize_polygon → CatchmentMask
+    A->>A: rasterize native x/y polygon → CatchmentMask
     A->>A: AccumulationTile.apply_mask → AccumulationTile<Masked>
-    A->>A: snap_pour_point → SnappedPoint
-    A->>A: trace_upstream → CatchmentMask
-    A->>A: polygonize → Vec<Polygon>
+    A->>A: snap native x/y outlet → SnappedPoint
+    A->>A: trace_upstream from native-grid cell → CatchmentMask
+    A->>A: polygonize → native x/y MultiPolygon
     A->>A: dissolve → MultiPolygon
     A->>A: WatershedGeometry pipeline → Polygon
 ```
@@ -154,6 +154,13 @@ The built-in D8 carve sequence is fixed as:
 ```text
 rasterize terminal -> mask flow-dir + accumulation -> snap -> masked trace -> polygonize
 ```
+
+Inside this carve stack, `GeoTransform`, rasterization, snapping, tracing,
+polygonization, `SnappedPoint`, and `RefinementResult` use raster-native x/y
+coordinates. The current built-in strategy performs identity field moves
+between public EPSG:4326 `GeoCoord` values and `NativeCoord` at its boundary.
+Projection `forward` and `inverse` calls are not wired into this step, so this
+does not yet provide EPSG:8857 execution.
 
 There is no vector clamp, intersection, or cleaning pass in the refinement
 algorithm. Final watershed assembly is always merge-after: preserve pristine
@@ -221,7 +228,8 @@ ambiguity boundary is surfaced for real MERIT coverage conflicts.
 | CleanEpsilon | Tiny buffer distance (degrees) used in buffer-unbuffer topology cleaning |
 | HoleFillMode | Policy for interior holes: remove all, or keep holes above an area threshold |
 | Typestate | Compile-time state tracking via zero-size type parameters (`Raw`/`Masked`, `Dissolved`/`TopologyCleaned`/`HolesFilled`) |
-| GeoTransform | GDAL-style affine transform storing origin + pixel dimensions (no rotation/shear) |
+| GeoTransform | GDAL-style affine transform mapping raster-native x/y coordinates to pixels (no rotation/shear) |
+| NativeCoord | Typed raster-native x/y coordinate used inside the raster carve stack |
 | Row-group pruning | Skipping Parquet row groups whose bbox statistics don't intersect the query bbox |
 
 ## Key Types
@@ -246,9 +254,10 @@ ambiguity boundary is surfaced for real MERIT coverage conflicts.
 | `AccumulationTile<S>` | `algo/accumulation_tile.rs` | Typed flow-accumulation tile; `apply_mask` transitions `Raw` → `Masked` |
 | `CatchmentMask` | `algo/catchment_mask.rs` | Boolean visited-cell set; output of `trace_upstream` and `rasterize_polygon` |
 | `RasterTile<T>` | `algo/raster_tile.rs` | Generic row-major tile with OOB-safe `(isize,isize)` indexing |
-| `GeoTransform` | `algo/geo_transform.rs` | Pixel ↔ geographic coordinate conversion |
+| `GeoTransform` | `algo/geo_transform.rs` | Pixel ↔ raster-native x/y coordinate conversion |
 | `FlowDir` | `algo/flow_dir.rs` | D8 direction enum with ESRI and TauDEM decoding |
-| `SnappedPoint` | `algo/snap.rs` | Result of a successful pour-point snap (grid cell + geo coord + accumulation) |
+| `SnappedPoint` | `algo/snap.rs` | Result of a successful pour-point snap (grid cell + native x/y coordinate + accumulation) |
+| `RefinementResult` | `algo/refine.rs` | Native snapped coordinate and raster-native refined polygon |
 | `snap_pour_point` | `algo/snap.rs` | Snap outlet to nearest masked cell above `SnapThreshold` |
 | `trace_upstream` | `algo/trace.rs` | DFS upstream traversal returning a `CatchmentMask` |
 | `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` |
