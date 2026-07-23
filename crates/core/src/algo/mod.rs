@@ -7,6 +7,7 @@ pub mod coord;
 pub mod distance;
 pub mod flow_dir;
 pub mod geo_transform;
+pub mod projection;
 pub mod snap_threshold;
 pub mod tile_state;
 
@@ -49,6 +50,7 @@ pub use coord::{GeoCoord, GridCoord, GridDims};
 pub use distance::{DistanceMetres, geodesic_distance};
 pub use flow_dir::{FlowDir, InvalidFlowDir};
 pub use geo_transform::GeoTransform;
+pub use projection::{Crs, InverseStage, NativeCoord, ProjectionError, forward, inverse};
 pub use snap_threshold::SnapThreshold;
 pub use tile_state::{Masked, Raw};
 
