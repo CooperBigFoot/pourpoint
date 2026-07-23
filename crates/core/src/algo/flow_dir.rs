@@ -1,8 +1,9 @@
-//! D8 flow direction encoding with support for ESRI and TauDEM conventions.
+//! D8 flow direction encoding with ESRI, TauDEM, and GRASS conventions.
 //!
 //! ESRI D8 encoding: 1=E, 2=SE, 4=S, 8=SW, 16=W, 32=NW, 64=N, 128=NE (powers of two).
 //! TauDEM D8 encoding: 1=E, 2=NE, 3=N, 4=NW, 5=W, 6=SW, 7=S, 8=SE (counter-clockwise).
-//! 0 = nodata for both encodings.
+//! GRASS D8 encoding: 1=NE, 2=N, 3=NW, 4=W, 5=SW, 6=S, 7=SE, 8=E.
+//! Zero is terminal for all encodings. Valid negative GRASS exit codes are also terminal.
 
 use hfx::FlowDirEncoding;
 
@@ -17,11 +18,12 @@ pub enum InvalidFlowDir {
     },
 }
 
-/// D8 flow direction supporting both ESRI and TauDEM encodings.
+/// D8 flow direction supporting ESRI, TauDEM, and GRASS encodings.
 ///
 /// ESRI powers-of-two: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128.
 /// TauDEM counter-clockwise from east: E=1, NE=2, N=3, NW=4, W=5, SW=6, S=7, SE=8.
-/// A raw value of 0 represents nodata for both conventions.
+/// GRASS counter-clockwise from northeast: NE=1, N=2, NW=3, W=4, SW=5, S=6, SE=7, E=8.
+/// A raw value of 0 is terminal for all conventions; negative GRASS codes are terminal exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlowDir {
     /// Flow toward the east (column increases).
@@ -137,9 +139,24 @@ impl FlowDir {
         }
     }
 
+    fn from_grass(value: i8) -> Result<Option<Self>, InvalidFlowDir> {
+        match value {
+            -8..=0 => Ok(None),
+            1 => Ok(Some(Self::Northeast)),
+            2 => Ok(Some(Self::North)),
+            3 => Ok(Some(Self::Northwest)),
+            4 => Ok(Some(Self::West)),
+            5 => Ok(Some(Self::Southwest)),
+            6 => Ok(Some(Self::South)),
+            7 => Ok(Some(Self::Southeast)),
+            8 => Ok(Some(Self::East)),
+            _ => Err(InvalidFlowDir::InvalidEncoding { value: value as u8 }),
+        }
+    }
+
     /// Decodes a raw byte using the specified encoding convention.
     ///
-    /// Dispatches to [`Self::from_esri`] or [`Self::from_taudem`] based on `encoding`.
+    /// Dispatches to the selected ESRI, TauDEM, or GRASS decoder.
     ///
     /// # Errors
     ///
@@ -151,16 +168,27 @@ impl FlowDir {
         match encoding {
             FlowDirEncoding::Esri => Self::from_esri(value),
             FlowDirEncoding::Taudem => Self::from_taudem(value),
+            FlowDirEncoding::Grass => Self::from_grass(value as i8),
         }
     }
 
     /// Encodes this direction as a raw byte using the specified encoding convention.
     ///
-    /// Dispatches to [`Self::to_esri`] or [`Self::to_taudem`] based on `encoding`.
+    /// Dispatches to the selected ESRI, TauDEM, or GRASS encoder.
     pub fn to_encoded(self, encoding: FlowDirEncoding) -> u8 {
         match encoding {
             FlowDirEncoding::Esri => self.to_esri(),
             FlowDirEncoding::Taudem => self.to_taudem(),
+            FlowDirEncoding::Grass => match self {
+                Self::Northeast => 1,
+                Self::North => 2,
+                Self::Northwest => 3,
+                Self::West => 4,
+                Self::Southwest => 5,
+                Self::South => 6,
+                Self::Southeast => 7,
+                Self::East => 8,
+            },
         }
     }
 
@@ -434,5 +462,58 @@ mod tests {
     fn from_encoded_invalid_taudem() {
         assert!(FlowDir::from_encoded(9, FlowDirEncoding::Taudem).is_err());
         assert!(FlowDir::from_encoded(255, FlowDirEncoding::Taudem).is_err());
+    }
+
+    #[test]
+    fn grass_literal_table_decodes_and_encodes() {
+        let cases = [
+            (1_u8, FlowDir::Northeast),
+            (2, FlowDir::North),
+            (3, FlowDir::Northwest),
+            (4, FlowDir::West),
+            (5, FlowDir::Southwest),
+            (6, FlowDir::South),
+            (7, FlowDir::Southeast),
+            (8, FlowDir::East),
+        ];
+
+        for (code, direction) in cases {
+            assert_eq!(
+                FlowDir::from_encoded(code, FlowDirEncoding::Grass),
+                Ok(Some(direction))
+            );
+            assert_eq!(direction.to_encoded(FlowDirEncoding::Grass), code);
+        }
+    }
+
+    #[test]
+    fn grass_positive_directions_round_trip() {
+        for code in 1_u8..=8 {
+            let direction = FlowDir::from_encoded(code, FlowDirEncoding::Grass)
+                .expect("positive GRASS code should be valid")
+                .expect("positive GRASS code should decode to a direction");
+            assert_eq!(direction.to_encoded(FlowDirEncoding::Grass), code);
+        }
+    }
+
+    #[test]
+    fn grass_zero_and_signed_exits_are_terminal() {
+        assert_eq!(FlowDir::from_encoded(0, FlowDirEncoding::Grass), Ok(None));
+        for signed in -8_i8..=-1 {
+            assert_eq!(
+                FlowDir::from_encoded(signed as u8, FlowDirEncoding::Grass),
+                Ok(None)
+            );
+        }
+    }
+
+    #[test]
+    fn grass_out_of_range_magnitudes_are_invalid() {
+        for raw in [9_u8, (-9_i8) as u8] {
+            assert!(matches!(
+                FlowDir::from_encoded(raw, FlowDirEncoding::Grass),
+                Err(InvalidFlowDir::InvalidEncoding { value }) if value == raw
+            ));
+        }
     }
 }

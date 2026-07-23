@@ -127,8 +127,8 @@ it but do not open the network:
 POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
 ```
 
-That proof opens `https://basin-delineations-public.upstream.tech/merit/0.2.0/`,
-expects format version `0.2.1`, 60 `hfx.aux.d8_raster.v1` declarations under
+That historical capture opens `https://basin-delineations-public.upstream.tech/merit/0.2.0/`,
+expects format version `0.2.1`, 60 de-blessed `hfx.aux.d8_raster.v1` declarations under
 `aux/d8/pfaf_NN/flow_{dir,acc}.tif`, and one snap declaration. It resolves the
 `rhine_basel` terminal bbox, proves D8 selection uses bounded extent-header
 reads rather than legacy root `flow_dir.tif`/`flow_acc.tif` downloads, and then
@@ -137,11 +137,16 @@ successfully for overlapping Pfaf declarations. D8 coverage uses inclusive
 rectangle semantics, so exact bbox equality and edge-touching count. MERIT-Hydro
 D8 rasters are per-Pfaf-02 basin windows; irregular basins have overlapping
 rectangular extents, so a boundary terminal is fully covered by more than one
-declaration. `hfx.aux.d8_raster.v1` requires overlapping entries to be windows
+declaration. The historical v1 contract required overlapping entries to be windows
 of a single coherent D8 fabric (identical values in the overlap), so the
 manifest-first covering tile is selected deterministically and the carve never
 reads outside the terminal bbox. The merit adapter is correct; selection is no
 longer a consumer-side gap.
+
+The committed offline fixture now declares `hfx.aux.d8_raster.v2` with required
+`crs`, `flow_dir_encoding`, and `flow_acc_units` metadata. The reader accepts
+`uint8` or `int8` direction samples and `float32` or `int32` accumulation
+samples; signed layouts normalize to `u8` and `f32` before parity comparison.
 
 Release note: real-data carve on overlapping-Pfaf terminals is now exercised by
 the network proof, which asserts an applied contained carve rather than a typed

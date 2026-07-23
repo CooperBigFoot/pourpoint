@@ -217,10 +217,10 @@ fn staged_require_d8_no_declared_aux_hard_errors_with_schema_name() {
 
     let err = engine
         .refine_terminal_placeholder(&resolved, &pre_merge, &options)
-        .expect_err("RequireD8 should fail when hfx.aux.d8_raster.v1 is absent");
+        .expect_err("RequireD8 should fail when hfx.aux.d8_raster.v2 is absent");
 
     assert!(matches!(err, EngineError::D8Selection { .. }));
-    assert!(err.to_string().contains("hfx.aux.d8_raster.v1"));
+    assert!(err.to_string().contains("hfx.aux.d8_raster.v2"));
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn staged_require_d8_declared_aux_without_raster_source_hard_errors() {
         err,
         EngineError::RequiredD8RasterSourceMissing { unit_id: 1 }
     ));
-    assert!(err.to_string().contains("hfx.aux.d8_raster.v1"));
+    assert!(err.to_string().contains("hfx.aux.d8_raster.v2"));
 }
 
 #[test]

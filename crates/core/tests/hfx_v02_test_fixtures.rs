@@ -35,7 +35,19 @@ fn fixture_builder_declares_snap_and_d8_aux_artifacts() {
         .collect::<BTreeSet<_>>();
 
     assert!(schemas.contains("hfx.aux.snap.v2"));
-    assert!(schemas.contains("hfx.aux.d8_raster.v1"));
+    assert!(schemas.contains("hfx.aux.d8_raster.v2"));
+    let d8 = auxiliary
+        .iter()
+        .find(|decl| decl["schema"] == "hfx.aux.d8_raster.v2")
+        .unwrap();
+    assert_eq!(
+        d8["metadata"],
+        serde_json::json!({
+            "crs": "EPSG:4326",
+            "flow_dir_encoding": "esri",
+            "flow_acc_units": "cells"
+        })
+    );
     assert!(root.join("snap.parquet").is_file());
     assert!(root.join("flow_dir.tif").is_file());
     assert!(root.join("flow_acc.tif").is_file());
@@ -102,7 +114,15 @@ fn converted_parity_fixture_is_separate_v021_d8_fixture() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|decl| decl["schema"] == "hfx.aux.d8_raster.v1")
+            .any(|decl| {
+                decl["schema"] == "hfx.aux.d8_raster.v2"
+                    && decl["metadata"]
+                        == serde_json::json!({
+                            "crs": "EPSG:4326",
+                            "flow_dir_encoding": "esri",
+                            "flow_acc_units": "cells"
+                        })
+            })
     );
     assert!(root.join("flow_dir.tif").is_file());
     assert!(root.join("flow_acc.tif").is_file());

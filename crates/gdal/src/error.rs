@@ -1,5 +1,8 @@
 //! Error types for the `pourpoint-gdal` crate.
 
+use gdal::raster::GdalDataType;
+use pourpoint_core::session::RasterKind;
+
 /// Errors from loading raster tiles via GDAL.
 #[derive(Debug, thiserror::Error)]
 pub enum RasterReadError {
@@ -26,6 +29,17 @@ pub enum RasterReadError {
         path: String,
         /// Stringified GDAL error.
         reason: String,
+    },
+
+    /// Fired when a D8 raster band declares a sample type outside its v2 layout.
+    #[error("unsupported {kind:?} sample type {found} for {path}")]
+    UnsupportedSampleType {
+        /// Path of the raster carrying the unsupported type.
+        path: String,
+        /// D8 raster role being loaded.
+        kind: RasterKind,
+        /// GDAL sample type declared by the band.
+        found: GdalDataType,
     },
 
     /// Requested window maps to a zero-size pixel region.

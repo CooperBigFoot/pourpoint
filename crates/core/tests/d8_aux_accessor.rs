@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use geo::{Rect, coord};
-use hfx::FlowDirEncoding;
+use hfx::{EpsgCode, FlowAccumulationUnits, FlowDirEncoding};
 use pourpoint_core::algo::coord::GeoCoord;
 use pourpoint_core::algo::{
     AccumulationTile, FlowDirectionTile, RasterSource, RasterSourceError, Raw,
@@ -32,7 +32,13 @@ fn declared_d8_accessor_selects_committed_fixture_paths() {
         .expect("single declared D8 raster should cover fixture bbox");
 
     assert_eq!(handle.declaration_index(), 0);
+    let expected_crs: EpsgCode = "EPSG:4326".parse().unwrap();
+    assert_eq!(handle.crs(), &expected_crs);
     assert_eq!(handle.flow_dir_encoding(), FlowDirEncoding::Esri);
+    assert_eq!(
+        handle.flow_accumulation_units(),
+        FlowAccumulationUnits::Cells
+    );
     assert!(handle.flow_dir_uri().ends_with("flow_dir.tif"));
     assert!(handle.flow_acc_uri().ends_with("flow_acc.tif"));
 
@@ -78,7 +84,7 @@ fn inclusive_containment_accepts_bbox_equal_to_raster_extent() {
 fn multiple_covering_decls_select_manifest_first() {
     // Two declarations fully cover the bbox (the expected case for a per-basin
     // partitioned D8 fabric, where irregular basins have overlapping rectangular
-    // extents). hfx.aux.d8_raster.v1 requires overlapping entries to agree in the
+    // extents). hfx.aux.d8_raster.v2 requires overlapping entries to agree in the
     // overlap, so selection collapses to the manifest-first covering declaration
     // rather than erroring.
     let (_tmp, root) = copied_fixture();
@@ -135,7 +141,7 @@ fn require_d8_without_declared_aux_hard_errors_with_schema_name() {
         .expect_err("RequireD8 should fail when no D8 aux is declared");
 
     assert!(matches!(err, EngineError::D8Selection { .. }));
-    assert!(err.to_string().contains("hfx.aux.d8_raster.v1"));
+    assert!(err.to_string().contains("hfx.aux.d8_raster.v2"));
 }
 
 #[test]
@@ -243,13 +249,15 @@ fn prepend_far_away_d8_decl(root: &Path) {
     aux.insert(
         0,
         json!({
-            "schema": "hfx.aux.d8_raster.v1",
+            "schema": "hfx.aux.d8_raster.v2",
             "artifacts": {
                 "flow_dir": "far_flow_dir.tif",
                 "flow_acc": "far_flow_acc.tif"
             },
             "metadata": {
-                "flow_dir_encoding": "esri"
+                "crs": "EPSG:4326",
+                "flow_dir_encoding": "esri",
+                "flow_acc_units": "cells"
             }
         }),
     );

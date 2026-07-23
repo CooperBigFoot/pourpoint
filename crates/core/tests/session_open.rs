@@ -86,9 +86,13 @@ fn write_manifest_with_version(
     }
     if rasters {
         auxiliary.push(serde_json::json!({
-            "schema": "hfx.aux.d8_raster.v1",
+            "schema": "hfx.aux.d8_raster.v2",
             "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
-            "metadata": { "flow_dir_encoding": "esri" }
+            "metadata": {
+                "crs": "EPSG:4326",
+                "flow_dir_encoding": "esri",
+                "flow_acc_units": "cells"
+            }
         }));
     }
 
