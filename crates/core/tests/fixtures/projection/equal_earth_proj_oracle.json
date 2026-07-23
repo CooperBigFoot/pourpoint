@@ -1,0 +1,450 @@
+{
+  "axis_order": {
+    "always_xy": true,
+    "geographic_pair": "lon_lat_degrees",
+    "projected_pair": "x_y_metres",
+    "transposition_control": {
+      "ordered_geographic_lon_lat_degrees": [
+        23.5,
+        -17.25
+      ],
+      "ordered_projected_xy_metres": [
+        2203165.970658505,
+        -2199534.790026376
+      ],
+      "transposed_geographic_lon_lat_degrees": [
+        -17.25,
+        23.5
+      ],
+      "transposed_projected_xy_metres": [
+        -1587191.7091611568,
+        2976483.336501383
+      ]
+    }
+  },
+  "forward_cases": [
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        0
+      ],
+      "name": "equator",
+      "projected_xy_metres": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        23.5,
+        -17.25
+      ],
+      "name": "axis_order_control",
+      "projected_xy_metres": [
+        2203165.970658505,
+        -2199534.790026376
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        15
+      ],
+      "name": "north_15",
+      "projected_xy_metres": [
+        0.0,
+        1916239.6896184457
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -15
+      ],
+      "name": "south_15",
+      "projected_xy_metres": [
+        0.0,
+        -1916239.6896184445
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        45
+      ],
+      "name": "north_45",
+      "projected_xy_metres": [
+        0.0,
+        5466867.760213718
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -45
+      ],
+      "name": "south_45",
+      "projected_xy_metres": [
+        0.0,
+        -5466867.760213718
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        60
+      ],
+      "name": "north_60",
+      "projected_xy_metres": [
+        0.0,
+        6924035.137552894
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -60
+      ],
+      "name": "south_60",
+      "projected_xy_metres": [
+        0.0,
+        -6924035.137552897
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        89
+      ],
+      "name": "north_89",
+      "projected_xy_metres": [
+        0.0,
+        8391009.942477088
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -89
+      ],
+      "name": "south_89",
+      "projected_xy_metres": [
+        0.0,
+        -8391009.942477083
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        89.99
+      ],
+      "name": "north_89_99",
+      "projected_xy_metres": [
+        0.0,
+        8392927.406653328
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -89.99
+      ],
+      "name": "south_89_99",
+      "projected_xy_metres": [
+        0.0,
+        -8392927.406653328
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        89.999
+      ],
+      "name": "north_89_999",
+      "projected_xy_metres": [
+        0.0,
+        8392927.596548323
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -89.999
+      ],
+      "name": "south_89_999",
+      "projected_xy_metres": [
+        0.0,
+        -8392927.596548323
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        180,
+        0
+      ],
+      "name": "antimeridian_east",
+      "projected_xy_metres": [
+        17243959.062216945,
+        0.0
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        -180,
+        0
+      ],
+      "name": "antimeridian_west",
+      "projected_xy_metres": [
+        -17243959.062216945,
+        0.0
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        90
+      ],
+      "name": "north_pole",
+      "projected_xy_metres": [
+        0.0,
+        8392927.598466456
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0,
+        -90
+      ],
+      "name": "south_pole",
+      "projected_xy_metres": [
+        0.0,
+        -8392927.59846645
+      ]
+    }
+  ],
+  "generator": {
+    "command": "uv run --python 3.14.6 --with pyproj==3.7.2 python scripts/generate-equal-earth-oracle.py --output crates/core/tests/fixtures/projection/equal_earth_proj_oracle.json",
+    "proj_version": "9.5.1",
+    "pyproj_version": "3.7.2",
+    "python_version": "3.14.6"
+  },
+  "grit_grid": {
+    "height": 500000,
+    "negative_inverse_cases": [
+      {
+        "expected": "outside_projection_domain",
+        "name": "top_left",
+        "projected_xy_metres": [
+          -15000000,
+          8400000
+        ]
+      },
+      {
+        "expected": "outside_projection_domain",
+        "name": "top_right",
+        "projected_xy_metres": [
+          17100000,
+          8400000
+        ]
+      },
+      {
+        "expected": "outside_projection_domain",
+        "name": "bottom_left",
+        "projected_xy_metres": [
+          -15000000,
+          -6600000
+        ]
+      },
+      {
+        "expected": "outside_projection_domain",
+        "name": "bottom_right",
+        "projected_xy_metres": [
+          17100000,
+          -6600000
+        ]
+      }
+    ],
+    "transform": [
+      30.0,
+      0.0,
+      -15000000.0,
+      0.0,
+      -30.0,
+      8400000.0
+    ],
+    "width": 1070000
+  },
+  "inverse_cases": [
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        0.0
+      ],
+      "name": "equator",
+      "projected_xy_metres": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        23.5,
+        -17.249999986238574
+      ],
+      "name": "axis_order_control",
+      "projected_xy_metres": [
+        2203165.970658505,
+        -2199534.790026376
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        14.999999986997757
+      ],
+      "name": "north_15",
+      "projected_xy_metres": [
+        0.0,
+        1916239.6896184457
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        -14.999999986997741
+      ],
+      "name": "south_15",
+      "projected_xy_metres": [
+        0.0,
+        -1916239.6896184445
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        44.999999995319065
+      ],
+      "name": "north_45",
+      "projected_xy_metres": [
+        0.0,
+        5466867.760213718
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        -44.999999995319065
+      ],
+      "name": "south_45",
+      "projected_xy_metres": [
+        0.0,
+        -5466867.760213718
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        59.999999998490935
+      ],
+      "name": "north_60",
+      "projected_xy_metres": [
+        0.0,
+        6924035.137552894
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        -59.999999998490985
+      ],
+      "name": "south_60",
+      "projected_xy_metres": [
+        0.0,
+        -6924035.137552897
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        88.99999999995065
+      ],
+      "name": "north_89",
+      "projected_xy_metres": [
+        0.0,
+        8391009.942477088
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        -88.99999999994883
+      ],
+      "name": "south_89",
+      "projected_xy_metres": [
+        0.0,
+        -8391009.942477083
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        89.99000000001975
+      ],
+      "name": "north_89_99",
+      "projected_xy_metres": [
+        0.0,
+        8392927.406653328
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        0.0,
+        -89.99000000001975
+      ],
+      "name": "south_89_99",
+      "projected_xy_metres": [
+        0.0,
+        -8392927.406653328
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        180.0,
+        0.0
+      ],
+      "name": "antimeridian_east",
+      "projected_xy_metres": [
+        17243959.062216945,
+        0.0
+      ]
+    },
+    {
+      "geographic_lon_lat_degrees": [
+        -180.0,
+        0.0
+      ],
+      "name": "antimeridian_west",
+      "projected_xy_metres": [
+        -17243959.062216945,
+        0.0
+      ]
+    }
+  ],
+  "reference": {
+    "a1": 1.340264,
+    "a2": -0.081106,
+    "a3": 0.000893,
+    "a4": 0.003796,
+    "a_metres": 6378137.0,
+    "authalic_radius_metres": 6371007.180918474,
+    "eccentricity": 0.08181919084262149,
+    "eccentricity_squared": 0.0066943799901413165,
+    "flattening": 0.0033528106647474805,
+    "m_expression": "sqrt(3)/2",
+    "polar_authalic_quantity": 1.9955310875028367,
+    "reciprocal_flattening": 298.257223563,
+    "theta_max_radians": 1.0471975511965976,
+    "y_max_metres": 8392927.598466454
+  },
+  "schema_version": 1
+}
