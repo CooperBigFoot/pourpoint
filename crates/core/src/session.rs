@@ -693,7 +693,7 @@ impl DatasetSession {
     /// for a per-basin partitioned D8 fabric, where irregular basins have
     /// overlapping rectangular extents — the manifest-first covering
     /// declaration is selected and the discarded candidates are logged. This is
-    /// sound because `hfx.aux.d8_raster.v1` requires overlapping entries to be
+    /// sound because `hfx.aux.d8_raster.v2` requires overlapping entries to be
     /// windows of a single coherent D8 fabric (identical values in the overlap),
     /// and the carve never reads outside `bbox`. [`SessionError::AmbiguousD8Coverage`]
     /// is retained for callers that need the un-collapsed candidate set.
@@ -738,7 +738,7 @@ impl DatasetSession {
                     min_y = bbox.min().y,
                     max_x = bbox.max().x,
                     max_y = bbox.max().y,
-                    "multiple D8 declarations cover terminal bbox; selecting manifest-first (overlapping entries must agree per hfx.aux.d8_raster.v1)"
+                    "multiple D8 declarations cover terminal bbox; selecting manifest-first (overlapping entries must agree per hfx.aux.d8_raster.v2)"
                 );
                 Ok(selected)
             }
@@ -837,7 +837,7 @@ impl DatasetSession {
                 remote_artifact_url_string_from_root(&self.root, &decl.flow_acc),
                 Some(flow_dir_path),
                 Some(flow_acc_path),
-                decl.flow_dir_encoding,
+                decl.metadata.clone(),
             ));
         }
 
@@ -847,7 +847,7 @@ impl DatasetSession {
             raster_uri_string(&self.root.join(&decl.flow_acc)),
             None,
             None,
-            decl.flow_dir_encoding,
+            decl.metadata.clone(),
         ))
     }
 }
@@ -933,8 +933,8 @@ fn rects_intersect_inclusive(a: &Rect<f64>, b: &Rect<f64>) -> bool {
 
 fn validate_local_aux_paths(root: &Path, aux: &AuxDeclarations) -> Result<(), SessionError> {
     for decl in &aux.d8_rasters {
-        validate_local_aux_artifact(root, "hfx.aux.d8_raster.v1", "flow_dir", &decl.flow_dir)?;
-        validate_local_aux_artifact(root, "hfx.aux.d8_raster.v1", "flow_acc", &decl.flow_acc)?;
+        validate_local_aux_artifact(root, "hfx.aux.d8_raster.v2", "flow_dir", &decl.flow_dir)?;
+        validate_local_aux_artifact(root, "hfx.aux.d8_raster.v2", "flow_acc", &decl.flow_acc)?;
     }
     for decl in &aux.snaps {
         validate_local_aux_artifact(root, "hfx.aux.snap.v2", "snap", &decl.snap)?;
@@ -973,8 +973,8 @@ fn validate_local_aux_artifact(
 
 fn validate_remote_aux_paths(root: &ObjectPath, aux: &AuxDeclarations) -> Result<(), SessionError> {
     for decl in &aux.d8_rasters {
-        validate_remote_aux_artifact(root, "hfx.aux.d8_raster.v1", "flow_dir", &decl.flow_dir)?;
-        validate_remote_aux_artifact(root, "hfx.aux.d8_raster.v1", "flow_acc", &decl.flow_acc)?;
+        validate_remote_aux_artifact(root, "hfx.aux.d8_raster.v2", "flow_dir", &decl.flow_dir)?;
+        validate_remote_aux_artifact(root, "hfx.aux.d8_raster.v2", "flow_acc", &decl.flow_acc)?;
     }
     for decl in &aux.snaps {
         validate_remote_aux_artifact(root, "hfx.aux.snap.v2", "snap", &decl.snap)?;
@@ -1913,9 +1913,13 @@ mod tests {
                 .as_array_mut()
                 .unwrap()
                 .push(serde_json::json!({
-                    "schema": "hfx.aux.d8_raster.v1",
+                    "schema": "hfx.aux.d8_raster.v2",
                     "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
-                    "metadata": { "flow_dir_encoding": "esri" }
+                    "metadata": {
+                        "crs": "EPSG:4326",
+                        "flow_dir_encoding": "esri",
+                        "flow_acc_units": "cells"
+                    }
                 }));
         }
         manifest.to_string()

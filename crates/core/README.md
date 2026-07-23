@@ -100,7 +100,7 @@ graph TD
     reader --> graph[graph.rs\ndecode graph.parquet]
     reader --> catchment[catchment_store.rs\nlazy Parquet reader]
     reader --> snap[snap_store.rs\nlazy Parquet reader]
-    reader --> d8decl[hfx.aux.d8_raster.v1\nD8 declarations]
+    reader --> d8decl[hfx.aux.d8_raster.v2\nD8 declarations]
     session --> refinement[refinement.rs\nterminal strategy seam]
     refinement --> d8strategy[BuiltInD8 strategy\nD8-only pantry]
     d8strategy --> session
@@ -168,7 +168,7 @@ than one declaration fully covers the terminal bbox — the expected case for a
 per-Pfaf-02 partitioned D8 fabric, where irregular basins have overlapping
 rectangular extents — selection collapses to the manifest-first covering
 declaration and logs the discarded candidates at `warn`. This is sound because
-`hfx.aux.d8_raster.v1` requires overlapping entries to be windows of a single
+`hfx.aux.d8_raster.v2` requires overlapping entries to be windows of a single
 coherent D8 fabric (byte-identical values in the overlap), and the carve never
 reads outside the terminal bbox, so any covering tile yields the same carve.
 Real MERIT-Hydro `merit/0.2.0` for `rhine_basel` therefore carves successfully.
@@ -176,6 +176,12 @@ Real MERIT-Hydro `merit/0.2.0` for `rhine_basel` therefore carves successfully.
 un-collapsed candidate set or for fabrics whose overlap-agreement is not
 guaranteed. `TerminalSpansD8Tiles` (bbox straddles a boundary, no single tile
 fully covers it) and `NoCoveringD8Tile` still hard-error.
+
+Every `hfx.aux.d8_raster.v2` declaration requires typed `crs`,
+`flow_dir_encoding`, and `flow_acc_units` metadata. Flow direction accepts
+`uint8` or `int8`; accumulation accepts `float32` or `int32`, with `cells`
+requiring `float32`. Signed values normalize at the reader boundary to the
+engine's existing `RasterTile<u8>` and `RasterTile<f32>` representations.
 
 Regression gates for the D8 strategy seam and synthetic parity goldens:
 

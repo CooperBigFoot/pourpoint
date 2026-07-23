@@ -14,15 +14,16 @@ use crate::algo::tile_state::{Masked, Raw};
 
 /// Nodata sentinel for D8 flow direction tiles.
 ///
-/// 255 is the conventional nodata value for byte-encoded D8 rasters.
+/// 255 is the conventional nodata value for byte-encoded D8 rasters. Its bit
+/// pattern also represents GRASS `-1`, whose terminal behavior is identical.
 const NODATA: u8 = 255;
 
 /// Typed wrapper around a [`RasterTile<u8>`] holding D8 flow direction bytes.
 ///
 /// Raw bytes are decoded on read via [`FlowDir::from_encoded`], dispatching to
-/// ESRI or TauDEM decoding based on the stored [`FlowDirEncoding`]. Cells with
-/// value 255 (nodata sentinel), 0 (nodata for both conventions), or any
-/// unrecognised byte are surfaced as `None` from the accessor methods.
+/// ESRI, TauDEM, or GRASS decoding is selected by the stored
+/// [`FlowDirEncoding`]. Cells with value 255, zero, valid signed GRASS exits,
+/// or an unrecognised byte are surfaced as `None`.
 ///
 /// The typestate parameter `State` tracks whether this tile has been masked:
 /// - [`Raw`]: unmasked tile; `apply_mask`, `set_raw`, and other mutating
@@ -42,7 +43,8 @@ impl<S> FlowDirectionTile<S> {
     /// cell is nodata or carries an invalid encoding.
     ///
     /// - 255 → `None` (nodata sentinel)
-    /// - 0 → `None` (nodata for both conventions)
+    /// - 0 → `None` (terminal for all conventions)
+    /// - GRASS -1 through -8 bit patterns → `None` (coverage exits)
     /// - Invalid byte → `None` (treated as nodata)
     /// - Valid code → `Some(dir)`
     pub fn get(&self, cell: GridCoord) -> Option<FlowDir> {
@@ -181,8 +183,8 @@ impl FlowDirectionTile<Raw> {
 
 /// Decodes a raw D8 byte into an `Option<FlowDir>` using the given encoding.
 ///
-/// Returns `None` for the nodata sentinel (255), the shared nodata encoding (0),
-/// and any unrecognised byte value.
+/// Returns `None` for the nodata sentinel (255), zero, signed GRASS exits, and
+/// any unrecognised byte value.
 fn decode(raw: u8, encoding: FlowDirEncoding) -> Option<FlowDir> {
     if raw == NODATA {
         return None;
@@ -495,5 +497,34 @@ mod tests {
         assert_eq!(masked.get_raw(GridCoord::new(0, 1)), 255);
         assert_eq!(masked.get_raw(GridCoord::new(1, 0)), 255);
         assert_eq!(masked.get(GridCoord::new(1, 1)), Some(FlowDir::West));
+    }
+
+    #[test]
+    fn grass_signed_exit_codes_are_terminal_by_bit_pattern() {
+        let mut tile =
+            FlowDirectionTile::new(GridDims::new(1, 8), simple_geo(), FlowDirEncoding::Grass)
+                .unwrap();
+        for (col, signed) in (-8_i8..=-1).enumerate() {
+            tile.set_raw(GridCoord::new(0, col), signed as u8);
+        }
+
+        for col in 0..8 {
+            assert_eq!(tile.get(GridCoord::new(0, col)), None);
+        }
+    }
+
+    #[test]
+    fn grass_out_of_range_codes_are_terminal_at_accessor() {
+        let raw = RasterTile::from_vec(
+            vec![9_u8, (-9_i8) as u8],
+            GridDims::new(1, 2),
+            NODATA,
+            simple_geo(),
+        )
+        .unwrap();
+        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Grass);
+
+        assert_eq!(tile.get(GridCoord::new(0, 0)), None);
+        assert_eq!(tile.get(GridCoord::new(0, 1)), None);
     }
 }
