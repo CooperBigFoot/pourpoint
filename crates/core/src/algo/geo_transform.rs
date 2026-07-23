@@ -27,7 +27,7 @@ impl GeoTransform {
         }
     }
 
-    /// Returns the area of one pixel in the CRS coordinate units squared.
+    /// Returns one pixel's area in the selected raster CRS's native square units.
     pub fn pixel_area(&self) -> f64 {
         (self.pixel_width * self.pixel_height).abs()
     }

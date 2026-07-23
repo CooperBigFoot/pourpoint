@@ -1,4 +1,4 @@
-//! Trait boundaries for external capabilities (raster I/O, geometry repair).
+//! Trait boundaries for raster-native I/O and geometry repair capabilities.
 //!
 //! These traits are defined in `pourpoint-core` and implemented by `pourpoint-gdal`.
 

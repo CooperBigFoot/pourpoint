@@ -2,7 +2,6 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use geo::BoundingRect;
 use pourpoint_core::algo::SnapThreshold;
 use pourpoint_core::algo::canonical_wkb_multi_polygon;
 use pourpoint_core::algo::coord::GeoCoord;
@@ -160,7 +159,7 @@ fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
         DatasetSession::open(REAL_MERIT_V020_URL).expect("real MERIT v0.2.0 should open");
     assert_real_merit_manifest(&probe_session);
     let options = real_merit_options();
-    let terminal_bbox = {
+    let terminal_geometry = {
         let probe_engine = Engine::builder(probe_session).build();
         let selected = probe_engine
             .select_level(LevelSelection::Finest)
@@ -182,8 +181,7 @@ fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
             .terminal_unit()
             .expect("rhine_basel terminal unit should exist")
             .geometry()
-            .bounding_rect()
-            .expect("rhine_basel terminal geometry should have a bbox")
+            .clone()
     };
 
     let session =
@@ -194,8 +192,8 @@ fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
         "POURPOINT_BENCH_NET should expose remote request counters"
     );
 
-    let selected_index = match session.select_d8_raster_for_bbox(terminal_bbox) {
-        Ok(handle) => handle.declaration_index(),
+    let selected_index = match session.select_d8_raster_for_terminal(&terminal_geometry) {
+        Ok((handle, _)) => handle.declaration_index(),
         Err(SessionError::TerminalSpansD8Tiles {
             declaration_indices,
             ..

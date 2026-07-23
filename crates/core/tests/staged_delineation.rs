@@ -421,6 +421,19 @@ fn assert_delineation_results_equal(
             .collect::<BTreeSet<_>>()
     );
     assert_eq!(direct.refinement(), staged.refinement());
+    if let (
+        RefinementOutcome::Applied {
+            refined_outlet: direct_outlet,
+            ..
+        },
+        RefinementOutcome::Applied {
+            refined_outlet: staged_outlet,
+            ..
+        },
+    ) = (direct.refinement(), staged.refinement())
+    {
+        assert_eq!(direct_outlet, staged_outlet);
+    }
     assert_eq!(
         canonical_wkb_multi_polygon(direct.geometry())
             .expect("direct geometry should canonicalize"),

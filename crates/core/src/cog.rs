@@ -36,7 +36,7 @@ const MODEL_TIEPOINT_TAG: Tag = Tag::ModelTiepointTag;
 const GEO_KEY_DIRECTORY_TAG: Tag = Tag::GeoKeyDirectoryTag;
 const GDAL_NODATA_TAG: Tag = Tag::GdalNodata;
 
-/// A geographic raster window request.
+/// A raster-native window request.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RasterWindowRequest {
     kind: RasterKind,

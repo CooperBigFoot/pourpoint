@@ -4,6 +4,25 @@ use std::path::PathBuf;
 
 use object_store::path::Path as ObjectPath;
 
+use crate::algo::projection::ProjectionError;
+
+/// Identifies one D8 declaration and its candidate-native terminal bounds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct D8NativeCoverageCandidate {
+    /// Zero-based declaration index in manifest order.
+    pub declaration_index: usize,
+    /// Numeric declared EPSG identifier.
+    pub epsg: u32,
+    /// Candidate-native terminal bbox minimum x.
+    pub min_x: f64,
+    /// Candidate-native terminal bbox minimum y.
+    pub min_y: f64,
+    /// Candidate-native terminal bbox maximum x.
+    pub max_x: f64,
+    /// Candidate-native terminal bbox maximum y.
+    pub max_y: f64,
+}
+
 /// Errors that can occur while reading or writing local cache entries.
 #[derive(Debug, thiserror::Error)]
 pub enum CacheError {
@@ -456,23 +475,41 @@ pub enum SessionError {
     #[error("required auxiliary schema hfx.aux.d8_raster.v2 is not declared")]
     MissingRequiredD8Aux,
 
-    /// Fired when no single D8 declaration covers a terminal bbox.
-    #[error("no D8 raster declaration covers terminal bbox [{min_x}, {min_y}, {max_x}, {max_y}]")]
+    /// Fired when a declared D8 EPSG identifier cannot be represented as `u32`.
+    #[error(
+        "D8 declaration CRS {declared_crs} has an EPSG identifier outside the supported u32 range: {source}"
+    )]
+    D8CrsIdentifierOutOfRange {
+        /// Canonical declared CRS string.
+        declared_crs: String,
+        /// Integer conversion failure.
+        source: std::num::ParseIntError,
+    },
+
+    /// Fired when a declared D8 EPSG identifier has no built-in projection.
+    #[error("D8 declaration CRS {declared_crs} is unsupported: {source}")]
+    UnsupportedD8Crs {
+        /// Canonical declared CRS string.
+        declared_crs: String,
+        /// Built-in projection selection failure.
+        source: ProjectionError,
+    },
+
+    /// Fired when no single D8 declaration covers its candidate-specific native
+    /// terminal bbox.
+    #[error(
+        "no D8 raster declaration covers its candidate-specific native terminal bbox; candidates: {candidates:?}"
+    )]
     NoCoveringD8Tile {
-        /// Terminal bbox minimum x.
-        min_x: f64,
-        /// Terminal bbox minimum y.
-        min_y: f64,
-        /// Terminal bbox maximum x.
-        max_x: f64,
-        /// Terminal bbox maximum y.
-        max_y: f64,
+        /// Manifest-ordered candidate declarations with their EPSG identifiers and
+        /// candidate-specific native terminal bounds.
+        candidates: Vec<D8NativeCoverageCandidate>,
     },
 
     /// Carries the un-collapsed set of D8 declarations that fully cover a
     /// terminal bbox.
     ///
-    /// [`crate::session::DatasetSession::select_d8_raster_for_bbox`] no longer
+    /// [`crate::session::DatasetSession::select_d8_raster_for_terminal`] no longer
     /// returns this — multiple covering declarations collapse to the
     /// manifest-first entry, since `hfx.aux.d8_raster.v2` requires overlapping
     /// entries to agree. Retained for callers that need to inspect the full
@@ -493,22 +530,16 @@ pub enum SessionError {
         declaration_indices: Vec<usize>,
     },
 
-    /// Fired when the terminal bbox intersects multiple D8 declarations but no
-    /// single declaration fully covers it.
+    /// Fired when candidate-native terminal bounds intersect multiple D8
+    /// declarations but no single declaration fully covers them.
     #[error(
-        "terminal bbox [{min_x}, {min_y}, {max_x}, {max_y}] spans multiple D8 declarations {declaration_indices:?}; mosaicking is not implemented"
+        "candidate-native terminal bounds span multiple D8 declarations {declaration_indices:?}; candidates: {candidates:?}; mosaicking is not implemented"
     )]
     TerminalSpansD8Tiles {
-        /// Terminal bbox minimum x.
-        min_x: f64,
-        /// Terminal bbox minimum y.
-        min_y: f64,
-        /// Terminal bbox maximum x.
-        max_x: f64,
-        /// Terminal bbox maximum y.
-        max_y: f64,
         /// Intersecting declaration indices.
         declaration_indices: Vec<usize>,
+        /// Intersecting declaration records with native bounds and EPSG identifiers.
+        candidates: Vec<D8NativeCoverageCandidate>,
     },
 
     /// Fired when bounded COG extent-header reading fails for a declaration.

@@ -9,19 +9,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bytes::BytesMut;
 use futures_util::StreamExt;
-use geo::Rect;
-use hfx::{DrainageGraph, Level, Manifest, Topology, UnitId};
+use geo::{BoundingRect, Coord, LineString, MultiPolygon, Polygon, Rect};
+use hfx::{DrainageGraph, EpsgCode, Level, Manifest, Topology, UnitId};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
 use tracing::{debug, info, instrument, warn};
 use url::Url;
 
+use crate::algo::coord::GeoCoord;
+use crate::algo::projection::{Crs, forward};
 use crate::cache::{ArtifactMeta, RemoteArtifactCache, ValidationSidecar};
 use crate::cog::{
     CogExtent, EXTENT_HEADER_RANGE_BYTES, LocalizedRasterWindow, RasterWindowRequest,
     read_local_extent, read_remote_extent,
 };
-use crate::error::{CacheError, SessionError};
+use crate::error::{CacheError, D8NativeCoverageCandidate, SessionError};
 use crate::parquet_cache::{
     DEFAULT_PARQUET_CACHE_MAX_BYTES, ParquetFooterCache, ParquetRowGroupCache,
 };
@@ -684,42 +686,57 @@ impl DatasetSession {
         self.http_stats.as_ref().map(HttpStatsHandle::snapshot)
     }
 
-    /// Select a blessed-D8 declaration whose raster extents cover `bbox`.
+    /// Select a blessed-D8 declaration whose native raster extents cover a terminal.
     ///
     /// Coverage uses inclusive closed rectangles so equality and edge-touching
     /// count as intersection/containment.
     ///
-    /// When more than one declaration fully covers `bbox` — the expected case
+    /// When more than one declaration fully covers the projected terminal — the expected case
     /// for a per-basin partitioned D8 fabric, where irregular basins have
     /// overlapping rectangular extents — the manifest-first covering
     /// declaration is selected and the discarded candidates are logged. This is
     /// sound because `hfx.aux.d8_raster.v2` requires overlapping entries to be
     /// windows of a single coherent D8 fabric (identical values in the overlap),
-    /// and the carve never reads outside `bbox`. [`SessionError::AmbiguousD8Coverage`]
+    /// and the carve never reads outside its native bbox. [`SessionError::AmbiguousD8Coverage`]
     /// is retained for callers that need the un-collapsed candidate set.
-    pub fn select_d8_raster_for_bbox(
+    pub fn select_d8_raster_for_terminal(
         &self,
-        bbox: Rect<f64>,
-    ) -> Result<D8RasterHandle, SessionError> {
+        terminal: &MultiPolygon<f64>,
+    ) -> Result<(D8RasterHandle, MultiPolygon<f64>), SessionError> {
         if self.aux_declarations.d8_rasters.is_empty() {
             return Err(SessionError::MissingRequiredD8Aux);
         }
 
         let mut intersecting = Vec::new();
         let mut covering = Vec::new();
+        let mut candidates = Vec::new();
         for (index, decl) in self.aux_declarations.d8_rasters.iter().enumerate() {
+            let (crs, epsg) = d8_crs(decl.metadata.crs())?;
+            let native_terminal = project_terminal(terminal, crs);
+            let Some(bbox) = native_terminal.bounding_rect() else {
+                return Ok((self.d8_handle(index, crs, epsg)?, native_terminal));
+            };
+            let candidate = D8NativeCoverageCandidate {
+                declaration_index: index,
+                epsg,
+                min_x: bbox.min().x,
+                min_y: bbox.min().y,
+                max_x: bbox.max().x,
+                max_y: bbox.max().y,
+            };
+            candidates.push(candidate.clone());
             let flow_dir_extent = self.d8_extent(index, RasterKind::FlowDir, &decl.flow_dir)?;
             if !rects_intersect_inclusive(&flow_dir_extent.rect(), &bbox) {
                 continue;
             }
             let flow_acc_extent = self.d8_extent(index, RasterKind::FlowAcc, &decl.flow_acc)?;
             if rects_intersect_inclusive(&flow_acc_extent.rect(), &bbox) {
-                intersecting.push(index);
+                intersecting.push(candidate);
             }
             if rect_contains_inclusive(&flow_dir_extent.rect(), &bbox)
                 && rect_contains_inclusive(&flow_acc_extent.rect(), &bbox)
             {
-                covering.push(self.d8_handle(index)?);
+                covering.push((self.d8_handle(index, crs, epsg)?, native_terminal));
             }
         }
 
@@ -729,32 +746,31 @@ impl DatasetSession {
                 let selected = covering.remove(0);
                 let discarded: Vec<usize> = covering
                     .iter()
-                    .map(D8RasterHandle::declaration_index)
+                    .map(|(handle, _)| handle.declaration_index())
                     .collect();
+                let selected_bbox = selected
+                    .1
+                    .bounding_rect()
+                    .ok_or_else(|| SessionError::integrity("terminal geometry has no bounds"))?;
                 warn!(
-                    selected_declaration = selected.declaration_index(),
+                    selected_declaration = selected.0.declaration_index(),
                     discarded_declarations = ?discarded,
-                    min_x = bbox.min().x,
-                    min_y = bbox.min().y,
-                    max_x = bbox.max().x,
-                    max_y = bbox.max().y,
+                    min_x = selected_bbox.min().x,
+                    min_y = selected_bbox.min().y,
+                    max_x = selected_bbox.max().x,
+                    max_y = selected_bbox.max().y,
                     "multiple D8 declarations cover terminal bbox; selecting manifest-first (overlapping entries must agree per hfx.aux.d8_raster.v2)"
                 );
                 Ok(selected)
             }
             _ if intersecting.len() > 1 => Err(SessionError::TerminalSpansD8Tiles {
-                min_x: bbox.min().x,
-                min_y: bbox.min().y,
-                max_x: bbox.max().x,
-                max_y: bbox.max().y,
-                declaration_indices: intersecting,
+                declaration_indices: intersecting
+                    .iter()
+                    .map(|candidate| candidate.declaration_index)
+                    .collect(),
+                candidates: intersecting,
             }),
-            _ => Err(SessionError::NoCoveringD8Tile {
-                min_x: bbox.min().x,
-                min_y: bbox.min().y,
-                max_x: bbox.max().x,
-                max_y: bbox.max().y,
-            }),
+            _ => Err(SessionError::NoCoveringD8Tile { candidates }),
         }
     }
 
@@ -822,7 +838,12 @@ impl DatasetSession {
         })
     }
 
-    fn d8_handle(&self, declaration_index: usize) -> Result<D8RasterHandle, SessionError> {
+    fn d8_handle(
+        &self,
+        declaration_index: usize,
+        crs: Crs,
+        epsg: u32,
+    ) -> Result<D8RasterHandle, SessionError> {
         let decl = self
             .aux_declarations
             .d8_rasters
@@ -838,6 +859,8 @@ impl DatasetSession {
                 Some(flow_dir_path),
                 Some(flow_acc_path),
                 decl.metadata.clone(),
+                crs,
+                epsg,
             ));
         }
 
@@ -848,8 +871,61 @@ impl DatasetSession {
             None,
             None,
             decl.metadata.clone(),
+            crs,
+            epsg,
         ))
     }
+}
+
+fn d8_crs(declared: &EpsgCode) -> Result<(Crs, u32), SessionError> {
+    let declared_crs = declared.as_str();
+    let identifier = declared_crs
+        .strip_prefix("EPSG:")
+        .unwrap_or(declared_crs)
+        .parse::<u32>()
+        .map_err(|source| SessionError::D8CrsIdentifierOutOfRange {
+            declared_crs: declared_crs.to_string(),
+            source,
+        })?;
+    let crs = Crs::try_from(identifier).map_err(|source| SessionError::UnsupportedD8Crs {
+        declared_crs: declared_crs.to_string(),
+        source,
+    })?;
+    Ok((crs, identifier))
+}
+
+fn project_terminal(terminal: &MultiPolygon<f64>, crs: Crs) -> MultiPolygon<f64> {
+    MultiPolygon::new(
+        terminal
+            .0
+            .iter()
+            .map(|polygon| {
+                Polygon::new(
+                    project_ring(polygon.exterior(), crs),
+                    polygon
+                        .interiors()
+                        .iter()
+                        .map(|ring| project_ring(ring, crs))
+                        .collect(),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn project_ring(ring: &LineString<f64>, crs: Crs) -> LineString<f64> {
+    LineString::new(
+        ring.0
+            .iter()
+            .map(|coordinate| {
+                let native = forward(crs, GeoCoord::new(coordinate.x, coordinate.y));
+                Coord {
+                    x: native.x(),
+                    y: native.y(),
+                }
+            })
+            .collect(),
+    )
 }
 
 fn remote_artifact_path(root: &ObjectPath, artifact: &str) -> ObjectPath {

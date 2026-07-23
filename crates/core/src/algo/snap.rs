@@ -1,5 +1,6 @@
 //! Pour-point snapping to the nearest high-accumulation cell.
 
+use hfx::FlowAccumulationUnits;
 use tracing::{debug, info, instrument};
 
 use crate::algo::accumulation_tile::AccumulationTile;
@@ -11,21 +12,29 @@ use crate::algo::tile_state::Masked;
 /// Errors from pour-point snapping.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SnapError {
-    /// No flow-accumulation cell within the catchment mask exceeds the threshold.
+    /// Fired when no flow-accumulation cell within the catchment mask reaches the effective threshold.
     #[error(
-        "no cell above threshold {threshold} within catchment mask near ({outlet_x}, {outlet_y})"
+        "no cell above effective threshold {threshold} {units} within catchment mask near native EPSG:{epsg} x={outlet_x}, y={outlet_y}"
     )]
     NoCellAboveThreshold {
-        /// Minimum accumulation pixel count required.
-        threshold: u32,
+        /// Effective accumulation threshold in the declared units.
+        threshold: f32,
+        /// Declared flow-accumulation units.
+        units: FlowAccumulationUnits,
+        /// Numeric declared EPSG identifier.
+        epsg: u32,
         /// Native x coordinate of the input outlet.
         outlet_x: f64,
         /// Native y coordinate of the input outlet.
         outlet_y: f64,
     },
-    /// The outlet point falls outside the raster tile extent.
-    #[error("outlet ({outlet_x}, {outlet_y}) outside tile extent ({rows}x{cols})")]
+    /// Fired when the native outlet point falls outside the raster tile extent.
+    #[error(
+        "native EPSG:{epsg} outlet x={outlet_x}, y={outlet_y} is outside tile extent ({rows}x{cols})"
+    )]
     OutletOutOfBounds {
+        /// Numeric declared EPSG identifier.
+        epsg: u32,
         /// Native x coordinate of the input outlet.
         outlet_x: f64,
         /// Native y coordinate of the input outlet.
@@ -104,6 +113,8 @@ pub fn snap_pour_point(
     outlet: NativeCoord,
     accumulation: &AccumulationTile<Masked>,
     threshold: SnapThreshold,
+    flow_accumulation_units: FlowAccumulationUnits,
+    epsg: u32,
 ) -> Result<SnappedPoint, SnapError> {
     let dims = accumulation.dims();
     let rows = dims.rows;
@@ -116,6 +127,7 @@ pub fn snap_pour_point(
     // Check bounds — fractional coords must be within [0, rows) x [0, cols)
     if frac_row < 0.0 || frac_col < 0.0 || frac_row >= rows as f64 || frac_col >= cols as f64 {
         return Err(SnapError::OutletOutOfBounds {
+            epsg,
             outlet_x: outlet.x(),
             outlet_y: outlet.y(),
             rows,
@@ -125,7 +137,16 @@ pub fn snap_pour_point(
 
     debug!(frac_row, frac_col, "outlet pixel coordinates");
 
-    let threshold_f32 = threshold.as_f32();
+    let threshold_f32 = match flow_accumulation_units {
+        FlowAccumulationUnits::Cells => threshold.as_f32(),
+        FlowAccumulationUnits::Km2 => {
+            let threshold_cells = threshold.pixels();
+            let threshold_km2 = threshold_cells as f64
+                * (geo.pixel_width() * geo.pixel_height()).abs()
+                / 1_000_000.0;
+            threshold_km2 as f32
+        }
+    };
     let mut best: Option<(usize, usize, f64, f32)> = None; // (row, col, dist_sq, acc)
 
     for r in 0..rows {
@@ -172,7 +193,9 @@ pub fn snap_pour_point(
             })
         }
         None => Err(SnapError::NoCellAboveThreshold {
-            threshold: threshold.pixels(),
+            threshold: threshold_f32,
+            units: flow_accumulation_units,
+            epsg,
             outlet_x: outlet.x(),
             outlet_y: outlet.y(),
         }),
@@ -203,6 +226,8 @@ mod tests {
             NativeCoord::new(1.5, -1.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(1, 1));
@@ -232,6 +257,8 @@ mod tests {
             NativeCoord::new(2.5, -0.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(0, 2));
@@ -262,6 +289,8 @@ mod tests {
             NativeCoord::new(1.5, -1.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(
@@ -296,6 +325,8 @@ mod tests {
             NativeCoord::new(0.5, -0.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(2, 2));
@@ -313,6 +344,8 @@ mod tests {
             NativeCoord::new(1.5, -1.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap_err();
         assert!(matches!(err, SnapError::NoCellAboveThreshold { .. }));
@@ -329,6 +362,8 @@ mod tests {
             NativeCoord::new(1.5, -1.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(1, 1));
@@ -353,6 +388,8 @@ mod tests {
             NativeCoord::new(1.0, -1.0),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(1, 0));
@@ -371,6 +408,8 @@ mod tests {
             NativeCoord::new(1.5, -0.5),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
         assert_eq!(
@@ -392,9 +431,24 @@ mod tests {
             NativeCoord::new(10.0, 10.0),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            8857_u32,
         )
         .unwrap_err();
-        assert!(matches!(err, SnapError::OutletOutOfBounds { .. }));
+        assert_eq!(
+            err,
+            SnapError::OutletOutOfBounds {
+                epsg: 8857,
+                outlet_x: 10.0,
+                outlet_y: 10.0,
+                rows: 3,
+                cols: 3,
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            "native EPSG:8857 outlet x=10, y=10 is outside tile extent (3x3)"
+        );
     }
 
     // Test 10: all mask entries false → NoCellAboveThreshold even if values are high
@@ -409,8 +463,68 @@ mod tests {
             NativeCoord::new(1.0, -1.0),
             &masked,
             SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap_err();
         assert!(matches!(err, SnapError::NoCellAboveThreshold { .. }));
+    }
+
+    #[test]
+    fn projected_km2_threshold_accepts_boundary_and_rejects_preceding_f32() {
+        let threshold_cells = 1_000_u32;
+        let pixel_width = 30.0_f64;
+        let pixel_height = -30.0_f64;
+        let threshold_km2_f64 =
+            threshold_cells as f64 * (pixel_width * pixel_height).abs() / 1_000_000.0;
+        let threshold_km2_f32 = threshold_km2_f64 as f32;
+        let preceding_f32 = f32::from_bits(threshold_km2_f32.to_bits() - 1);
+        let geo = GeoTransform::new(NativeCoord::new(100.0, 200.0), pixel_width, pixel_height);
+        let mask = CatchmentMask::new(vec![true], GridDims::new(1, 1));
+
+        let boundary =
+            RasterTile::from_vec(vec![threshold_km2_f32], GridDims::new(1, 1), f32::NAN, geo)
+                .map(AccumulationTile::from_raw)
+                .and_then(|tile| tile.apply_mask(&mask))
+                .unwrap();
+        let snapped = snap_pour_point(
+            NativeCoord::new(115.0, 185.0),
+            &boundary,
+            SnapThreshold::new(threshold_cells),
+            FlowAccumulationUnits::Km2,
+            8857_u32,
+        )
+        .expect("formula-derived f32 boundary should be accepted");
+        assert_eq!(snapped.pixel(), GridCoord::new(0, 0));
+
+        let preceding =
+            RasterTile::from_vec(vec![preceding_f32], GridDims::new(1, 1), f32::NAN, geo)
+                .map(AccumulationTile::from_raw)
+                .and_then(|tile| tile.apply_mask(&mask))
+                .unwrap();
+        let err = snap_pour_point(
+            NativeCoord::new(115.0, 185.0),
+            &preceding,
+            SnapThreshold::new(threshold_cells),
+            FlowAccumulationUnits::Km2,
+            8857_u32,
+        )
+        .expect_err("preceding f32 should be below the effective threshold");
+        assert_eq!(
+            err,
+            SnapError::NoCellAboveThreshold {
+                threshold: threshold_km2_f32,
+                units: FlowAccumulationUnits::Km2,
+                epsg: 8857,
+                outlet_x: 115.0,
+                outlet_y: 185.0,
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "no cell above effective threshold {threshold_km2_f32} km2 within catchment mask near native EPSG:8857 x=115, y=185"
+            )
+        );
     }
 }
