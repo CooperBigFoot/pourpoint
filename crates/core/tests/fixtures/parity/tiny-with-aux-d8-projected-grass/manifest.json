@@ -1,0 +1,30 @@
+{
+  "format_version": "0.3.0",
+  "fabric_name": "conformance-tiny-projected-grass",
+  "crs": "EPSG:4326",
+  "has_up_area": false,
+  "topology": "tree",
+  "bbox": [
+    0.0,
+    0.0,
+    2.0,
+    2.0
+  ],
+  "unit_count": 5,
+  "created_at": "2026-01-01T00:00:00Z",
+  "adapter_version": "conformance-fixture-v2",
+  "auxiliary": [
+    {
+      "schema": "hfx.aux.d8_raster.v2",
+      "artifacts": {
+        "flow_dir": "aux/d8/projected/flow_dir.tif",
+        "flow_acc": "aux/d8/projected/flow_acc.tif"
+      },
+      "metadata": {
+        "crs": "EPSG:8857",
+        "flow_dir_encoding": "grass",
+        "flow_acc_units": "km2"
+      }
+    }
+  ]
+}
