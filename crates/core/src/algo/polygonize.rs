@@ -1,6 +1,6 @@
-//! Binary mask to polygon conversion.
+//! polygonize : CatchmentMask × GeoTransform → Option<MultiPolygon<f64>> (pure, deterministic)
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use geo::{Contains, Coord, LineString, MultiPolygon, Point, Polygon};
 use tracing::{debug, instrument};
@@ -179,7 +179,7 @@ fn extract_edges(mask: &CatchmentMask) -> Vec<((usize, usize), (usize, usize))> 
 /// until each ring closes back on itself.
 fn assemble_rings(edges: Vec<((usize, usize), (usize, usize))>) -> Vec<Vec<(usize, usize)>> {
     // Map: start → list of ends (multiple edges can share a start in complex topologies).
-    let mut adjacency: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
+    let mut adjacency: BTreeMap<(usize, usize), Vec<(usize, usize)>> = BTreeMap::new();
     for (start, end) in edges {
         adjacency.entry(start).or_default().push(end);
     }
@@ -251,6 +251,138 @@ mod tests {
 
     fn simple_geo() -> GeoTransform {
         GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
+    }
+
+    // At the step's base commit, 15/15 repeats differed. Representative raw outputs were:
+    // MULTIPOLYGON(((5 0,4 0,4 -1,5 -1,5 0)),((1 -5,1 -4,0 -4,0 -5,1 -5)),((2 -1,3 -1,3 0,2 0,2 -1)),((5 -3,5 -2,4 -2,4 -3,5 -3)),((4 -4,4 -5,5 -5,5 -4,4 -4)),((3 -4,2 -4,2 -5,3 -5,3 -4)),((1 -1,1 0,0 0,0 -1,1 -1)),((1 -3,1 -2,0 -2,0 -3,1 -3)),((2 -3,3 -3,3 -2,2 -2,2 -3)))
+    // MULTIPOLYGON(((2 -3,3 -3,3 -2,2 -2,2 -3)),((3 -5,3 -4,2 -4,2 -5,3 -5)),((0 -5,1 -5,1 -4,0 -4,0 -5)),((4 -3,5 -3,5 -2,4 -2,4 -3)),((4 -1,5 -1,5 0,4 0,4 -1)),((4 -5,5 -5,5 -4,4 -4,4 -5)),((2 -1,3 -1,3 0,2 0,2 -1)),((1 -1,1 0,0 0,0 -1,1 -1)),((0 -2,0 -3,1 -3,1 -2,0 -2)))
+    // The base diagonal probe had 199/199 differing, 2 canonical WKBs, and counts [6, 7],
+    // demonstrating ring-set instability rather than merely component reordering.
+    // After the fix, both masks had one raw output over 200 calls and across 15 processes.
+    // The exact literal below was transcribed only after observing the fixed output.
+    #[test]
+    fn repeated_polygonization_has_stable_raw_geometry() {
+        #[rustfmt::skip]
+        let data = vec![
+            true,  false, true,  false, true,
+            false, false, false, false, false,
+            true,  false, true,  false, true,
+            false, false, false, false, false,
+            true,  false, true,  false, true,
+        ];
+        let mask = CatchmentMask::new(data, GridDims::new(5, 5));
+        let geo = GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0);
+        let outputs = (0..16)
+            .map(|_| polygonize(&mask, &geo).expect("non-empty mask should polygonize"))
+            .collect::<Vec<_>>();
+        let first = outputs.first().expect("sixteen outputs should exist");
+        let differing = outputs
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter(|(_, geometry)| *geometry != first)
+            .collect::<Vec<_>>();
+
+        assert!(
+            differing.is_empty(),
+            "{} of 15 repeat calls differed from the first; first={first:?}; first two differences={:?}",
+            differing.len(),
+            differing.iter().take(2).collect::<Vec<_>>()
+        );
+
+        let expected = MultiPolygon::new(vec![
+            Polygon::new(
+                LineString::from(vec![
+                    (0.0, 0.0),
+                    (0.0, -1.0),
+                    (1.0, -1.0),
+                    (1.0, 0.0),
+                    (0.0, 0.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (2.0, 0.0),
+                    (2.0, -1.0),
+                    (3.0, -1.0),
+                    (3.0, 0.0),
+                    (2.0, 0.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (4.0, 0.0),
+                    (4.0, -1.0),
+                    (5.0, -1.0),
+                    (5.0, 0.0),
+                    (4.0, 0.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (0.0, -2.0),
+                    (0.0, -3.0),
+                    (1.0, -3.0),
+                    (1.0, -2.0),
+                    (0.0, -2.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (2.0, -2.0),
+                    (2.0, -3.0),
+                    (3.0, -3.0),
+                    (3.0, -2.0),
+                    (2.0, -2.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (4.0, -2.0),
+                    (4.0, -3.0),
+                    (5.0, -3.0),
+                    (5.0, -2.0),
+                    (4.0, -2.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (0.0, -4.0),
+                    (0.0, -5.0),
+                    (1.0, -5.0),
+                    (1.0, -4.0),
+                    (0.0, -4.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (2.0, -4.0),
+                    (2.0, -5.0),
+                    (3.0, -5.0),
+                    (3.0, -4.0),
+                    (2.0, -4.0),
+                ]),
+                vec![],
+            ),
+            Polygon::new(
+                LineString::from(vec![
+                    (4.0, -4.0),
+                    (4.0, -5.0),
+                    (5.0, -5.0),
+                    (5.0, -4.0),
+                    (4.0, -4.0),
+                ]),
+                vec![],
+            ),
+        ]);
+        assert_eq!(first, &expected, "raw polygon vertex sequence changed");
     }
 
     #[test]
