@@ -164,12 +164,14 @@ EPSG:4326 terminal -> per-declaration forward projection -> native coverage and 
 -> native raster carve and snap -> inverse carved rings and outlet only -> EPSG:4326 result
 ```
 
-D8 grids are never warped, resampled, or reprojected. Supported declaration
-CRSs are exactly the existing `Crs` variants. An unsupported declaration CRS is
-a D8 selection error. The selected carved rings and snapped outlet are the only
-values inverse-transformed, and component, ring, and vertex order is retained.
-The EPSG:4326 identity path remains byte-exact because its forward and inverse
-operations only move coordinate fields.
+D8 grids are never warped, resampled, or reprojected. The only accepted
+auxiliary contract is `hfx.aux.d8_raster.v2`; a v1 declaration fails with an
+error directing the caller to recompile through a v2-emitting adapter. Supported
+declaration CRSs are exactly EPSG:4326 and EPSG:8857. An unsupported declaration
+CRS is a D8 selection error. The selected carved rings and snapped outlet are
+the only values inverse-transformed, and component, ring, and vertex order is
+retained. The EPSG:4326 identity path remains byte-exact because its forward and
+inverse operations only move coordinate fields.
 
 For `cells`, snapping preserves `threshold.as_f32()` behavior. For `km2`, the
 effective threshold is evaluated as
@@ -177,6 +179,12 @@ effective threshold is evaluated as
 the completed result is cast exactly once to `f32` and compared directly with
 the raw `f32` accumulation sample. EPSG:4326 plus `km2` is a refinement error
 because geographic pixel area is not approximated.
+
+Polygonization selects ring origins in deterministic order, so identical carve
+inputs return identical raw geometry, including multi-component and
+shared-vertex cases. The compatibility details, evidence, and human-gated
+release register are in the
+[pourpoint 0.2.0 runbook](../../docs/releases/projected-crs-terminal-refinement.md).
 
 `forward` remains instrumented, so selection produces one existing-default-level
 span per ring vertex per candidate declaration. Unsupported CRS failures travel
