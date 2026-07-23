@@ -3,7 +3,8 @@
 use tracing::{debug, info, instrument};
 
 use crate::algo::accumulation_tile::AccumulationTile;
-use crate::algo::coord::{GeoCoord, GridCoord};
+use crate::algo::coord::GridCoord;
+use crate::algo::projection::NativeCoord;
 use crate::algo::snap_threshold::SnapThreshold;
 use crate::algo::tile_state::Masked;
 
@@ -11,18 +12,24 @@ use crate::algo::tile_state::Masked;
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SnapError {
     /// No flow-accumulation cell within the catchment mask exceeds the threshold.
-    #[error("no cell above threshold {threshold} within catchment mask near {outlet}")]
+    #[error(
+        "no cell above threshold {threshold} within catchment mask near ({outlet_x}, {outlet_y})"
+    )]
     NoCellAboveThreshold {
         /// Minimum accumulation pixel count required.
         threshold: u32,
-        /// Geographic coordinate of the input outlet.
-        outlet: GeoCoord,
+        /// Native x coordinate of the input outlet.
+        outlet_x: f64,
+        /// Native y coordinate of the input outlet.
+        outlet_y: f64,
     },
     /// The outlet point falls outside the raster tile extent.
-    #[error("outlet {outlet} outside tile extent ({rows}x{cols})")]
+    #[error("outlet ({outlet_x}, {outlet_y}) outside tile extent ({rows}x{cols})")]
     OutletOutOfBounds {
-        /// Geographic coordinate of the input outlet.
-        outlet: GeoCoord,
+        /// Native x coordinate of the input outlet.
+        outlet_x: f64,
+        /// Native y coordinate of the input outlet.
+        outlet_y: f64,
         /// Number of rows in the tile.
         rows: usize,
         /// Number of columns in the tile.
@@ -34,7 +41,7 @@ pub enum SnapError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SnappedPoint {
     cell: GridCoord,
-    coord: GeoCoord,
+    coord: NativeCoord,
     accumulation: f32,
 }
 
@@ -49,14 +56,14 @@ impl SnappedPoint {
         self.cell.col
     }
 
-    /// Returns the x geographic coordinate of the snapped cell center.
+    /// Returns the native x coordinate of the snapped cell center.
     pub fn x(&self) -> f64 {
-        self.coord.lon
+        self.coord.x()
     }
 
-    /// Returns the y geographic coordinate of the snapped cell center.
+    /// Returns the native y coordinate of the snapped cell center.
     pub fn y(&self) -> f64 {
-        self.coord.lat
+        self.coord.y()
     }
 
     /// Returns the pixel position as [`GridCoord`].
@@ -64,8 +71,8 @@ impl SnappedPoint {
         self.cell
     }
 
-    /// Returns the geographic coordinates as [`GeoCoord`].
-    pub fn coord(&self) -> GeoCoord {
+    /// Returns the native coordinates as [`NativeCoord`].
+    pub fn coord(&self) -> NativeCoord {
         self.coord
     }
 
@@ -94,7 +101,7 @@ impl SnappedPoint {
 /// | No masked cell exceeds threshold | [`SnapError::NoCellAboveThreshold`] |
 #[instrument(skip(accumulation))]
 pub fn snap_pour_point(
-    outlet: GeoCoord,
+    outlet: NativeCoord,
     accumulation: &AccumulationTile<Masked>,
     threshold: SnapThreshold,
 ) -> Result<SnappedPoint, SnapError> {
@@ -104,11 +111,16 @@ pub fn snap_pour_point(
     let geo = accumulation.geo();
 
     // Convert outlet to fractional pixel coordinates
-    let (frac_row, frac_col) = geo.coord_to_pixel_f64(outlet.lon, outlet.lat);
+    let (frac_row, frac_col) = geo.coord_to_pixel_f64(outlet);
 
     // Check bounds — fractional coords must be within [0, rows) x [0, cols)
     if frac_row < 0.0 || frac_col < 0.0 || frac_row >= rows as f64 || frac_col >= cols as f64 {
-        return Err(SnapError::OutletOutOfBounds { outlet, rows, cols });
+        return Err(SnapError::OutletOutOfBounds {
+            outlet_x: outlet.x(),
+            outlet_y: outlet.y(),
+            rows,
+            cols,
+        });
     }
 
     debug!(frac_row, frac_col, "outlet pixel coordinates");
@@ -148,8 +160,8 @@ pub fn snap_pour_point(
             info!(
                 row,
                 col,
-                x = coord.lon,
-                y = coord.lat,
+                x = coord.x(),
+                y = coord.y(),
                 accumulation = acc,
                 "pour point snapped"
             );
@@ -161,7 +173,8 @@ pub fn snap_pour_point(
         }
         None => Err(SnapError::NoCellAboveThreshold {
             threshold: threshold.pixels(),
-            outlet,
+            outlet_x: outlet.x(),
+            outlet_y: outlet.y(),
         }),
     }
 }
@@ -170,12 +183,13 @@ pub fn snap_pour_point(
 mod tests {
     use super::*;
     use crate::algo::catchment_mask::CatchmentMask;
-    use crate::algo::coord::{GeoCoord, GridCoord, GridDims};
+    use crate::algo::coord::{GridCoord, GridDims};
     use crate::algo::geo_transform::GeoTransform;
+    use crate::algo::projection::NativeCoord;
     use crate::algo::raster_tile::RasterTile;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     // Test 1: single candidate above threshold is selected
@@ -185,8 +199,12 @@ mod tests {
         tile.set_raw(GridCoord::new(1, 1), 1000.0);
         let mask = CatchmentMask::new(vec![true; 9], GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
-        let result =
-            snap_pour_point(GeoCoord::new(1.5, -1.5), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(1.5, -1.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(1, 1));
         assert_eq!(result.accumulation(), 1000.0);
     }
@@ -210,8 +228,12 @@ mod tests {
         let mask = CatchmentMask::new(vec![true; 9], GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
         // Outlet very close to (0,2): outlet_x=2.5, outlet_y=-0.5
-        let result =
-            snap_pour_point(GeoCoord::new(2.5, -0.5), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(2.5, -0.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(0, 2));
     }
 
@@ -236,8 +258,12 @@ mod tests {
         // Outlet at center of grid: outlet_x=1.5, outlet_y=-1.5
         // (1,0) center is at (0.5, -1.5), (1,2) center is at (2.5, -1.5)
         // Both are equidistant from outlet (1.5, -1.5) — dist_sq = 1.0 each
-        let result =
-            snap_pour_point(GeoCoord::new(1.5, -1.5), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(1.5, -1.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(
             result.pixel(),
             GridCoord::new(1, 2),
@@ -266,8 +292,12 @@ mod tests {
         mask_data[8] = true; // only (2,2) is eligible
         let mask = CatchmentMask::new(mask_data, GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
-        let result =
-            snap_pour_point(GeoCoord::new(0.5, -0.5), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(0.5, -0.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(2, 2));
     }
 
@@ -279,8 +309,12 @@ mod tests {
         let tile = AccumulationTile::from_raw(raw);
         let mask = CatchmentMask::new(vec![true; 9], GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
-        let err = snap_pour_point(GeoCoord::new(1.5, -1.5), &masked, SnapThreshold::new(500))
-            .unwrap_err();
+        let err = snap_pour_point(
+            NativeCoord::new(1.5, -1.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap_err();
         assert!(matches!(err, SnapError::NoCellAboveThreshold { .. }));
     }
 
@@ -291,8 +325,12 @@ mod tests {
         tile.set_raw(GridCoord::new(1, 1), 1000.0);
         let mask = CatchmentMask::new(vec![true; 9], GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
-        let result =
-            snap_pour_point(GeoCoord::new(1.5, -1.5), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(1.5, -1.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(1, 1));
         assert_eq!(result.accumulation(), 1000.0);
     }
@@ -311,8 +349,12 @@ mod tests {
         let mask = CatchmentMask::new(vec![true; 4], GridDims::new(2, 2));
         let masked = tile.apply_mask(&mask).unwrap();
         // Outlet near center: outlet_x=1.0, outlet_y=-1.0
-        let result =
-            snap_pour_point(GeoCoord::new(1.0, -1.0), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(1.0, -1.0),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(result.pixel(), GridCoord::new(1, 0));
     }
 
@@ -325,8 +367,12 @@ mod tests {
         let mask = CatchmentMask::new(vec![true; 3], GridDims::new(1, 3));
         let masked = tile.apply_mask(&mask).unwrap();
         // Outlet at center of (0,1): outlet_x=1.5, outlet_y=-0.5
-        let result =
-            snap_pour_point(GeoCoord::new(1.5, -0.5), &masked, SnapThreshold::new(500)).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(1.5, -0.5),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap();
         assert_eq!(
             result.pixel(),
             GridCoord::new(0, 1),
@@ -342,8 +388,12 @@ mod tests {
         let mask = CatchmentMask::new(vec![true; 9], GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
         // outlet_x=10.0, outlet_y=10.0 → frac_row = -10.0 (negative = OOB)
-        let err = snap_pour_point(GeoCoord::new(10.0, 10.0), &masked, SnapThreshold::new(500))
-            .unwrap_err();
+        let err = snap_pour_point(
+            NativeCoord::new(10.0, 10.0),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap_err();
         assert!(matches!(err, SnapError::OutletOutOfBounds { .. }));
     }
 
@@ -355,8 +405,12 @@ mod tests {
         let tile = AccumulationTile::from_raw(raw);
         let mask = CatchmentMask::new(vec![false; 4], GridDims::new(2, 2));
         let masked = tile.apply_mask(&mask).unwrap();
-        let err = snap_pour_point(GeoCoord::new(1.0, -1.0), &masked, SnapThreshold::new(500))
-            .unwrap_err();
+        let err = snap_pour_point(
+            NativeCoord::new(1.0, -1.0),
+            &masked,
+            SnapThreshold::new(500),
+        )
+        .unwrap_err();
         assert!(matches!(err, SnapError::NoCellAboveThreshold { .. }));
     }
 }

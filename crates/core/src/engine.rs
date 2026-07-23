@@ -1076,8 +1076,8 @@ mod tests {
 
     use super::*;
     use crate::algo::{
-        AccumulationTile, FlowDirectionTile, GeoTransform, GridCoord, GridDims, RasterSourceError,
-        RasterTile, Raw,
+        AccumulationTile, FlowDirectionTile, GeoTransform, GridCoord, GridDims, NativeCoord,
+        RasterSourceError, RasterTile, Raw,
     };
     use crate::reader::catchment_store::{
         READER_SESSION_INSTRUMENTATION_TEST_LOCK, reset_geometry_decode_counts_for_test,
@@ -1112,7 +1112,7 @@ mod tests {
     }
 
     fn test_raster_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     fn make_flow_tile(values: &[u8]) -> FlowDirectionTile<Raw> {

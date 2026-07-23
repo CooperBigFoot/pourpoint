@@ -5,7 +5,7 @@
 //! 2. Masking both flow-direction and accumulation tiles to that polygon.
 //! 3. Snapping the outlet to the nearest high-accumulation cell.
 //! 4. Tracing all upstream cells from the snapped outlet.
-//! 5. Polygonizing the upstream trace mask back to geographic coordinates.
+//! 5. Polygonizing the upstream trace mask back to raster-native coordinates.
 //!
 //! # Semantic divergence from hydra-shed
 //!
@@ -25,9 +25,9 @@ use tracing::{debug, info, instrument};
 
 use crate::algo::accumulation_tile::AccumulationTile;
 use crate::algo::catchment_mask::CatchmentMask;
-use crate::algo::coord::GeoCoord;
 use crate::algo::flow_direction_tile::FlowDirectionTile;
 use crate::algo::polygonize::polygonize;
+use crate::algo::projection::NativeCoord;
 use crate::algo::raster_tile::RasterTileError;
 use crate::algo::rasterize::rasterize_multi_polygon;
 use crate::algo::snap::{SnapError, SnappedPoint, snap_pour_point};
@@ -132,8 +132,8 @@ impl RefinementResult {
         &self.snapped_point
     }
 
-    /// Returns the geographic coordinate of the snapped pour point.
-    pub fn snapped_coord(&self) -> GeoCoord {
+    /// Returns the native coordinate of the snapped pour point.
+    pub fn snapped_coord(&self) -> NativeCoord {
         self.snapped_point.coord()
     }
 
@@ -152,7 +152,7 @@ impl RefinementResult {
 ///
 /// Rasterizes `terminal_polygon` onto the raster grid, masks both tiles to that
 /// footprint, snaps `outlet` to the nearest high-accumulation cell, traces all
-/// upstream cells, and polygonizes the trace mask back to geographic coordinates.
+/// upstream cells, and polygonizes the trace mask back to raster-native coordinates.
 ///
 /// # Errors
 ///
@@ -175,7 +175,7 @@ impl RefinementResult {
 #[instrument(skip(terminal_polygon, flow_dir, accumulation))]
 pub fn refine_terminal(
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: GeoCoord,
+    outlet: NativeCoord,
     flow_dir: FlowDirectionTile<Raw>,
     accumulation: AccumulationTile<Raw>,
     threshold: SnapThreshold,
@@ -280,7 +280,7 @@ pub fn refine_terminal_from_source(
     flow_dir_uri: &str,
     flow_acc_uri: &str,
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: GeoCoord,
+    outlet: NativeCoord,
     threshold: SnapThreshold,
 ) -> Result<RefinementResult, RefinementError> {
     let bbox = terminal_polygon
@@ -299,13 +299,14 @@ mod tests {
     use hfx::FlowDirEncoding;
 
     use super::*;
-    use crate::algo::coord::{GeoCoord, GridCoord, GridDims};
+    use crate::algo::coord::{GridCoord, GridDims};
     use crate::algo::geo_transform::GeoTransform;
+    use crate::algo::projection::NativeCoord;
     use crate::algo::raster_tile::RasterTile;
     use crate::algo::traits::RasterSourceError;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     fn make_flow_tile(rows: usize, cols: usize, values: &[u8]) -> FlowDirectionTile<Raw> {
@@ -384,7 +385,7 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(2.5, -2.5);
+        let outlet = NativeCoord::new(2.5, -2.5);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -392,14 +393,14 @@ mod tests {
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 2.5).abs() < 1e-9,
-            "expected lon=2.5, got {}",
-            coord.lon
+            (coord.x() - 2.5).abs() < 1e-9,
+            "expected x=2.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-2.5)).abs() < 1e-9,
-            "expected lat=-2.5, got {}",
-            coord.lat
+            (coord.y() - (-2.5)).abs() < 1e-9,
+            "expected y=-2.5, got {}",
+            coord.y()
         );
 
         assert_eq!(result.polygon().0.len(), 1, "expected 1 polygon component");
@@ -434,7 +435,7 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(0.5, -0.5); // pixel (0,0)
+        let outlet = NativeCoord::new(0.5, -0.5); // pixel (0,0)
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -443,14 +444,14 @@ mod tests {
         // Snaps to (0,2): nearest cell above 500
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 2.5).abs() < 1e-9,
-            "expected lon=2.5, got {}",
-            coord.lon
+            (coord.x() - 2.5).abs() < 1e-9,
+            "expected x=2.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-0.5)).abs() < 1e-9,
-            "expected lat=-0.5, got {}",
-            coord.lat
+            (coord.y() - (-0.5)).abs() < 1e-9,
+            "expected y=-0.5, got {}",
+            coord.y()
         );
 
         use geo::algorithm::Area;
@@ -480,7 +481,7 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(2.5, -2.5); // pixel (2,2)
+        let outlet = NativeCoord::new(2.5, -2.5); // pixel (2,2)
         let threshold = SnapThreshold::new(200);
 
         let result =
@@ -531,7 +532,7 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -546,14 +547,14 @@ mod tests {
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 1.5).abs() < 1e-9,
-            "expected snapped lon=1.5, got {}",
-            coord.lon
+            (coord.x() - 1.5).abs() < 1e-9,
+            "expected snapped x=1.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-1.5)).abs() < 1e-9,
-            "expected snapped lat=-1.5, got {}",
-            coord.lat
+            (coord.y() - (-1.5)).abs() < 1e-9,
+            "expected snapped y=-1.5, got {}",
+            coord.y()
         );
     }
 
@@ -572,7 +573,7 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -584,14 +585,14 @@ mod tests {
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 1.5).abs() < 1e-9,
-            "expected snapped lon=1.5, got {}",
-            coord.lon
+            (coord.x() - 1.5).abs() < 1e-9,
+            "expected snapped x=1.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-1.5)).abs() < 1e-9,
-            "expected snapped lat=-1.5, got {}",
-            coord.lat
+            (coord.y() - (-1.5)).abs() < 1e-9,
+            "expected snapped y=-1.5, got {}",
+            coord.y()
         );
     }
 
@@ -618,8 +619,8 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        // Outlet near pixel (3,2): center is at lon=2.5, lat=-3.5
-        let outlet = GeoCoord::new(2.5, -3.5);
+        // Outlet near pixel (3,2): center is at x=2.5, y=-3.5
+        let outlet = NativeCoord::new(2.5, -3.5);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -650,7 +651,7 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
         // Outlet at center, equidistant from (1,0) and (1,2)
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -676,7 +677,7 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
         // Outlet at top-left corner (0.0, 0.0)
-        let outlet = GeoCoord::new(0.0, 0.0);
+        let outlet = NativeCoord::new(0.0, 0.0);
         let threshold = SnapThreshold::new(500);
 
         // Should succeed: snap finds nearest valid cell
@@ -701,7 +702,7 @@ mod tests {
         let flow_dir = make_flow_tile_with(3, 3, &fd_values, geo, FlowDirEncoding::Taudem);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -727,7 +728,7 @@ mod tests {
         let mut acc_values = [1.0_f32; 9];
         acc_values[idx(1, 1, 3)] = 900.0;
 
-        let geo = GeoTransform::new(GeoCoord::new(10.0, 50.0), 0.001, -0.001);
+        let geo = GeoTransform::new(NativeCoord::new(10.0, 50.0), 0.001, -0.001);
         let flow_dir = make_flow_tile_with(3, 3, &fd_values, geo, FlowDirEncoding::Esri);
         let accumulation = make_acc_tile_with(3, 3, &acc_values, geo);
 
@@ -744,8 +745,8 @@ mod tests {
         );
         let terminal_polygon = MultiPolygon::new(vec![poly]);
 
-        // Center of pixel (1,1): lon = 10.0 + 1.5 * 0.001 = 10.0015, lat = 50.0 - 1.5 * 0.001 = 49.9985
-        let outlet = GeoCoord::new(10.0015, 49.9985);
+        // Center of pixel (1,1): x = 10.0 + 1.5 * 0.001 = 10.0015, y = 50.0 - 1.5 * 0.001 = 49.9985
+        let outlet = NativeCoord::new(10.0015, 49.9985);
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -753,9 +754,9 @@ mod tests {
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 10.0015).abs() < 1e-9,
-            "expected lon~10.0015, got {}",
-            coord.lon
+            (coord.x() - 10.0015).abs() < 1e-9,
+            "expected x~10.0015, got {}",
+            coord.x()
         );
 
         use geo::algorithm::Area;
@@ -793,7 +794,7 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(2.5, -2.5); // pixel (2,2)
+        let outlet = NativeCoord::new(2.5, -2.5); // pixel (2,2)
         let threshold = SnapThreshold::new(500);
 
         let result =
@@ -823,7 +824,7 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
@@ -844,7 +845,7 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
         // Outlet way outside
-        let outlet = GeoCoord::new(10.0, 10.0);
+        let outlet = NativeCoord::new(10.0, 10.0);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
@@ -867,7 +868,7 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         // Terminal polygon covers only top-left 2x2 — masks out the one cell with acc
         let terminal_polygon = rect_polygon(0.0, 0.0, 2.0, -2.0);
-        let outlet = GeoCoord::new(0.5, -0.5);
+        let outlet = NativeCoord::new(0.5, -0.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
@@ -887,7 +888,7 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(10.0, 10.0, 13.0, 13.0);
-        let outlet = GeoCoord::new(11.5, 11.5);
+        let outlet = NativeCoord::new(11.5, 11.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
@@ -912,7 +913,7 @@ mod tests {
         let accumulation = AccumulationTile::from_raw(raw);
 
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
@@ -929,14 +930,14 @@ mod tests {
         let fd_values = [4u8; 9];
         let acc_values = [1000.0_f32; 9];
 
-        let geo_a = GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0);
-        let geo_b = GeoTransform::new(GeoCoord::new(1.0, 1.0), 1.0, -1.0); // different origin
+        let geo_a = GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0);
+        let geo_b = GeoTransform::new(NativeCoord::new(1.0, 1.0), 1.0, -1.0); // different origin
 
         let flow_dir = make_flow_tile_with(3, 3, &fd_values, geo_a, FlowDirEncoding::Esri);
         let accumulation = make_acc_tile_with(3, 3, &acc_values, geo_b);
 
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
@@ -964,7 +965,7 @@ mod tests {
         let flow_dir_direct = make_flow_tile(3, 3, &fd_values);
         let accumulation_direct = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let direct_result = refine_terminal(
@@ -1017,16 +1018,16 @@ mod tests {
         let direct_coord = direct_result.snapped_coord();
         let loader_coord = loader_result.snapped_coord();
         assert!(
-            (direct_coord.lon - loader_coord.lon).abs() < 1e-9,
-            "snapped lon mismatch: direct={}, loader={}",
-            direct_coord.lon,
-            loader_coord.lon
+            (direct_coord.x() - loader_coord.x()).abs() < 1e-9,
+            "snapped x mismatch: direct={}, loader={}",
+            direct_coord.x(),
+            loader_coord.x()
         );
         assert!(
-            (direct_coord.lat - loader_coord.lat).abs() < 1e-9,
-            "snapped lat mismatch: direct={}, loader={}",
-            direct_coord.lat,
-            loader_coord.lat
+            (direct_coord.y() - loader_coord.y()).abs() < 1e-9,
+            "snapped y mismatch: direct={}, loader={}",
+            direct_coord.y(),
+            loader_coord.y()
         );
 
         use geo::algorithm::Area;
@@ -1065,7 +1066,7 @@ mod tests {
         }
 
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal_from_source(
@@ -1131,7 +1132,7 @@ mod tests {
 
         // Terminal polygon: [1.0, 4.0] x [-1.0, -4.0]
         let terminal_polygon = rect_polygon(1.0, -1.0, 4.0, -4.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         // We don't care about the result (the mock tiles don't match the bbox),

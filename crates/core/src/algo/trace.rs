@@ -68,11 +68,12 @@ mod tests {
     use hfx::FlowDirEncoding;
 
     use super::*;
-    use crate::algo::coord::{GeoCoord, GridCoord, GridDims};
+    use crate::algo::coord::{GridCoord, GridDims};
     use crate::algo::geo_transform::GeoTransform;
+    use crate::algo::projection::NativeCoord;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     /// Build a FlowDirectionTile from a flat slice of ESRI D8 codes.

@@ -17,9 +17,9 @@ use tiff::tags::Tag;
 use tracing::debug;
 
 #[cfg(feature = "test-fixtures")]
-use crate::algo::coord::GeoCoord;
-#[cfg(feature = "test-fixtures")]
 use crate::algo::geo_transform::GeoTransform;
+#[cfg(feature = "test-fixtures")]
+use crate::algo::projection::NativeCoord;
 use crate::error::CacheError;
 use crate::session::RasterKind;
 
@@ -893,7 +893,7 @@ pub(crate) fn read_local_geotiff_window(
         }
     })?;
     let geo = GeoTransform::new(
-        GeoCoord::new(
+        NativeCoord::new(
             metadata.origin_x + f64::from(window.col_off) * metadata.pixel_width,
             metadata.origin_y + f64::from(window.row_off) * metadata.pixel_height,
         ),

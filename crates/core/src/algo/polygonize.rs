@@ -9,7 +9,7 @@ use crate::algo::catchment_mask::CatchmentMask;
 use crate::algo::coord::GridCoord;
 use crate::algo::geo_transform::GeoTransform;
 
-/// Convert a binary catchment mask to a MultiPolygon in geographic coordinates.
+/// Convert a binary catchment mask to a MultiPolygon in raster-native coordinates.
 ///
 /// Returns `None` when the mask contains no `true` cells. Disconnected regions
 /// in the mask each produce a separate [`Polygon`] in the [`MultiPolygon`].
@@ -18,10 +18,10 @@ use crate::algo::geo_transform::GeoTransform;
 /// # Ring classification
 ///
 /// Signed area of each ring (via the shoelace formula in pixel coordinates):
-/// - **Negative** → CCW traversal in pixel space (y-down) → exterior ring in geo space.
-/// - **Positive** → CW traversal in pixel space → hole ring in geo space.
+/// - **Negative** → CCW traversal in pixel space (y-down) → exterior ring in native space.
+/// - **Positive** → CW traversal in pixel space → hole ring in native space.
 ///
-/// After geo conversion (which flips y via negative `pixel_height`), exterior rings
+/// After native-coordinate conversion (which flips y via negative `pixel_height`), exterior rings
 /// have positive [`geo::algorithm::Area::signed_area`] (CCW in y-up convention).
 #[instrument(skip(mask, geo))]
 pub fn polygonize(mask: &CatchmentMask, geo: &GeoTransform) -> Option<MultiPolygon<f64>> {
@@ -114,7 +114,7 @@ pub fn polygonize(mask: &CatchmentMask, geo: &GeoTransform) -> Option<MultiPolyg
     Some(MultiPolygon::new(polygons))
 }
 
-/// Compute the signed area of a geographic [`LineString`] using the shoelace formula.
+/// Compute the signed area of a raster-native [`LineString`] using the shoelace formula.
 ///
 /// Positive result means CCW orientation in standard y-up coordinates.
 fn geo_signed_area_ls(ls: &LineString<f64>) -> f64 {
@@ -229,7 +229,7 @@ fn shoelace_area(ring: &[(usize, usize)]) -> f64 {
     area / 2.0
 }
 
-/// Convert pixel-corner coordinates to geographic coordinates using the geo-transform.
+/// Convert pixel-corner coordinates to raster-native coordinates using the geo-transform.
 ///
 /// Formula: `x = origin_x + c * pixel_width`, `y = origin_y + r * pixel_height`.
 /// No +0.5 offset — these are corners, not centers.
@@ -246,10 +246,11 @@ fn to_geo_coords(ring: &[(usize, usize)], geo: &GeoTransform) -> Vec<Coord<f64>>
 mod tests {
     use super::*;
     use crate::algo::catchment_mask::CatchmentMask;
-    use crate::algo::coord::{GeoCoord, GridDims};
+    use crate::algo::coord::GridDims;
+    use crate::algo::projection::NativeCoord;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     #[test]
@@ -388,16 +389,16 @@ mod tests {
     }
 
     #[test]
-    fn geographic_coordinates() {
+    fn native_coordinates() {
         // Single true cell with a non-trivial GeoTransform.
         // origin=(10, 50), pw=0.5, ph=-0.5
-        let geo = GeoTransform::new(GeoCoord::new(10.0, 50.0), 0.5, -0.5);
+        let geo = GeoTransform::new(NativeCoord::new(10.0, 50.0), 0.5, -0.5);
         let mask = CatchmentMask::new(vec![true], GridDims::new(1, 1));
         let mp = polygonize(&mask, &geo).expect("should produce a polygon");
         assert_eq!(mp.0.len(), 1);
         let poly = &mp.0[0];
 
-        // Pixel (0,0) corners in geo:
+        // Pixel (0,0) corners in raster-native coordinates:
         //   (r=0,c=0) → x=10+0*0.5=10,   y=50+0*(-0.5)=50
         //   (r=0,c=1) → x=10+1*0.5=10.5, y=50
         //   (r=1,c=1) → x=10.5,           y=50+1*(-0.5)=49.5
@@ -417,9 +418,9 @@ mod tests {
     }
 
     #[test]
-    fn exterior_ring_is_ccw_in_geographic_space() {
+    fn exterior_ring_is_ccw_in_native_space() {
         use geo::algorithm::Area;
-        // 2x2 all-true mask with negative pixel_height (standard geo raster).
+        // 2x2 all-true mask with negative pixel_height (standard north-up raster).
         let mask = CatchmentMask::new(vec![true; 4], GridDims::new(2, 2));
         let geo = simple_geo(); // origin=(0,0), pw=1, ph=-1
         let mp = polygonize(&mask, &geo).expect("should produce a polygon");
@@ -438,7 +439,7 @@ mod tests {
     fn geodesic_area_is_not_earth_complement() {
         use geo::algorithm::GeodesicArea;
         // Small mask with realistic 0.001° pixels near the equator.
-        let geo = GeoTransform::new(GeoCoord::new(8.0, 47.0), 0.001, -0.001);
+        let geo = GeoTransform::new(NativeCoord::new(8.0, 47.0), 0.001, -0.001);
         let mask = CatchmentMask::new(vec![true; 4], GridDims::new(2, 2));
         let mp = polygonize(&mask, &geo).expect("should produce a polygon");
         assert_eq!(mp.0.len(), 1);

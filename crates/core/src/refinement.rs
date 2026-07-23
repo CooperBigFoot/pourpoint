@@ -5,6 +5,7 @@ use hfx::{D8RasterMetadataV2, EpsgCode, FlowAccumulationUnits, FlowDirEncoding, 
 use object_store::path::Path as ObjectPath;
 
 use crate::algo::coord::GeoCoord;
+use crate::algo::projection::NativeCoord;
 use crate::algo::{RasterSource, RefinementError, SnapThreshold, refine_terminal_from_source};
 use crate::error::SessionError;
 use crate::session::{DatasetSession, RasterKind};
@@ -139,6 +140,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         );
         let flow_dir_uri = flow_dir.path().to_string_lossy();
         let flow_acc_uri = flow_acc.path().to_string_lossy();
+        let native_outlet = NativeCoord::new(input.resolved_outlet.lon, input.resolved_outlet.lat);
 
         let refinement_result = {
             let _refine_guard = StageGuard::enter(Stage::TerminalRefine);
@@ -147,7 +149,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
                 flow_dir_uri.as_ref(),
                 flow_acc_uri.as_ref(),
                 input.terminal_geometry,
-                input.resolved_outlet,
+                native_outlet,
                 input.snap_threshold,
             )
             .map_err(|source| TerminalRefinementError::Algorithm {
@@ -156,7 +158,8 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
             })?
         };
 
-        let refined_outlet = refinement_result.snapped_coord();
+        let snapped_coord = refinement_result.snapped_coord();
+        let refined_outlet = GeoCoord::new(snapped_coord.x(), snapped_coord.y());
         let geometry =
             ContainedTerminalPolygon::new_unchecked_from_d8_carve(refinement_result.into_polygon())
                 .map_err(|_source| TerminalRefinementError::Algorithm {
