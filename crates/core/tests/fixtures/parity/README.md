@@ -161,3 +161,91 @@ cargo test -p pourpoint-gdal --test raster_decode_parity synthetic_b_tiff_matche
 M1 already proved TIFF-vs-GDAL tile identity for B and for the accepted C
 `rhine_basel` windows. M4 may reuse the B proof for the byte-identical raster
 bytes, or re-run the proof if the reader implementation changes.
+
+## Projected GRASS offline golden
+
+`tiny-with-aux-d8-projected-grass/` is vendored byte-for-byte from
+`/Users/nicolaslazaro/Desktop/work/hfx` at
+`bfb8c974b4545fbdf3510dbe8ca4606ef0217f72`, subtree
+`conformance/valid/tiny-with-aux-d8-projected-grass/`. Its immutable files are:
+
+| Path | Bytes | SHA-256 |
+|---|---:|---|
+| `README.md` | 291 | `939093e14ee15334dc1b822e7ed29fd151106d2335c42363e77390d9e5f11f6f` |
+| `manifest.json` | 646 | `ef341491630bdfb2350add137d3f0ff8332989e15f2f74b9815318e28667a7a8` |
+| `catchments.parquet` | 5102 | `c0a6a6641f0fce3d1e7e8ce7d7749e2a1a6dc020d02a436fcb8d64b8f9e15411` |
+| `graph.parquet` | 2227 | `359827468df9bfca4c87b4200240a1e6bbf41d15a00bb477fe29eba5286d9b79` |
+| `aux/d8/projected/flow_dir.tif` | 1232 | `fece90b5cafc5ff00b988674a2c859c29d67c45927091de23dd394a4af78a7da` |
+| `aux/d8/projected/flow_acc.tif` | 1895 | `1d3334214e9ae575fe4e56e468302fa59d515d183dfa3c1568979210a2d6a917` |
+
+The runtime test opens that literal fixture path and constructs every engine
+with
+`LocalTiffRasterSource::with_encoding(hfx::FlowDirEncoding::Grass) ->
+EncodedLocalTiffRasterSource`. Bare `LocalTiffRasterSource` is incorrect here:
+its flow-direction loader hard-codes ESRI decoding, while `RasterSource` does
+not carry or select the manifest's `flow_dir_encoding: "grass"` declaration.
+
+The capture searched the committed literal EPSG:4326 candidate axes through the
+real engine with threshold `500` and resolver search radius `1000.0` metres.
+The first qualifying outlet was `(0.9833333333333333,
+0.4166666666666667)`. Its terminal ID 4 had the observed native EPSG:8857 bbox
+`min=(0.0, 0.0), max=(95799.77256787191, 128484.22707297948)`.
+
+Canonical WKB uses six decimal places. Twenty separate baseline processes
+produced identical canonical bytes with SHA-256
+`bc6a02af88bd641a9dec60428f987ab03403f521f08d24e7e5b2885d0ae90dee`
+and rounded derived count 374. After temporarily mapping the positive GRASS
+values as TauDEM, twenty separate mutation processes produced identical bytes
+with SHA-256
+`b45a96e6220a18692992b87ca4c21aee01cceaecac1893fd6c4ffb01c7e631db`
+and rounded derived count 1. The stable hashes differ. The pre- and
+post-mutation SHA-256 of `crates/core/src/algo/flow_dir.rs` was
+`53acd8a7cc3f47a65baabd633da723c30dec7dc8ed2db6a0a4c2a43ba829addf`;
+the file was restored byte-identically before the golden was written.
+
+Non-vacuity is measured only through public APIs:
+`TerminalRefinement::Applied` geometry ->
+`pourpoint_core::algo::forward(Crs::Epsg8857, ...)` -> unsigned planar area ->
+`DERIVED derived_carved_cell_count`. Every process must be within `1e-6` of an
+integer and cross-process identity is checked on the rounded integer, never the
+raw `f64`. Component count is deliberately absent because seeded `HashMap`
+iteration in ring assembly makes it per-process noise.
+
+`raster_interpretation` is omitted because its schema names
+`pixel_size_degrees`, while this fixture has 1000 metre pixels. The manifest and
+six-file provenance verify the projected interpretation. The km2 conversion is
+not proved: 1000 m by 1000 m pixels make
+`pixel_area / 1_000_000 = 1.0`, so that conversion is the arithmetic identity.
+
+The golden proves only:
+
+1. The real projected EPSG:8857 seam.
+2. Encoding-aware GRASS decoding, discriminated by internally stable baseline
+   and mutation groups with different canonical-WKB hashes.
+3. Signed-int8 direction and signed-int32 accumulation decoding through the
+   local TIFF source.
+4. Exact declaration-0 `Applied` provenance.
+5. Terminal replacement. The refinement-disabled contrast establishes only
+   this claim.
+6. Fully offline canonical-WKB stability.
+
+It does not prove km2 threshold conversion. These unresolved production risks
+are owned by milestone M5:
+
+- `risk-degenerate-path-corner`
+- `risk-dead-integrity-arm`
+- `RasterSource` does not carry the declared flow-direction encoding, so a
+  test-side source cannot be selected from the manifest.
+- `trace_upstream` has a reachable out-of-bounds panic when a flow-direction
+  tile's nodata byte decodes as a valid direction.
+
+The fixture and golden are exercised fully offline:
+
+```bash
+cargo build --workspace --exclude pourpoint-python
+cargo check -p pourpoint-python
+cargo test -p pourpoint-core --test d8_refinement_parity
+cargo test -p pourpoint-core --test d8_aux_accessor
+cargo test -p pourpoint-core --test parity_golden_artifacts
+cargo test -p pourpoint-core --test staged_delineation
+```

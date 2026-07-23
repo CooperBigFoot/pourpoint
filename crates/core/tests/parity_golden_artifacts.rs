@@ -19,6 +19,9 @@ use serde::Deserialize;
 const FIXTURE_DIR: &str = "tests/fixtures/parity";
 const M1_SYNTHETIC_REFINED_DIR: &str = "v01_synthetic_refined";
 const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";
+const PROJECTED_GRASS_DIR: &str = "tiny-with-aux-d8-projected-grass";
+const PROJECTED_GRASS_GOLDEN: &str =
+    "goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined.json";
 
 #[derive(Debug, Deserialize)]
 struct GoldenRecord {
@@ -174,6 +177,22 @@ struct RectRecord {
     max_y: f64,
 }
 
+#[derive(Debug, Deserialize)]
+struct ProjectedCarveMeasurement {
+    measurement_kind: String,
+    raster_source: String,
+    refinement_provenance: ProjectedRefinementProvenance,
+    derived_carved_cell_count: i64,
+    pixel_area_m2: i64,
+    integrality_tolerance: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectedRefinementProvenance {
+    strategy: String,
+    declaration_index: usize,
+}
+
 #[test]
 fn committed_seed_golden_validates_schema_and_canonical_wkb() {
     let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -308,6 +327,45 @@ fn committed_merit_refined_c_goldens_validate_schema_and_metadata_offline() {
         assert_c_raster_remote_identity_has_no_content_hashes(record);
         assert_canonical_wkb_idempotent(&decode_hex(&record.canonical_wkb_hex));
     }
+}
+
+#[test]
+fn committed_projected_grass_golden_validates_offline_contract() {
+    let record = read_golden_record(PROJECTED_GRASS_GOLDEN);
+    assert_record_contract(&record);
+    assert_eq!(record.refinement_outcome.status, "Applied");
+    assert!(record.refinement_outcome.reason.is_none());
+    assert!(record.raster_interpretation.is_none());
+    assert_canonical_wkb_idempotent(&decode_hex(&record.canonical_wkb_hex));
+
+    let carve: ProjectedCarveMeasurement = serde_json::from_value(
+        record
+            .carve_measurement
+            .clone()
+            .expect("projected golden should contain a carve measurement"),
+    )
+    .expect("projected carve measurement should match its record-specific contract");
+    assert_eq!(
+        carve.measurement_kind,
+        "DERIVED from public TerminalRefinement::Applied geometry"
+    );
+    assert_eq!(
+        carve.raster_source,
+        "LocalTiffRasterSource::with_encoding(hfx::FlowDirEncoding::Grass) -> EncodedLocalTiffRasterSource"
+    );
+    assert_eq!(carve.refinement_provenance.strategy, "BuiltInD8");
+    assert_eq!(carve.refinement_provenance.declaration_index, 0);
+    assert!(carve.derived_carved_cell_count >= 16);
+    assert_eq!(carve.pixel_area_m2, 1_000_000);
+    assert_eq!(carve.integrality_tolerance, 1e-6);
+
+    assert_projected_manifest_contract();
+    assert_projected_fixture_provenance(&record);
+}
+
+#[test]
+fn committed_fixture_manifests_do_not_declare_d8_v1() {
+    assert_no_d8_v1_manifests(&parity_fixture_path(""));
 }
 
 #[test]
@@ -629,6 +687,127 @@ fn assert_rect_valid(rect: &RectRecord) {
     assert!(rect.max_y.is_finite());
     assert!(rect.min_x < rect.max_x);
     assert!(rect.min_y < rect.max_y);
+}
+
+fn read_golden_record(relative: &str) -> GoldenRecord {
+    serde_json::from_str(
+        &fs::read_to_string(parity_fixture_path(relative))
+            .expect("single golden fixture should be readable"),
+    )
+    .expect("single golden should match the golden schema")
+}
+
+fn assert_projected_manifest_contract() {
+    let manifest_path = parity_fixture_path(PROJECTED_GRASS_DIR).join("manifest.json");
+    let manifest: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(manifest_path).expect("projected manifest should be readable"),
+    )
+    .expect("projected manifest should be valid JSON");
+    assert_eq!(manifest["format_version"], "0.3.0");
+    assert_eq!(manifest["crs"], "EPSG:4326");
+    let declarations = manifest["auxiliary"]
+        .as_array()
+        .expect("projected manifest auxiliary should be an array");
+    assert_eq!(declarations.len(), 1);
+    let declaration = &declarations[0];
+    assert_eq!(declaration["schema"], "hfx.aux.d8_raster.v2");
+    assert_eq!(declaration["metadata"]["crs"], "EPSG:8857");
+    assert_eq!(declaration["metadata"]["flow_dir_encoding"], "grass");
+    assert_eq!(declaration["metadata"]["flow_acc_units"], "km2");
+    assert_eq!(
+        declaration["artifacts"]["flow_dir"],
+        "aux/d8/projected/flow_dir.tif"
+    );
+    assert_eq!(
+        declaration["artifacts"]["flow_acc"],
+        "aux/d8/projected/flow_acc.tif"
+    );
+}
+
+fn assert_projected_fixture_provenance(record: &GoldenRecord) {
+    let provenance = record
+        .fixture_provenance
+        .as_ref()
+        .expect("projected golden should record fixture provenance");
+    assert_eq!(provenance.content_hash_algorithm, "sha256");
+    let expected = [
+        (
+            "README.md",
+            291,
+            "939093e14ee15334dc1b822e7ed29fd151106d2335c42363e77390d9e5f11f6f",
+        ),
+        (
+            "manifest.json",
+            646,
+            "ef341491630bdfb2350add137d3f0ff8332989e15f2f74b9815318e28667a7a8",
+        ),
+        (
+            "catchments.parquet",
+            5102,
+            "c0a6a6641f0fce3d1e7e8ce7d7749e2a1a6dc020d02a436fcb8d64b8f9e15411",
+        ),
+        (
+            "graph.parquet",
+            2227,
+            "359827468df9bfca4c87b4200240a1e6bbf41d15a00bb477fe29eba5286d9b79",
+        ),
+        (
+            "aux/d8/projected/flow_dir.tif",
+            1232,
+            "fece90b5cafc5ff00b988674a2c859c29d67c45927091de23dd394a4af78a7da",
+        ),
+        (
+            "aux/d8/projected/flow_acc.tif",
+            1895,
+            "1d3334214e9ae575fe4e56e468302fa59d515d183dfa3c1568979210a2d6a917",
+        ),
+    ];
+    assert_eq!(provenance.files.len(), expected.len());
+    let fixture_dir = parity_fixture_path(PROJECTED_GRASS_DIR);
+    for (path, size_bytes, sha256) in expected {
+        let recorded = provenance
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap_or_else(|| panic!("projected provenance should record {path}"));
+        assert_eq!(recorded.size_bytes, size_bytes);
+        assert_eq!(recorded.sha256, sha256);
+        let fixture_path = fixture_dir.join(path);
+        assert!(fixture_path.is_file(), "fixture file should exist: {path}");
+        assert_eq!(
+            fs::metadata(&fixture_path)
+                .expect("fixture metadata should be readable")
+                .len(),
+            size_bytes
+        );
+        assert_eq!(sha256_file(&fixture_path), sha256);
+    }
+
+    // The exact artifact hashes above bind these fixture-contract facts without
+    // requiring GDAL or another TIFF loader in this loader-independent test.
+    let flow_direction_contract = ("signed int8", -128_i64);
+    let flow_accumulation_contract = ("signed int32", -2_147_483_648_i64);
+    assert_eq!(flow_direction_contract, ("signed int8", -128));
+    assert_eq!(flow_accumulation_contract, ("signed int32", -2_147_483_648));
+}
+
+fn assert_no_d8_v1_manifests(directory: &Path) {
+    for entry in fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("fixture directory should be readable: {error}"))
+    {
+        let entry = entry.expect("fixture directory entry should be readable");
+        let path = entry.path();
+        if path.is_dir() {
+            assert_no_d8_v1_manifests(&path);
+        } else if path.file_name().and_then(|name| name.to_str()) == Some("manifest.json") {
+            let contents = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("manifest should be readable at {path:?}: {error}"));
+            assert!(
+                !contents.contains("\"hfx.aux.d8_raster.v1\""),
+                "committed fixture manifest must not declare D8 v1: {path:?}"
+            );
+        }
+    }
 }
 
 fn read_golden_array(relative: &str) -> Vec<GoldenRecord> {
