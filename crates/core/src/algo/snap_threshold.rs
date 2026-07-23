@@ -9,7 +9,8 @@
 ///
 /// Wraps a `u32` representing the number of upstream pixels a cell must drain
 /// to be considered part of the stream network. The pixel area depends on the
-/// source raster and is left to the caller.
+/// source raster; the downstream comparison site converts this count to the
+/// selected declaration's accumulation units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapThreshold(u32);
 

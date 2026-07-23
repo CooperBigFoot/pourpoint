@@ -5,7 +5,7 @@
 //! 2. Masking both flow-direction and accumulation tiles to that polygon.
 //! 3. Snapping the outlet to the nearest high-accumulation cell.
 //! 4. Tracing all upstream cells from the snapped outlet.
-//! 5. Polygonizing the upstream trace mask back to geographic coordinates.
+//! 5. Polygonizing the upstream trace mask back to raster-native coordinates.
 //!
 //! # Semantic divergence from hydra-shed
 //!
@@ -21,13 +21,14 @@
 //! refinement can only shrink, never correct outward.
 
 use geo::{BoundingRect, MultiPolygon};
+use hfx::FlowAccumulationUnits;
 use tracing::{debug, info, instrument};
 
 use crate::algo::accumulation_tile::AccumulationTile;
 use crate::algo::catchment_mask::CatchmentMask;
-use crate::algo::coord::GeoCoord;
 use crate::algo::flow_direction_tile::FlowDirectionTile;
 use crate::algo::polygonize::polygonize;
+use crate::algo::projection::{NativeCoord, ProjectionError};
 use crate::algo::raster_tile::RasterTileError;
 use crate::algo::rasterize::rasterize_multi_polygon;
 use crate::algo::snap::{SnapError, SnappedPoint, snap_pour_point};
@@ -105,6 +106,26 @@ pub enum RefinementError {
         /// The underlying raster source error.
         source: RasterSourceError,
     },
+
+    /// Fired when km2 accumulation is declared for a geographic raster whose pixel area is angular.
+    #[error(
+        "flow accumulation units {units} require projected pixel area, but EPSG:{epsg} is geographic"
+    )]
+    GeographicKm2Unsupported {
+        /// Numeric declared EPSG identifier.
+        epsg: u32,
+        /// Declared flow-accumulation units.
+        units: FlowAccumulationUnits,
+    },
+
+    /// Fired when a native carved vertex or snapped outlet cannot be transformed back to EPSG:4326.
+    #[error("failed to inverse-project refined output from EPSG:{epsg}: {source}")]
+    InverseProjection {
+        /// Numeric native CRS identifier.
+        epsg: u32,
+        /// Inverse projection failure.
+        source: ProjectionError,
+    },
 }
 
 impl From<SnapError> for RefinementError {
@@ -132,8 +153,8 @@ impl RefinementResult {
         &self.snapped_point
     }
 
-    /// Returns the geographic coordinate of the snapped pour point.
-    pub fn snapped_coord(&self) -> GeoCoord {
+    /// Returns the native coordinate of the snapped pour point.
+    pub fn snapped_coord(&self) -> NativeCoord {
         self.snapped_point.coord()
     }
 
@@ -152,7 +173,7 @@ impl RefinementResult {
 ///
 /// Rasterizes `terminal_polygon` onto the raster grid, masks both tiles to that
 /// footprint, snaps `outlet` to the nearest high-accumulation cell, traces all
-/// upstream cells, and polygonizes the trace mask back to geographic coordinates.
+/// upstream cells, and polygonizes the trace mask back to raster-native coordinates.
 ///
 /// # Errors
 ///
@@ -175,11 +196,19 @@ impl RefinementResult {
 #[instrument(skip(terminal_polygon, flow_dir, accumulation))]
 pub fn refine_terminal(
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: GeoCoord,
+    outlet: NativeCoord,
     flow_dir: FlowDirectionTile<Raw>,
     accumulation: AccumulationTile<Raw>,
     threshold: SnapThreshold,
+    flow_accumulation_units: FlowAccumulationUnits,
+    epsg: u32,
 ) -> Result<RefinementResult, RefinementError> {
+    if epsg == 4326 && flow_accumulation_units == FlowAccumulationUnits::Km2 {
+        return Err(RefinementError::GeographicKm2Unsupported {
+            epsg,
+            units: flow_accumulation_units,
+        });
+    }
     // Step 1: Validate tile alignment
     let fd_dims = flow_dir.dims();
     let acc_dims = accumulation.dims();
@@ -233,7 +262,13 @@ pub fn refine_terminal(
         .map_err(|e| RefinementError::MaskFailed { source: e })?;
 
     // Step 7: Snap pour point
-    let snapped = snap_pour_point(outlet, &masked_acc, threshold)?;
+    let snapped = snap_pour_point(
+        outlet,
+        &masked_acc,
+        threshold,
+        flow_accumulation_units,
+        epsg,
+    )?;
     debug!(
         row = snapped.row(),
         col = snapped.col(),
@@ -275,13 +310,16 @@ pub fn refine_terminal(
 /// | Raster source fails to load a tile | [`RefinementError::RasterLoad`] |
 /// | Any error from [`refine_terminal`] | (propagated) |
 #[instrument(skip(source, terminal_polygon))]
+#[allow(clippy::too_many_arguments)]
 pub fn refine_terminal_from_source(
     source: &dyn RasterSource,
     flow_dir_uri: &str,
     flow_acc_uri: &str,
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: GeoCoord,
+    outlet: NativeCoord,
     threshold: SnapThreshold,
+    flow_accumulation_units: FlowAccumulationUnits,
+    epsg: u32,
 ) -> Result<RefinementResult, RefinementError> {
     let bbox = terminal_polygon
         .bounding_rect()
@@ -290,7 +328,15 @@ pub fn refine_terminal_from_source(
     let flow_dir = source.load_flow_direction(flow_dir_uri, &bbox)?;
     let accumulation = source.load_accumulation(flow_acc_uri, &bbox)?;
 
-    refine_terminal(terminal_polygon, outlet, flow_dir, accumulation, threshold)
+    refine_terminal(
+        terminal_polygon,
+        outlet,
+        flow_dir,
+        accumulation,
+        threshold,
+        flow_accumulation_units,
+        epsg,
+    )
 }
 
 #[cfg(test)]
@@ -299,13 +345,14 @@ mod tests {
     use hfx::FlowDirEncoding;
 
     use super::*;
-    use crate::algo::coord::{GeoCoord, GridCoord, GridDims};
+    use crate::algo::coord::{GridCoord, GridDims};
     use crate::algo::geo_transform::GeoTransform;
+    use crate::algo::projection::NativeCoord;
     use crate::algo::raster_tile::RasterTile;
     use crate::algo::traits::RasterSourceError;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     fn make_flow_tile(rows: usize, cols: usize, values: &[u8]) -> FlowDirectionTile<Raw> {
@@ -384,22 +431,30 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(2.5, -2.5);
+        let outlet = NativeCoord::new(2.5, -2.5);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 2.5).abs() < 1e-9,
-            "expected lon=2.5, got {}",
-            coord.lon
+            (coord.x() - 2.5).abs() < 1e-9,
+            "expected x=2.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-2.5)).abs() < 1e-9,
-            "expected lat=-2.5, got {}",
-            coord.lat
+            (coord.y() - (-2.5)).abs() < 1e-9,
+            "expected y=-2.5, got {}",
+            coord.y()
         );
 
         assert_eq!(result.polygon().0.len(), 1, "expected 1 polygon component");
@@ -434,23 +489,31 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(0.5, -0.5); // pixel (0,0)
+        let outlet = NativeCoord::new(0.5, -0.5); // pixel (0,0)
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         // Snaps to (0,2): nearest cell above 500
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 2.5).abs() < 1e-9,
-            "expected lon=2.5, got {}",
-            coord.lon
+            (coord.x() - 2.5).abs() < 1e-9,
+            "expected x=2.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-0.5)).abs() < 1e-9,
-            "expected lat=-0.5, got {}",
-            coord.lat
+            (coord.y() - (-0.5)).abs() < 1e-9,
+            "expected y=-0.5, got {}",
+            coord.y()
         );
 
         use geo::algorithm::Area;
@@ -480,11 +543,19 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(2.5, -2.5); // pixel (2,2)
+        let outlet = NativeCoord::new(2.5, -2.5); // pixel (2,2)
         let threshold = SnapThreshold::new(200);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         use geo::algorithm::Area;
         let polygon_area = result.polygon().unsigned_area();
@@ -531,11 +602,19 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         use geo::algorithm::Area;
         let area = result.polygon().unsigned_area();
@@ -546,14 +625,14 @@ mod tests {
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 1.5).abs() < 1e-9,
-            "expected snapped lon=1.5, got {}",
-            coord.lon
+            (coord.x() - 1.5).abs() < 1e-9,
+            "expected snapped x=1.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-1.5)).abs() < 1e-9,
-            "expected snapped lat=-1.5, got {}",
-            coord.lat
+            (coord.y() - (-1.5)).abs() < 1e-9,
+            "expected snapped y=-1.5, got {}",
+            coord.y()
         );
     }
 
@@ -572,11 +651,19 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         use geo::algorithm::Area;
         let area = result.polygon().unsigned_area();
@@ -584,14 +671,14 @@ mod tests {
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 1.5).abs() < 1e-9,
-            "expected snapped lon=1.5, got {}",
-            coord.lon
+            (coord.x() - 1.5).abs() < 1e-9,
+            "expected snapped x=1.5, got {}",
+            coord.x()
         );
         assert!(
-            (coord.lat - (-1.5)).abs() < 1e-9,
-            "expected snapped lat=-1.5, got {}",
-            coord.lat
+            (coord.y() - (-1.5)).abs() < 1e-9,
+            "expected snapped y=-1.5, got {}",
+            coord.y()
         );
     }
 
@@ -618,12 +705,20 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        // Outlet near pixel (3,2): center is at lon=2.5, lat=-3.5
-        let outlet = GeoCoord::new(2.5, -3.5);
+        // Outlet near pixel (3,2): center is at x=2.5, y=-3.5
+        let outlet = NativeCoord::new(2.5, -3.5);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         // Nearest cell above 500 to (3,2) is (3,2) itself with acc=700
         assert!(
@@ -650,11 +745,19 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
         // Outlet at center, equidistant from (1,0) and (1,2)
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         // Higher acc wins on tie: (1,2) with 800.0
         assert!(
@@ -676,11 +779,19 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
         // Outlet at top-left corner (0.0, 0.0)
-        let outlet = GeoCoord::new(0.0, 0.0);
+        let outlet = NativeCoord::new(0.0, 0.0);
         let threshold = SnapThreshold::new(500);
 
         // Should succeed: snap finds nearest valid cell
-        let result = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold);
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        );
         assert!(result.is_ok(), "expected Ok, got {:?}", result);
     }
 
@@ -701,11 +812,19 @@ mod tests {
         let flow_dir = make_flow_tile_with(3, 3, &fd_values, geo, FlowDirEncoding::Taudem);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         use geo::algorithm::Area;
         let area = result.polygon().unsigned_area();
@@ -727,7 +846,7 @@ mod tests {
         let mut acc_values = [1.0_f32; 9];
         acc_values[idx(1, 1, 3)] = 900.0;
 
-        let geo = GeoTransform::new(GeoCoord::new(10.0, 50.0), 0.001, -0.001);
+        let geo = GeoTransform::new(NativeCoord::new(10.0, 50.0), 0.001, -0.001);
         let flow_dir = make_flow_tile_with(3, 3, &fd_values, geo, FlowDirEncoding::Esri);
         let accumulation = make_acc_tile_with(3, 3, &acc_values, geo);
 
@@ -744,18 +863,26 @@ mod tests {
         );
         let terminal_polygon = MultiPolygon::new(vec![poly]);
 
-        // Center of pixel (1,1): lon = 10.0 + 1.5 * 0.001 = 10.0015, lat = 50.0 - 1.5 * 0.001 = 49.9985
-        let outlet = GeoCoord::new(10.0015, 49.9985);
+        // Center of pixel (1,1): x = 10.0 + 1.5 * 0.001 = 10.0015, y = 50.0 - 1.5 * 0.001 = 49.9985
+        let outlet = NativeCoord::new(10.0015, 49.9985);
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         let coord = result.snapped_coord();
         assert!(
-            (coord.lon - 10.0015).abs() < 1e-9,
-            "expected lon~10.0015, got {}",
-            coord.lon
+            (coord.x() - 10.0015).abs() < 1e-9,
+            "expected x~10.0015, got {}",
+            coord.x()
         );
 
         use geo::algorithm::Area;
@@ -793,11 +920,19 @@ mod tests {
         let flow_dir = make_flow_tile(5, 5, &fd_values);
         let accumulation = make_acc_tile(5, 5, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 5.0, -5.0);
-        let outlet = GeoCoord::new(2.5, -2.5); // pixel (2,2)
+        let outlet = NativeCoord::new(2.5, -2.5); // pixel (2,2)
         let threshold = SnapThreshold::new(500);
 
-        let result =
-            refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold).unwrap();
+        let result = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap();
 
         use geo::algorithm::Area;
         let area = result.polygon().unsigned_area();
@@ -823,15 +958,31 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
-            .unwrap_err();
-        assert!(
-            matches!(err, RefinementError::SnapFailed { .. }),
-            "expected SnapFailed, got {err:?}"
-        );
+        let err = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RefinementError::SnapFailed {
+                source: SnapError::NoCellAboveThreshold {
+                    threshold: 500.0,
+                    units: FlowAccumulationUnits::Cells,
+                    epsg: 4326,
+                    outlet_x: 1.5,
+                    outlet_y: -1.5,
+                }
+            }
+        ));
     }
 
     #[test]
@@ -844,15 +995,31 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
         // Outlet way outside
-        let outlet = GeoCoord::new(10.0, 10.0);
+        let outlet = NativeCoord::new(10.0, 10.0);
         let threshold = SnapThreshold::new(500);
 
-        let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
-            .unwrap_err();
-        assert!(
-            matches!(err, RefinementError::SnapFailed { .. }),
-            "expected SnapFailed, got {err:?}"
-        );
+        let err = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RefinementError::SnapFailed {
+                source: SnapError::OutletOutOfBounds {
+                    epsg: 4326,
+                    outlet_x: 10.0,
+                    outlet_y: 10.0,
+                    rows: 3,
+                    cols: 3,
+                }
+            }
+        ));
     }
 
     #[test]
@@ -867,15 +1034,31 @@ mod tests {
         let accumulation = make_acc_tile(3, 3, &acc_values);
         // Terminal polygon covers only top-left 2x2 — masks out the one cell with acc
         let terminal_polygon = rect_polygon(0.0, 0.0, 2.0, -2.0);
-        let outlet = GeoCoord::new(0.5, -0.5);
+        let outlet = NativeCoord::new(0.5, -0.5);
         let threshold = SnapThreshold::new(500);
 
-        let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
-            .unwrap_err();
-        assert!(
-            matches!(err, RefinementError::SnapFailed { .. }),
-            "expected SnapFailed, got {err:?}"
-        );
+        let err = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RefinementError::SnapFailed {
+                source: SnapError::NoCellAboveThreshold {
+                    threshold: 500.0,
+                    units: FlowAccumulationUnits::Cells,
+                    epsg: 4326,
+                    outlet_x: 0.5,
+                    outlet_y: -0.5,
+                }
+            }
+        ));
     }
 
     #[test]
@@ -887,11 +1070,19 @@ mod tests {
         let flow_dir = make_flow_tile(3, 3, &fd_values);
         let accumulation = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(10.0, 10.0, 13.0, 13.0);
-        let outlet = GeoCoord::new(11.5, 11.5);
+        let outlet = NativeCoord::new(11.5, 11.5);
         let threshold = SnapThreshold::new(500);
 
-        let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
-            .unwrap_err();
+        let err = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap_err();
         assert!(
             matches!(err, RefinementError::EmptyRasterMask { .. }),
             "expected EmptyRasterMask, got {err:?}"
@@ -912,11 +1103,19 @@ mod tests {
         let accumulation = AccumulationTile::from_raw(raw);
 
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
-            .unwrap_err();
+        let err = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap_err();
         assert!(
             matches!(err, RefinementError::DimensionMismatch { .. }),
             "expected DimensionMismatch, got {err:?}"
@@ -929,18 +1128,26 @@ mod tests {
         let fd_values = [4u8; 9];
         let acc_values = [1000.0_f32; 9];
 
-        let geo_a = GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0);
-        let geo_b = GeoTransform::new(GeoCoord::new(1.0, 1.0), 1.0, -1.0); // different origin
+        let geo_a = GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0);
+        let geo_b = GeoTransform::new(NativeCoord::new(1.0, 1.0), 1.0, -1.0); // different origin
 
         let flow_dir = make_flow_tile_with(3, 3, &fd_values, geo_a, FlowDirEncoding::Esri);
         let accumulation = make_acc_tile_with(3, 3, &acc_values, geo_b);
 
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
-        let err = refine_terminal(&terminal_polygon, outlet, flow_dir, accumulation, threshold)
-            .unwrap_err();
+        let err = refine_terminal(
+            &terminal_polygon,
+            outlet,
+            flow_dir,
+            accumulation,
+            threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+        )
+        .unwrap_err();
         assert!(
             matches!(err, RefinementError::GeoTransformMismatch { .. }),
             "expected GeoTransformMismatch, got {err:?}"
@@ -964,7 +1171,7 @@ mod tests {
         let flow_dir_direct = make_flow_tile(3, 3, &fd_values);
         let accumulation_direct = make_acc_tile(3, 3, &acc_values);
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let direct_result = refine_terminal(
@@ -973,6 +1180,8 @@ mod tests {
             flow_dir_direct,
             accumulation_direct,
             threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
 
@@ -1011,22 +1220,24 @@ mod tests {
             &terminal_polygon,
             outlet,
             threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap();
 
         let direct_coord = direct_result.snapped_coord();
         let loader_coord = loader_result.snapped_coord();
         assert!(
-            (direct_coord.lon - loader_coord.lon).abs() < 1e-9,
-            "snapped lon mismatch: direct={}, loader={}",
-            direct_coord.lon,
-            loader_coord.lon
+            (direct_coord.x() - loader_coord.x()).abs() < 1e-9,
+            "snapped x mismatch: direct={}, loader={}",
+            direct_coord.x(),
+            loader_coord.x()
         );
         assert!(
-            (direct_coord.lat - loader_coord.lat).abs() < 1e-9,
-            "snapped lat mismatch: direct={}, loader={}",
-            direct_coord.lat,
-            loader_coord.lat
+            (direct_coord.y() - loader_coord.y()).abs() < 1e-9,
+            "snapped y mismatch: direct={}, loader={}",
+            direct_coord.y(),
+            loader_coord.y()
         );
 
         use geo::algorithm::Area;
@@ -1065,7 +1276,7 @@ mod tests {
         }
 
         let terminal_polygon = rect_polygon(0.0, 0.0, 3.0, -3.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         let err = refine_terminal_from_source(
@@ -1075,6 +1286,8 @@ mod tests {
             &terminal_polygon,
             outlet,
             threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         )
         .unwrap_err();
 
@@ -1131,7 +1344,7 @@ mod tests {
 
         // Terminal polygon: [1.0, 4.0] x [-1.0, -4.0]
         let terminal_polygon = rect_polygon(1.0, -1.0, 4.0, -4.0);
-        let outlet = GeoCoord::new(1.5, -1.5);
+        let outlet = NativeCoord::new(1.5, -1.5);
         let threshold = SnapThreshold::new(500);
 
         // We don't care about the result (the mock tiles don't match the bbox),
@@ -1143,6 +1356,8 @@ mod tests {
             &terminal_polygon,
             outlet,
             threshold,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         );
 
         let captured = source.captured_bbox.lock().unwrap().unwrap();
@@ -1167,6 +1382,118 @@ mod tests {
             (captured.max().y - (-1.0)).abs() < 1e-9,
             "expected bbox max_y=-1.0, got {}",
             captured.max().y
+        );
+    }
+
+    #[test]
+    fn loader_forwards_bbox_accumulation_units_and_epsg() {
+        use std::sync::Mutex;
+
+        struct CapturingSource {
+            requests: Mutex<Vec<Rect<f64>>>,
+        }
+
+        impl RasterSource for CapturingSource {
+            fn load_flow_direction(
+                &self,
+                _uri: &str,
+                bbox: &Rect<f64>,
+            ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+                self.requests.lock().unwrap().push(*bbox);
+                Ok(make_flow_tile_with(
+                    1,
+                    1,
+                    &[0],
+                    GeoTransform::new(NativeCoord::new(0.0, 0.0), 30.0, -30.0),
+                    FlowDirEncoding::Esri,
+                ))
+            }
+
+            fn load_accumulation(
+                &self,
+                _uri: &str,
+                bbox: &Rect<f64>,
+            ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+                self.requests.lock().unwrap().push(*bbox);
+                let threshold_cells = 1_000_u32;
+                let threshold_km2 =
+                    threshold_cells as f64 * (30.0_f64 * -30.0_f64).abs() / 1_000_000.0;
+                let below_threshold = f32::from_bits((threshold_km2 as f32).to_bits() - 1);
+                Ok(make_acc_tile_with(
+                    1,
+                    1,
+                    &[below_threshold],
+                    GeoTransform::new(NativeCoord::new(0.0, 0.0), 30.0, -30.0),
+                ))
+            }
+        }
+
+        let source = CapturingSource {
+            requests: Mutex::new(Vec::new()),
+        };
+        let terminal_polygon = rect_polygon(0.0, 0.0, 30.0, -30.0);
+        let expected_bbox = terminal_polygon.bounding_rect().unwrap();
+        let threshold_cells = 1_000_u32;
+        let expected_threshold =
+            (threshold_cells as f64 * (30.0_f64 * -30.0_f64).abs() / 1_000_000.0) as f32;
+
+        let err = refine_terminal_from_source(
+            &source,
+            "flow.tif",
+            "acc.tif",
+            &terminal_polygon,
+            NativeCoord::new(15.0, -15.0),
+            SnapThreshold::new(1_000),
+            FlowAccumulationUnits::Km2,
+            8857_u32,
+        )
+        .expect_err("sample below the forwarded km2 threshold should fail");
+
+        assert_eq!(
+            source.requests.lock().unwrap().as_slice(),
+            &[expected_bbox, expected_bbox]
+        );
+        assert!(matches!(
+            err,
+            RefinementError::SnapFailed {
+                source: SnapError::NoCellAboveThreshold {
+                    threshold,
+                    units: FlowAccumulationUnits::Km2,
+                    epsg: 8857,
+                    outlet_x: 15.0,
+                    outlet_y: -15.0,
+                }
+            } if threshold == expected_threshold
+        ));
+    }
+
+    #[test]
+    fn geographic_km2_is_rejected_before_snapping() {
+        let terminal_polygon = rect_polygon(0.0, 0.0, 1.0, -1.0);
+        let flow_dir = make_flow_tile(1, 1, &[0]);
+        let accumulation = make_acc_tile(1, 1, &[1.0]);
+
+        let err = refine_terminal(
+            &terminal_polygon,
+            NativeCoord::new(0.5, -0.5),
+            flow_dir,
+            accumulation,
+            SnapThreshold::new(1),
+            FlowAccumulationUnits::Km2,
+            4326_u32,
+        )
+        .expect_err("geographic pixel area must not be approximated");
+
+        assert!(matches!(
+            err,
+            RefinementError::GeographicKm2Unsupported {
+                epsg: 4326,
+                units: FlowAccumulationUnits::Km2,
+            }
+        ));
+        assert_eq!(
+            err.to_string(),
+            "flow accumulation units km2 require projected pixel area, but EPSG:4326 is geographic"
         );
     }
 }

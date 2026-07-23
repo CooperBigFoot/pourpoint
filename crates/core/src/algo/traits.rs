@@ -1,4 +1,4 @@
-//! Trait boundaries for external capabilities (raster I/O, geometry repair).
+//! Trait boundaries for raster-native I/O and geometry repair capabilities.
 //!
 //! These traits are defined in `pourpoint-core` and implemented by `pourpoint-gdal`.
 
@@ -78,7 +78,7 @@ pub enum GeometryRepairError {
 ///
 /// The canonical implementation uses GDAL and lives in `pourpoint-gdal`.
 pub trait RasterSource {
-    /// Load flow direction values within `bbox` from the raster URI at `uri`.
+    /// Load flow direction values within raster-native `bbox` coordinates from `uri`.
     ///
     /// # Errors
     ///
@@ -95,7 +95,7 @@ pub trait RasterSource {
         bbox: &Rect<f64>,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError>;
 
-    /// Load flow accumulation values within `bbox` from the raster URI at `uri`.
+    /// Load flow accumulation values within raster-native `bbox` coordinates from `uri`.
     ///
     /// # Errors
     ///

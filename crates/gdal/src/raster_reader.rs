@@ -11,9 +11,10 @@ use hfx::FlowDirEncoding;
 use tracing::{debug, instrument};
 
 use pourpoint_core::algo::accumulation_tile::AccumulationTile;
-use pourpoint_core::algo::coord::{GeoCoord, GridDims};
+use pourpoint_core::algo::coord::GridDims;
 use pourpoint_core::algo::flow_direction_tile::FlowDirectionTile;
 use pourpoint_core::algo::geo_transform::GeoTransform;
+use pourpoint_core::algo::projection::NativeCoord;
 use pourpoint_core::algo::raster_tile::RasterTile;
 use pourpoint_core::algo::tile_state::Raw;
 use pourpoint_core::algo::traits::{RasterSource, RasterSourceError};
@@ -248,7 +249,11 @@ fn gdal_to_geo_transform(gt: &[f64; 6]) -> Result<GeoTransform, RasterReadError>
             skew_y: gt[4],
         });
     }
-    Ok(GeoTransform::new(GeoCoord::new(gt[0], gt[3]), gt[1], gt[5]))
+    Ok(GeoTransform::new(
+        NativeCoord::new(gt[0], gt[3]),
+        gt[1],
+        gt[5],
+    ))
 }
 
 /// Convert a geographic [`Rect`] bounding box to a pixel window `(x_off, y_off, x_size, y_size)`.
@@ -293,7 +298,7 @@ fn bbox_to_pixel_window(
 /// Adjust the geo-transform origin to reflect a windowed read starting at
 /// `(x_off, y_off)` pixels from the raster top-left.
 fn window_geo_transform(gt: &GeoTransform, x_off: isize, y_off: isize) -> GeoTransform {
-    let origin = GeoCoord::new(
+    let origin = NativeCoord::new(
         gt.origin_x() + x_off as f64 * gt.pixel_width(),
         gt.origin_y() + y_off as f64 * gt.pixel_height(),
     );

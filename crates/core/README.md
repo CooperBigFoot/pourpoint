@@ -132,11 +132,11 @@ sequenceDiagram
     S->>T: load_accumulation(bbox)
     T-->>R: FlowDirectionTile<Raw>
     T-->>R: AccumulationTile<Raw>
-    A->>A: rasterize_polygon → CatchmentMask
+    A->>A: rasterize native x/y polygon → CatchmentMask
     A->>A: AccumulationTile.apply_mask → AccumulationTile<Masked>
-    A->>A: snap_pour_point → SnappedPoint
-    A->>A: trace_upstream → CatchmentMask
-    A->>A: polygonize → Vec<Polygon>
+    A->>A: snap native x/y outlet → SnappedPoint
+    A->>A: trace_upstream from native-grid cell → CatchmentMask
+    A->>A: polygonize → native x/y MultiPolygon
     A->>A: dissolve → MultiPolygon
     A->>A: WatershedGeometry pipeline → Polygon
 ```
@@ -154,6 +154,36 @@ The built-in D8 carve sequence is fixed as:
 ```text
 rasterize terminal -> mask flow-dir + accumulation -> snap -> masked trace -> polygonize
 ```
+
+Inside this carve stack, `GeoTransform`, rasterization, snapping, tracing,
+polygonization, `SnappedPoint`, and `RefinementResult` use raster-native x/y
+coordinates. The complete data flow is:
+
+```text
+EPSG:4326 terminal -> per-declaration forward projection -> native coverage and localization
+-> native raster carve and snap -> inverse carved rings and outlet only -> EPSG:4326 result
+```
+
+D8 grids are never warped, resampled, or reprojected. Supported declaration
+CRSs are exactly the existing `Crs` variants. An unsupported declaration CRS is
+a D8 selection error. The selected carved rings and snapped outlet are the only
+values inverse-transformed, and component, ring, and vertex order is retained.
+The EPSG:4326 identity path remains byte-exact because its forward and inverse
+operations only move coordinate fields.
+
+For `cells`, snapping preserves `threshold.as_f32()` behavior. For `km2`, the
+effective threshold is evaluated as
+`threshold_cells as f64 * (pixel_width * pixel_height).abs() / 1_000_000.0`;
+the completed result is cast exactly once to `f32` and compared directly with
+the raw `f32` accumulation sample. EPSG:4326 plus `km2` is a refinement error
+because geographic pixel area is not approximated.
+
+`forward` remains instrumented, so selection produces one existing-default-level
+span per ring vertex per candidate declaration. Unsupported CRS failures travel
+through `EngineError::D8Selection` and map to Python `DatasetError`.
+Geographic-`km2` and inverse failures travel through `EngineError::Refinement`
+and map to generic Python `PourpointError`; this classification difference
+preserves the existing `EngineError` variants.
 
 There is no vector clamp, intersection, or cleaning pass in the refinement
 algorithm. Final watershed assembly is always merge-after: preserve pristine
@@ -221,7 +251,8 @@ ambiguity boundary is surfaced for real MERIT coverage conflicts.
 | CleanEpsilon | Tiny buffer distance (degrees) used in buffer-unbuffer topology cleaning |
 | HoleFillMode | Policy for interior holes: remove all, or keep holes above an area threshold |
 | Typestate | Compile-time state tracking via zero-size type parameters (`Raw`/`Masked`, `Dissolved`/`TopologyCleaned`/`HolesFilled`) |
-| GeoTransform | GDAL-style affine transform storing origin + pixel dimensions (no rotation/shear) |
+| GeoTransform | GDAL-style affine transform mapping raster-native x/y coordinates to pixels (no rotation/shear) |
+| NativeCoord | Typed raster-native x/y coordinate used inside the raster carve stack |
 | Row-group pruning | Skipping Parquet row groups whose bbox statistics don't intersect the query bbox |
 
 ## Key Types
@@ -246,9 +277,10 @@ ambiguity boundary is surfaced for real MERIT coverage conflicts.
 | `AccumulationTile<S>` | `algo/accumulation_tile.rs` | Typed flow-accumulation tile; `apply_mask` transitions `Raw` → `Masked` |
 | `CatchmentMask` | `algo/catchment_mask.rs` | Boolean visited-cell set; output of `trace_upstream` and `rasterize_polygon` |
 | `RasterTile<T>` | `algo/raster_tile.rs` | Generic row-major tile with OOB-safe `(isize,isize)` indexing |
-| `GeoTransform` | `algo/geo_transform.rs` | Pixel ↔ geographic coordinate conversion |
+| `GeoTransform` | `algo/geo_transform.rs` | Pixel ↔ raster-native x/y coordinate conversion |
 | `FlowDir` | `algo/flow_dir.rs` | D8 direction enum with ESRI and TauDEM decoding |
-| `SnappedPoint` | `algo/snap.rs` | Result of a successful pour-point snap (grid cell + geo coord + accumulation) |
+| `SnappedPoint` | `algo/snap.rs` | Result of a successful pour-point snap (grid cell + native x/y coordinate + accumulation) |
+| `RefinementResult` | `algo/refine.rs` | Native snapped coordinate and raster-native refined polygon |
 | `snap_pour_point` | `algo/snap.rs` | Snap outlet to nearest masked cell above `SnapThreshold` |
 | `trace_upstream` | `algo/trace.rs` | DFS upstream traversal returning a `CatchmentMask` |
 | `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` |

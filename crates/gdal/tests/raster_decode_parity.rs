@@ -5,9 +5,9 @@ use gdal::raster::Buffer;
 use geo::Rect;
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx::{FlowDirEncoding, UnitId};
+use hfx::{FlowAccumulationUnits, FlowDirEncoding, UnitId};
 use pourpoint_core::algo::{
-    GeoCoord, GridCoord, GridDims, RasterSource, SnapThreshold, canonical_wkb_multi_polygon,
+    GridCoord, GridDims, NativeCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon,
     refine_terminal_from_source,
 };
 use pourpoint_core::session::DatasetSession;
@@ -234,6 +234,8 @@ fn assert_direct_terminal_carve_matches_gdal(
             terminal_polygon,
             record.resolved_outlet.into(),
             SnapThreshold::DEFAULT,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         );
         let gdal_result = refine_terminal_from_source(
             gdal,
@@ -242,6 +244,8 @@ fn assert_direct_terminal_carve_matches_gdal(
             terminal_polygon,
             record.resolved_outlet.into(),
             SnapThreshold::DEFAULT,
+            FlowAccumulationUnits::Cells,
+            4326_u32,
         );
         match (local_result, gdal_result) {
             (Ok(local_result), Ok(gdal_result)) => {
@@ -313,9 +317,9 @@ struct Outlet {
     lat: f64,
 }
 
-impl From<Outlet> for GeoCoord {
+impl From<Outlet> for NativeCoord {
     fn from(outlet: Outlet) -> Self {
-        GeoCoord::new(outlet.lon, outlet.lat)
+        NativeCoord::new(outlet.lon, outlet.lat)
     }
 }
 

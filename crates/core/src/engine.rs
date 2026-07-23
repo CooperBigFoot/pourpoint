@@ -1072,12 +1072,12 @@ impl From<TerminalRefinementError> for EngineError {
 #[cfg(test)]
 mod tests {
     use geo::Rect;
-    use hfx::FlowDirEncoding;
+    use hfx::{FlowAccumulationUnits, FlowDirEncoding};
 
     use super::*;
     use crate::algo::{
-        AccumulationTile, FlowDirectionTile, GeoTransform, GridCoord, GridDims, RasterSourceError,
-        RasterTile, Raw,
+        AccumulationTile, FlowDirectionTile, GeoTransform, GridCoord, GridDims, NativeCoord,
+        ProjectionError, RasterSourceError, RasterTile, Raw,
     };
     use crate::reader::catchment_store::{
         READER_SESSION_INSTRUMENTATION_TEST_LOCK, reset_geometry_decode_counts_for_test,
@@ -1112,7 +1112,7 @@ mod tests {
     }
 
     fn test_raster_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     fn make_flow_tile(values: &[u8]) -> FlowDirectionTile<Raw> {
@@ -1423,5 +1423,53 @@ mod tests {
         let wkb = result.geometry_wkb().expect("WKB encoding should succeed");
         assert!(!wkb.is_empty(), "WKB bytes must not be empty");
         assert_eq!(wkb[0], 0x01, "first byte must be 0x01 (little-endian)");
+    }
+
+    #[test]
+    fn projection_seam_errors_keep_existing_engine_routes() {
+        let unsupported = EngineError::from(TerminalRefinementError::D8Selection {
+            unit_id: 42,
+            source: SessionError::UnsupportedD8Crs {
+                declared_crs: "EPSG:3857".to_string(),
+                source: ProjectionError::UnsupportedCrs { epsg: 3857 },
+            },
+        });
+        assert!(matches!(
+            unsupported,
+            EngineError::D8Selection {
+                source: SessionError::UnsupportedD8Crs { .. },
+                ..
+            }
+        ));
+
+        let geographic_km2 = EngineError::from(TerminalRefinementError::Algorithm {
+            unit_id: 42,
+            source: RefinementError::GeographicKm2Unsupported {
+                epsg: 4326,
+                units: FlowAccumulationUnits::Km2,
+            },
+        });
+        assert!(matches!(
+            geographic_km2,
+            EngineError::Refinement {
+                source: RefinementError::GeographicKm2Unsupported { .. },
+                ..
+            }
+        ));
+
+        let inverse = EngineError::from(TerminalRefinementError::Algorithm {
+            unit_id: 42,
+            source: RefinementError::InverseProjection {
+                epsg: 8857,
+                source: ProjectionError::OutOfDomain { x: 1.0e8, y: 1.0e8 },
+            },
+        });
+        assert!(matches!(
+            inverse,
+            EngineError::Refinement {
+                source: RefinementError::InverseProjection { epsg: 8857, .. },
+                ..
+            }
+        ));
     }
 }

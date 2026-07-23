@@ -5,7 +5,7 @@ use arrow::array::{
     Array, BinaryArray, Int16Array, Int64Array, LargeBinaryArray, LargeListArray, ListArray,
 };
 use arrow::datatypes::DataType;
-use geo::{Geometry, Rect, coord};
+use geo::{Geometry, LineString, MultiPolygon, Polygon};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use hfx::{EpsgCode, FlowAccumulationUnits, FlowDirEncoding, Topology, WkbGeometry};
@@ -153,11 +153,18 @@ fn auxiliary_d8_v2_opens_through_session_path() {
     let session = DatasetSession::open_path(&root).expect("v2 D8 declaration should open");
     assert!(session.has_d8_aux());
     replace_raster_stubs_with_committed_fixture(&root);
-    let handle = session
-        .select_d8_raster_for_bbox(Rect::new(
-            coord! { x: 0.0, y: -5.0 },
-            coord! { x: 5.0, y: 0.0 },
-        ))
+    let terminal = MultiPolygon::new(vec![Polygon::new(
+        LineString::from(vec![
+            (0.0_f64, -5.0_f64),
+            (5.0_f64, -5.0_f64),
+            (5.0_f64, 0.0_f64),
+            (0.0_f64, 0.0_f64),
+            (0.0_f64, -5.0_f64),
+        ]),
+        vec![],
+    )]);
+    let (handle, _) = session
+        .select_d8_raster_for_terminal(&terminal)
         .expect("v2 D8 handle should be selected through the session");
     let expected_crs: EpsgCode = "EPSG:4326".parse().unwrap();
     assert_eq!(handle.crs(), &expected_crs);

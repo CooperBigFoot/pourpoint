@@ -193,10 +193,11 @@ impl<T: Copy + PartialEq + Debug> Index<(isize, isize)> for RasterTile<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algo::coord::{GeoCoord, GridCoord, GridDims};
+    use crate::algo::coord::{GridCoord, GridDims};
+    use crate::algo::projection::NativeCoord;
 
     fn simple_geo() -> GeoTransform {
-        GeoTransform::new(GeoCoord::new(0.0, 0.0), 1.0, -1.0)
+        GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
     #[test]
@@ -322,7 +323,7 @@ mod tests {
 
     #[test]
     fn geo_accessor() {
-        let geo = GeoTransform::new(GeoCoord::new(10.0, 50.0), 0.5, -0.5);
+        let geo = GeoTransform::new(NativeCoord::new(10.0, 50.0), 0.5, -0.5);
         let tile = RasterTile::new(GridDims::new(2, 2), 0i32, geo).unwrap();
         assert_eq!(tile.geo().origin_x(), 10.0);
         assert_eq!(tile.geo().origin_y(), 50.0);
