@@ -7,7 +7,61 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-06-28
+## [0.2.0] - 2026-07-23
+
+### Changed
+
+- `hfx.aux.d8_raster.v1` is de-blessed. Opening a v1 dataset now fails with an
+  error directing the user to recompile it with a v2-emitting adapter.
+- Terminal refinement supports EPSG:8857 Equal Earth rasters without raster
+  reprojection. Selection, carving, and snapping stay in the raster's native
+  CRS; only the refined result is converted back to EPSG:4326.
+- Public snap thresholds remain cell counts. For accumulation declared in
+  `km2`, the comparison threshold is converted using projected pixel area.
+  EPSG:4326 with `km2` is rejected rather than approximated.
+
+### Fixed
+
+- pourpoint 0.1.0 could return non-reproducible carve geometry for
+  multi-component terminals, including different canonical geometry and
+  polygon counts when components shared a vertex. At the fix's base commit, the
+  separated-component probe had 15/15 repeats differ from the first, while the
+  diagonal probe had 199/199 differing outputs, two canonical WKBs, and polygon
+  counts of 6 or 7. Version 0.2.0 uses ordered ring-origin selection; both
+  probes converged to one raw geometry across 200 in-process calls and 15
+  separate processes.
+
+### Rust source compatibility
+
+The release-prep change contains no Rust source changes, so the public enum
+surface at the prepared commit equals the surface derived at base commit
+`d0637d41d3cb4b5421121dd31c604dfbec16f1ae` against
+`pourpoint-v0.1.0`:
+
+| Public enum | Status | Added variants |
+|---|---|---|
+| `RefinementError` | existing | `GeographicKm2Unsupported`, `InverseProjection` |
+| `SessionError` | existing | `UnsupportedD8RasterV1`, `D8CrsIdentifierOutOfRange`, `UnsupportedD8Crs` |
+| `ProjectionError` | new | `UnsupportedCrs`, `NonConvergence`, `OutOfDomain` |
+| `Crs` | new | `Epsg4326`, `Epsg8857` |
+| `InverseStage` | new | `Theta`, `GeodeticLatitude` |
+
+None of these enums, or any enum under `crates/`, is marked
+`#[non_exhaustive]`. Downstream Rust code with exhaustive matches may therefore
+require source changes.
+
+## [0.1.0] - 2026-07-07
+
+- Established the first public `pourpoint` release and the compatibility
+  baseline used for the 0.2.0 enum derivation.
+
+## Legacy `pyshed` history
+
+The entries below predate the `pourpoint` release stream. Their original
+historical bullets are retained, while their headings are explicitly namespaced
+to prevent their version numbers from being read as current pourpoint releases.
+
+### [pyshed 0.3.0] - 2026-06-28
 
 - **Requires HFX v0.3.0; older HFX format versions no longer load.** HFX v0.3.0
   stores catchment and snap bounding boxes as a GeoParquet 1.1 bbox covering
@@ -23,7 +77,7 @@ per-commit Rust crate versioning).
 - The hosted GRIT `2.0.0` example dataset is re-hosted at HFX v0.3.0 in lockstep
   with this release.
 
-## [0.2.4] - 2026-06-18
+### [pyshed 0.2.4] - 2026-06-18
 
 - fix: terminals covered by multiple overlapping per-Pfaf-02 D8 raster
   declarations (e.g. the MERIT v0.2.x global fabric) now select the
@@ -32,7 +86,7 @@ per-commit Rust crate versioning).
   single coherent D8 fabric and agree in the overlap, so the choice is
   immaterial.
 
-## [0.2.3] - 2026-06-07
+### [pyshed 0.2.3] - 2026-06-07
 
 - fix: `bench_trace` now flushes trace output on exit.
 - typing: added `bench_trace` to the packaged type stubs.
@@ -40,7 +94,7 @@ per-commit Rust crate versioning).
   open performance, `HFX_CACHE_DIR` + reuse-the-Engine guidance, geometry vs
   area-only delineation).
 
-## [0.2.2] - 2026-06-06
+### [pyshed 0.2.2] - 2026-06-06
 
 - perf: rebuild against the core validation sidecar and id-index reuse fix, so a
   warm open skips the full referential re-scan. Repeat opens are substantially
@@ -48,7 +102,7 @@ per-commit Rust crate versioning).
   populates the cache. No API or input-contract change; requires HFX v0.2.1
   datasets (unchanged from 0.2.1).
 
-## [0.2.1] - 2026-06-06
+### [pyshed 0.2.1] - 2026-06-06
 
 - perf: dataset open no longer reads the full catchment `geometry` column for
   referential validation (id/level-only projection). Cold open on large datasets
@@ -57,19 +111,19 @@ per-commit Rust crate versioning).
   The remaining open cost is the (still uncached) id-index build. No API or
   input-contract change; requires HFX v0.2.1 datasets (unchanged from 0.2.0).
 
-## [0.2.0] - 2026-06-05
+### [pyshed 0.2.0] - 2026-06-05
 
 - requires HFX v0.2.1; v0.1 no longer loads
 - new: staged sub-function API + unit-bundle GeoParquet export.
 - Added `LevelSelection.FINEST` and the explicit
   `Engine.select_level(selection=...)` parameter.
 
-## [0.2.0rc3] - 2026-06-05
+### [pyshed 0.2.0rc3] - 2026-06-05
 
 - requires HFX v0.2.1; v0.1 no longer loads
 - new: staged sub-function API + unit-bundle GeoParquet export.
 
-## [0.1.11] - 2026-05-06
+### [pyshed 0.1.11] - 2026-05-06
 
 ### Changed
 
@@ -82,7 +136,7 @@ per-commit Rust crate versioning).
 - Defaulted the `repair_geometry` kwarg to clean topology and selected the
   dissolve strategy from benchmark results.
 
-## [0.1.10] - 2026-05-04
+### [pyshed 0.1.10] - 2026-05-04
 
 ### Changed
 
@@ -100,7 +154,7 @@ per-commit Rust crate versioning).
   `s3://`, and Cloudflare R2 HTTPS URLs, plus remote manifest/graph caching via
   `HFX_CACHE_DIR` and parquet range-read behavior.
 
-## [0.1.7] - 2026-04-21
+### [pyshed 0.1.7] - 2026-04-21
 
 ### Changed
 
@@ -108,7 +162,7 @@ per-commit Rust crate versioning).
   published as an Apple Silicon macOS-only wheel while Linux support is left
   open for future community contribution.
 
-## [0.1.6] - 2026-04-21
+### [pyshed 0.1.6] - 2026-04-21
 
 ### Fixed
 
@@ -117,7 +171,7 @@ per-commit Rust crate versioning).
   environment option` failure seen in `0.1.5` before the Linux build even
   started.
 
-## [0.1.5] - 2026-04-21
+### [pyshed 0.1.5] - 2026-04-21
 
 ### Fixed
 
@@ -126,7 +180,7 @@ per-commit Rust crate versioning).
   requested. This fixes the failed `0.1.4` Linux wheel build before wheel
   repair.
 
-## [0.1.4] - 2026-04-21
+### [pyshed 0.1.4] - 2026-04-21
 
 ### Added
 
@@ -140,7 +194,7 @@ per-commit Rust crate versioning).
 - Documented Linux x86_64 as a supported wheel platform in the package README
   and metadata.
 
-## [0.1.3] - 2026-04-20
+### [pyshed 0.1.3] - 2026-04-20
 
 ### Changed
 
@@ -150,7 +204,7 @@ per-commit Rust crate versioning).
 
 - Pass `snap_strategy="distance-first"` to `Engine(...)` or `Engine.delineate(...)` to keep the v0.1.2 behavior.
 
-## [0.1.2] - 2026-04-18
+### [pyshed 0.1.2] - 2026-04-18
 
 ### Added
 - Shipped PEP 561 typing metadata in the wheel via `pyshed/__init__.pyi` and
@@ -164,7 +218,7 @@ per-commit Rust crate versioning).
   `Engine.delineate_batch()` accepts outlet dicts with `"lat"` and `"lon"`
   keys.
 
-## [0.1.1] - 2026-04-17
+### [pyshed 0.1.1] - 2026-04-17
 
 ### Changed
 - Locked GDAL's cmake dependency discovery to the wheel build prefix and passed
@@ -178,7 +232,7 @@ per-commit Rust crate versioning).
   belt-and-suspenders fallback. `_set_proj_data()` now also sets the `PROJ_DATA`
   GDAL config option before calling `OSRSetPROJSearchPaths`.
 
-## [0.1.0] - 2026-04-17
+### [pyshed 0.1.0] - 2026-04-17
 
 First public release on PyPI. Apple Silicon macOS only (`macosx_11_0_arm64`);
 community contributions for Linux / Intel / Windows are welcome — see
@@ -196,20 +250,20 @@ community contributions for Linux / Intel / Windows are welcome — see
 - Runtime injection of bundled `GDAL_DATA` and `proj.db` via `CPLSetConfigOption`
   and `OSRSetPROJSearchPaths` at module import time.
 
-## Pre-release history
+### `pyshed` pre-release history
 
-### [0.1.0rc4] - 2026-04-17
+#### [pyshed 0.1.0rc4] - 2026-04-17
 Dropped `PROJ_RENAME_SYMBOLS` — PROJ's cmake renames its own symbols but not
 libgeod's, so GDAL's preprocessor rewrote `geod_init` → `internal_geod_init`
 against a PROJ that didn't export the renamed names.
 
-### [0.1.0rc3] - 2026-04-17
+#### [pyshed 0.1.0rc3] - 2026-04-17
 Fixed build order: `build_tiff` must run before `build_proj`; PROJ 9.7's cmake
 requires TIFF.
 
-### [0.1.0rc2] - 2026-04-17
+#### [pyshed 0.1.0rc2] - 2026-04-17
 Removed a top-level `permissions: actions: read` block that was stripping
 `contents: read` and causing `actions/checkout` to fail on the private repo.
 
-### [0.1.0rc1] - 2026-04-17
+#### [pyshed 0.1.0rc1] - 2026-04-17
 Initial TestPyPI dry run.

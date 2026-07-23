@@ -45,6 +45,20 @@ See [`crates/python/README.md`](crates/python/README.md) for the Python
 quickstart and [`crates/python/API.md`](crates/python/API.md) for the full
 developer API reference.
 
+### Pending 0.2.0 raster-refinement contract
+
+The prepared, not-yet-published pourpoint 0.2.0 release consumes only
+`hfx.aux.d8_raster.v2` D8 auxiliaries. It supports EPSG:4326 and EPSG:8857 D8
+rasters, performs declaration selection, carving, and snapping in the raster's
+native CRS, and converts only the refined result back to EPSG:4326. Snap
+thresholds expressed as `cells` remain cell counts; projected `km2` thresholds
+are compared using projected pixel area. Version 0.2.0 rejects v1 auxiliaries
+and rejects `km2` accumulation on EPSG:4326 rather than approximating angular
+pixel area. For identical inputs, returned carve geometry is deterministic.
+
+The curated notes, local evidence, and still-unfired human gates are in the
+[0.2.0 release runbook](docs/releases/projected-crs-terminal-refinement.md).
+
 ## Dataset locations
 
 `pourpoint` accepts local HFX dataset folders and remote URLs to datasets hosted
@@ -135,7 +149,7 @@ cargo build --release
 | `crates/gdal` | GDAL bridge for windowed raster reads + GEOS geometry repair |
 | `crates/python` | Python bindings, published on PyPI as `pourpoint` |
 | `src/main.rs` | The `pourpoint` CLI binary |
-| `ci/`, `.github/` | macOS arm64 wheel build pipeline (cibuildwheel + bespoke native stack) |
+| `ci/`, `.github/` | Five-platform wheel build, repair, test, and publication pipeline |
 | `scripts/` | Version-bump helpers; see `CLAUDE.md` for the workflow |
 
 ## Contributing

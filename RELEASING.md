@@ -3,11 +3,13 @@
 This repository has two independent release streams. Do not confuse them:
 
 - **Workspace (`pourpoint` / `pourpoint-core`)** — tagged `v*`. Publishing a `v*` GitHub
-  Release does **not** publish pourpoint: `build-wheels.yaml` guards every publish
-  path (and the build job) on the `pourpoint-v` tag prefix.
+  Release does **not** build or publish Python artifacts:
+  `.github/workflows/build-wheels.yaml` runs release builds only when the
+  published release tag starts with `pourpoint-v`.
 - **pourpoint (Python bindings)** — tagged `pourpoint-v*`. Publishing a `pourpoint-v*`
-  GitHub Release is what builds and ships the wheel to PyPI / TestPyPI via OIDC
-  Trusted Publishing (no stored tokens).
+  GitHub Release builds and ships Python artifacts to PyPI / TestPyPI via OIDC
+  Trusted Publishing (no stored tokens). A tag containing `rc` routes to
+  TestPyPI; a clean tag routes to real PyPI.
 
 Versions change **only** on intentional, curated releases — never per commit.
 Agents never create or push tags; a human cuts every release.
@@ -44,8 +46,16 @@ Agents never create or push tags; a human cuts every release.
    | contains `rc`      | TestPyPI     |
    | no `rc`            | real PyPI    |
 
-   Publishing the Release triggers `build-wheels.yaml`, which builds the macOS
-   arm64 wheel and publishes it via OIDC — no stored tokens.
+   Publishing the Release triggers `build-wheels.yaml`. It builds and repairs
+   wheels for macOS arm64, macOS x86_64, Linux x86_64, Linux aarch64, and
+   Windows amd64, plus an sdist. Each platform stages bundled GDAL/PROJ data;
+   repaired wheels undergo installed-wheel import, version, bundled-data,
+   native-stack, and missing-dataset smoke tests before the configured GitHub
+   environment permits OIDC publication.
+
+   A local `maturin build` dry run is unrepaired and platform-local. It is
+   evidence only and is never an artifact uploaded to PyPI; the workflow-built
+   and repaired artifacts are authoritative.
 
 > **First release after adopting OIDC:** cut an **rc** (routes to TestPyPI) to
 > prove the Trusted-Publishing handshake end-to-end **before** a clean version
@@ -79,3 +89,11 @@ only a repository admin can do. Do this **once**:
 Until both Trusted Publishers and the `pypi` / `testpypi` environments exist, a
 published `pourpoint-v*` Release will build the wheel but the publish step will fail
 the OIDC handshake.
+
+## pourpoint 0.2.0 stream status
+
+**PREPARED — UNFIRED.** The release artifacts and human runbook are prepared,
+but both the `pourpoint-v0.2.0` GitHub release and the resulting real-PyPI
+publication remain human-gated and unfired. Review the
+[tracked 0.2.0 release runbook](docs/releases/projected-crs-terminal-refinement.md)
+before either action.
