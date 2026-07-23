@@ -1,8 +1,7 @@
 //! Terminal refinement strategy contract and provenance types.
 
 use geo::{BoundingRect, MultiPolygon};
-use hfx::FlowDirEncoding;
-use hfx::UnitId;
+use hfx::{D8RasterMetadataV2, EpsgCode, FlowAccumulationUnits, FlowDirEncoding, UnitId};
 use object_store::path::Path as ObjectPath;
 
 use crate::algo::coord::GeoCoord;
@@ -186,7 +185,7 @@ pub struct D8RasterHandle {
     flow_acc_uri: String,
     remote_flow_dir_path: Option<ObjectPath>,
     remote_flow_acc_path: Option<ObjectPath>,
-    flow_dir_encoding: FlowDirEncoding,
+    metadata: D8RasterMetadataV2,
 }
 
 impl D8RasterHandle {
@@ -197,7 +196,7 @@ impl D8RasterHandle {
         flow_acc_uri: String,
         remote_flow_dir_path: Option<ObjectPath>,
         remote_flow_acc_path: Option<ObjectPath>,
-        flow_dir_encoding: FlowDirEncoding,
+        metadata: D8RasterMetadataV2,
     ) -> Self {
         Self {
             declaration_index,
@@ -205,7 +204,7 @@ impl D8RasterHandle {
             flow_acc_uri,
             remote_flow_dir_path,
             remote_flow_acc_path,
-            flow_dir_encoding,
+            metadata,
         }
     }
 
@@ -236,7 +235,17 @@ impl D8RasterHandle {
 
     /// Return the declared flow-direction encoding.
     pub fn flow_dir_encoding(&self) -> FlowDirEncoding {
-        self.flow_dir_encoding
+        self.metadata.flow_dir_encoding()
+    }
+
+    /// Return the declared raster CRS.
+    pub fn crs(&self) -> &EpsgCode {
+        self.metadata.crs()
+    }
+
+    /// Return the declared flow-accumulation units.
+    pub fn flow_accumulation_units(&self) -> FlowAccumulationUnits {
+        self.metadata.flow_acc_units()
     }
 }
 

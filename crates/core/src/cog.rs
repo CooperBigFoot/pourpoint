@@ -96,11 +96,13 @@ impl LocalizedRasterWindow {
     }
 }
 
-/// Supported one-band MERIT sample layouts.
+/// Supported one-band D8 raster sample layouts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CogSampleType {
     U8,
+    I8,
     F32,
+    I32,
 }
 
 /// Metadata needed to plan and materialize a COG window.
@@ -486,7 +488,9 @@ fn read_metadata(
         .unwrap_or_else(|| vec![1]);
     let sample_type = match (color_type, sample_formats.as_slice()) {
         (tiff::ColorType::Gray(8), [1]) => CogSampleType::U8,
+        (tiff::ColorType::Gray(8), [2]) => CogSampleType::I8,
         (tiff::ColorType::Gray(32), [3]) => CogSampleType::F32,
+        (tiff::ColorType::Gray(32), [2]) => CogSampleType::I32,
         (other, formats) => {
             return Err(CacheError::UnsupportedCog {
                 path: remote_path.clone(),
@@ -552,7 +556,9 @@ fn read_metadata(
         .get_tag_ascii_string(GDAL_NODATA_TAG)
         .unwrap_or_else(|_| match sample_type {
             CogSampleType::U8 => "255".to_string(),
+            CogSampleType::I8 => "-1".to_string(),
             CogSampleType::F32 => "-1".to_string(),
+            CogSampleType::I32 => "-1".to_string(),
         });
 
     let origin_x = tiepoint[3] - tiepoint[0] * scale[0];
@@ -599,15 +605,22 @@ fn validate_merit_layout(
             reason: "tile offset/count arrays do not match raster dimensions".to_string(),
         });
     }
-    let expected_sample = match kind {
-        RasterKind::FlowDir => CogSampleType::U8,
-        RasterKind::FlowAcc => CogSampleType::F32,
+    let valid_sample = match kind {
+        RasterKind::FlowDir => {
+            matches!(metadata.sample_type, CogSampleType::U8 | CogSampleType::I8)
+        }
+        RasterKind::FlowAcc => {
+            matches!(
+                metadata.sample_type,
+                CogSampleType::F32 | CogSampleType::I32
+            )
+        }
     };
-    if metadata.sample_type != expected_sample {
+    if !valid_sample {
         return Err(CacheError::UnsupportedCog {
             path: remote_path.clone(),
             reason: format!(
-                "{kind:?} expected {expected_sample:?} samples, got {:?}",
+                "{kind:?} has unsupported samples {:?}",
                 metadata.sample_type
             ),
         });
@@ -618,9 +631,9 @@ fn validate_merit_layout(
             reason: format!("expected DEFLATE compression, got {}", metadata.compression),
         });
     }
-    let expected_predictor = match kind {
-        RasterKind::FlowDir => 2,
-        RasterKind::FlowAcc => 3,
+    let expected_predictor = match metadata.sample_type {
+        CogSampleType::U8 | CogSampleType::I8 | CogSampleType::I32 => 2,
+        CogSampleType::F32 => 3,
     };
     if metadata.predictor != expected_predictor {
         return Err(CacheError::UnsupportedCog {
@@ -667,6 +680,30 @@ fn decode_window(
             }
             Ok(WindowData::U8(out))
         }
+        CogSampleType::I8 => {
+            let mut out = vec![0_u8; window.width as usize * window.height as usize];
+            for tile in &plan.tiles {
+                let decoded =
+                    decoder
+                        .read_chunk(tile.index)
+                        .map_err(|source| CacheError::Tiff {
+                            path: remote_path.as_ref().to_string(),
+                            source,
+                        })?;
+                let DecodingResult::I8(data) = decoded else {
+                    return Err(CacheError::UnsupportedCog {
+                        path: remote_path.clone(),
+                        reason: "decoded flow_dir tile was not i8".to_string(),
+                    });
+                };
+                let normalized = data
+                    .into_iter()
+                    .map(|value| value as u8)
+                    .collect::<Vec<_>>();
+                copy_tile_u8(&normalized, &mut out, metadata, window, tile.index);
+            }
+            Ok(WindowData::U8(out))
+        }
         CogSampleType::F32 => {
             let nodata = metadata.nodata.parse::<f32>().ok();
             let mut out =
@@ -686,6 +723,28 @@ fn decode_window(
                     });
                 };
                 copy_tile_f32(&data, &mut out, metadata, window, tile.index);
+            }
+            Ok(WindowData::F32(out))
+        }
+        CogSampleType::I32 => {
+            let nodata = metadata.nodata.parse::<i32>().ok();
+            let mut out = vec![f32::NAN; window.width as usize * window.height as usize];
+            for tile in &plan.tiles {
+                let decoded =
+                    decoder
+                        .read_chunk(tile.index)
+                        .map_err(|source| CacheError::Tiff {
+                            path: remote_path.as_ref().to_string(),
+                            source,
+                        })?;
+                let DecodingResult::I32(data) = decoded else {
+                    return Err(CacheError::UnsupportedCog {
+                        path: remote_path.clone(),
+                        reason: "decoded flow_acc tile was not i32".to_string(),
+                    });
+                };
+                let normalized = normalize_i32_accumulation(data, nodata);
+                copy_tile_f32(&normalized, &mut out, metadata, window, tile.index);
             }
             Ok(WindowData::F32(out))
         }
@@ -806,15 +865,22 @@ pub(crate) fn read_local_geotiff_window(
         source,
     })?;
     let metadata = read_local_metadata(&mut decoder, path)?;
-    let expected_sample = match kind {
-        RasterKind::FlowDir => CogSampleType::U8,
-        RasterKind::FlowAcc => CogSampleType::F32,
+    let valid_sample = match kind {
+        RasterKind::FlowDir => {
+            matches!(metadata.sample_type, CogSampleType::U8 | CogSampleType::I8)
+        }
+        RasterKind::FlowAcc => {
+            matches!(
+                metadata.sample_type,
+                CogSampleType::F32 | CogSampleType::I32
+            )
+        }
     };
-    if metadata.sample_type != expected_sample {
+    if !valid_sample {
         return Err(CacheError::UnsupportedCog {
             path: ObjectPath::from(path.display().to_string()),
             reason: format!(
-                "{kind:?} expected {expected_sample:?} samples, got {:?}",
+                "{kind:?} has unsupported samples {:?}",
                 metadata.sample_type
             ),
         });
@@ -845,9 +911,21 @@ pub(crate) fn read_local_geotiff_window(
         (CogSampleType::U8, DecodingResult::U8(values)) => {
             LocalWindowData::U8(crop_window(&values, &metadata, window))
         }
+        (CogSampleType::I8, DecodingResult::I8(values)) => {
+            let values = values
+                .into_iter()
+                .map(|value| value as u8)
+                .collect::<Vec<_>>();
+            LocalWindowData::U8(crop_window(&values, &metadata, window))
+        }
         (CogSampleType::F32, DecodingResult::F32(values)) => {
             let nodata = metadata.nodata.parse::<f32>().ok();
             let values = replace_nodata_with_nan(values, nodata);
+            LocalWindowData::F32(crop_window(&values, &metadata, window))
+        }
+        (CogSampleType::I32, DecodingResult::I32(values)) => {
+            let nodata = metadata.nodata.parse::<i32>().ok();
+            let values = normalize_i32_accumulation(values, nodata);
             LocalWindowData::F32(crop_window(&values, &metadata, window))
         }
         (CogSampleType::U8, other) => {
@@ -862,13 +940,25 @@ pub(crate) fn read_local_geotiff_window(
                 reason: format!("decoded flow_acc image was not f32: {other:?}"),
             });
         }
+        (CogSampleType::I8, other) => {
+            return Err(CacheError::UnsupportedCog {
+                path: ObjectPath::from(path.display().to_string()),
+                reason: format!("decoded flow_dir image was not i8: {other:?}"),
+            });
+        }
+        (CogSampleType::I32, other) => {
+            return Err(CacheError::UnsupportedCog {
+                path: ObjectPath::from(path.display().to_string()),
+                reason: format!("decoded flow_acc image was not i32: {other:?}"),
+            });
+        }
     };
 
     Ok(LocalTiffWindow {
         width: window.width,
         height: window.height,
         geo,
-        nodata: metadata.nodata,
+        nodata: normalized_nodata(&metadata),
         data,
     })
 }
@@ -895,7 +985,9 @@ fn read_local_metadata(
         .unwrap_or_else(|| vec![1]);
     let sample_type = match (color_type, sample_formats.as_slice()) {
         (tiff::ColorType::Gray(8), [1]) => CogSampleType::U8,
+        (tiff::ColorType::Gray(8), [2]) => CogSampleType::I8,
         (tiff::ColorType::Gray(32), [3]) => CogSampleType::F32,
+        (tiff::ColorType::Gray(32), [2]) => CogSampleType::I32,
         (other, formats) => {
             return Err(CacheError::UnsupportedCog {
                 path: ObjectPath::from(path.display().to_string()),
@@ -925,7 +1017,9 @@ fn read_local_metadata(
         .get_tag_ascii_string(GDAL_NODATA_TAG)
         .unwrap_or_else(|_| match sample_type {
             CogSampleType::U8 => "255".to_string(),
+            CogSampleType::I8 => "-1".to_string(),
             CogSampleType::F32 => "-1".to_string(),
+            CogSampleType::I32 => "-1".to_string(),
         });
     let (tile_width, tile_height) = decoder.chunk_dimensions();
     let origin_x = tiepoint[3] - tiepoint[0] * scale[0];
@@ -973,6 +1067,30 @@ fn replace_nodata_with_nan(mut data: Vec<f32>, nodata: Option<f32>) -> Vec<f32> 
     data
 }
 
+fn normalize_i32_accumulation(data: Vec<i32>, nodata: Option<i32>) -> Vec<f32> {
+    data.into_iter()
+        .map(|value| {
+            if Some(value) == nodata {
+                f32::NAN
+            } else {
+                value as f32
+            }
+        })
+        .collect()
+}
+
+fn normalized_nodata(metadata: &CogMetadata) -> String {
+    match metadata.sample_type {
+        CogSampleType::I8 => metadata
+            .nodata
+            .parse::<i8>()
+            .map(|value| (value as u8).to_string())
+            .unwrap_or_else(|_| "255".to_string()),
+        CogSampleType::I32 => "nan".to_string(),
+        CogSampleType::U8 | CogSampleType::F32 => metadata.nodata.clone(),
+    }
+}
+
 fn write_window_geotiff(
     canonical: &Path,
     metadata: &CogMetadata,
@@ -998,15 +1116,22 @@ fn write_window_geotiff(
     let temp_path = temp.path().to_path_buf();
     {
         let file = temp.as_file_mut();
+        let nodata = normalized_nodata(metadata);
         match data {
-            WindowData::U8(values) => {
-                write_tiff_image::<colortype::Gray8>(file, metadata, window, values, remote_path)?
-            }
+            WindowData::U8(values) => write_tiff_image::<colortype::Gray8>(
+                file,
+                metadata,
+                window,
+                values,
+                &nodata,
+                remote_path,
+            )?,
             WindowData::F32(values) => write_tiff_image::<colortype::Gray32Float>(
                 file,
                 metadata,
                 window,
                 values,
+                &nodata,
                 remote_path,
             )?,
         }
@@ -1033,6 +1158,7 @@ fn write_tiff_image<C>(
     metadata: &CogMetadata,
     window: RasterPixelWindow,
     data: &[C::Inner],
+    nodata: &str,
     remote_path: &ObjectPath,
 ) -> Result<(), CacheError>
 where
@@ -1083,7 +1209,7 @@ where
         })?;
     image
         .encoder()
-        .write_tag(GDAL_NODATA_TAG, metadata.nodata.as_str())
+        .write_tag(GDAL_NODATA_TAG, nodata)
         .map_err(|source| CacheError::Tiff {
             path: remote_path.as_ref().to_string(),
             source,

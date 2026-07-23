@@ -382,7 +382,7 @@ pub enum EngineError {
 
     /// Fired when D8 refinement is required but no raster source is attached.
     #[error(
-        "required auxiliary schema hfx.aux.d8_raster.v1 selected for unit {unit_id}, but no raster source is attached"
+        "required auxiliary schema hfx.aux.d8_raster.v2 selected for unit {unit_id}, but no raster source is attached"
     )]
     RequiredD8RasterSourceMissing {
         /// The raw unit ID for which required D8 refinement was attempted.

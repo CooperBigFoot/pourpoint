@@ -28,7 +28,7 @@ pub enum RasterSourceError {
         reason: String,
     },
 
-    /// Backend failed to read raster data from the window.
+    /// Backend failed to read raster data or rejected its declared sample type.
     #[error("failed to read raster window from {path}: {reason}")]
     ReadFailed {
         /// Path of the raster that could not be read.
@@ -86,7 +86,7 @@ pub trait RasterSource {
     /// |---|---|
     /// | [`RasterSourceError::FileNotFound`] | Local file does not exist on disk |
     /// | [`RasterSourceError::OpenFailed`] | Backend cannot open the dataset |
-    /// | [`RasterSourceError::ReadFailed`] | Backend cannot read the window |
+    /// | [`RasterSourceError::ReadFailed`] | Backend cannot read the window or rejects its sample type |
     /// | [`RasterSourceError::EmptyWindow`] | Bbox maps to zero pixels |
     /// | [`RasterSourceError::TileConstruction`] | Tile construction fails after read |
     fn load_flow_direction(
@@ -103,7 +103,7 @@ pub trait RasterSource {
     /// |---|---|
     /// | [`RasterSourceError::FileNotFound`] | Local file does not exist on disk |
     /// | [`RasterSourceError::OpenFailed`] | Backend cannot open the dataset |
-    /// | [`RasterSourceError::ReadFailed`] | Backend cannot read the window |
+    /// | [`RasterSourceError::ReadFailed`] | Backend cannot read the window or rejects its sample type |
     /// | [`RasterSourceError::EmptyWindow`] | Bbox maps to zero pixels |
     /// | [`RasterSourceError::TileConstruction`] | Tile construction fails after read |
     fn load_accumulation(

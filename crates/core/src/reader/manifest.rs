@@ -12,7 +12,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use hfx::{
-    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, Crs, FlowDirEncoding,
+    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, Crs, D8RasterMetadataV2,
     FormatVersion, Manifest, ManifestBuilder, Topology, UnitCount,
 };
 use tracing::instrument;
@@ -24,15 +24,15 @@ const SUPPORTED_FORMAT_VERSION: &str = "0.3.0";
 /// The only CRS this engine reads.
 const SUPPORTED_CRS: &str = "EPSG:4326";
 
-/// Parsed metadata for a blessed `hfx.aux.d8_raster.v1` declaration.
+/// Parsed metadata for a blessed `hfx.aux.d8_raster.v2` declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct D8RasterDecl {
     /// Relative path (dataset-root-relative) to the flow-direction raster.
     pub flow_dir: String,
     /// Relative path (dataset-root-relative) to the flow-accumulation raster.
     pub flow_acc: String,
-    /// Declared flow-direction encoding convention.
-    pub flow_dir_encoding: FlowDirEncoding,
+    /// Required typed D8 raster v2 metadata.
+    pub metadata: D8RasterMetadataV2,
 }
 
 /// Parsed metadata for a blessed `hfx.aux.snap.v2` declaration.
@@ -285,6 +285,10 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
         reason: "auxiliary entry is missing required \"schema\" field".to_string(),
     })?;
 
+    if schema_str == "hfx.aux.d8_raster.v1" {
+        return Err(SessionError::UnsupportedD8RasterV1);
+    }
+
     let schema_id =
         AuxiliarySchemaId::parse(&schema_str).map_err(|e| SessionError::AuxiliaryDeclParse {
             schema: schema_str.clone(),
@@ -306,7 +310,7 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
     })?;
 
     let classified = match &schema_id {
-        AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV1) => ClassifiedAux::D8(
+        AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV2) => ClassifiedAux::D8(
             parse_d8_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
         ),
         AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV2) => ClassifiedAux::Snap(
@@ -325,7 +329,7 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
     Ok((decl, classified))
 }
 
-/// Parse the metadata block for an `hfx.aux.d8_raster.v1` declaration.
+/// Parse the metadata block for an `hfx.aux.d8_raster.v2` declaration.
 fn parse_d8_metadata(
     schema: &str,
     artifacts: &BTreeMap<String, String>,
@@ -334,25 +338,42 @@ fn parse_d8_metadata(
     let flow_dir = require_artifact(schema, artifacts, "flow_dir")?;
     let flow_acc = require_artifact(schema, artifacts, "flow_acc")?;
 
-    let encoding_str = metadata
-        .get("flow_dir_encoding")
-        .and_then(serde_json::Value::as_str)
+    let metadata_object = metadata
+        .as_object()
         .ok_or_else(|| SessionError::AuxiliaryDeclParse {
             schema: schema.to_string(),
-            reason: "metadata.flow_dir_encoding must be a string".to_string(),
+            reason: "metadata block must be an object".to_string(),
         })?;
-    let flow_dir_encoding =
-        FlowDirEncoding::from_str(encoding_str).map_err(|_| SessionError::AuxiliaryDeclParse {
+    let allowed_keys = ["crs", "flow_dir_encoding", "flow_acc_units"];
+    if let Some(additional) = metadata_object
+        .keys()
+        .find(|key| !allowed_keys.contains(&key.as_str()))
+    {
+        return Err(SessionError::AuxiliaryDeclParse {
             schema: schema.to_string(),
-            reason: format!(
-                "metadata.flow_dir_encoding {encoding_str:?} must be \"esri\" or \"taudem\""
-            ),
-        })?;
+            reason: format!("metadata contains forbidden additional property {additional:?}"),
+        });
+    }
+    let parsed_metadata = D8RasterMetadataV2::parse(
+        metadata_object
+            .get("crs")
+            .and_then(serde_json::Value::as_str),
+        metadata_object
+            .get("flow_dir_encoding")
+            .and_then(serde_json::Value::as_str),
+        metadata_object
+            .get("flow_acc_units")
+            .and_then(serde_json::Value::as_str),
+    )
+    .map_err(|source| SessionError::AuxiliaryDeclParse {
+        schema: schema.to_string(),
+        reason: source.to_string(),
+    })?;
 
     Ok(D8RasterDecl {
         flow_dir,
         flow_acc,
-        flow_dir_encoding,
+        metadata: parsed_metadata,
     })
 }
 
@@ -465,10 +486,11 @@ fn require_artifact(
 mod tests {
     use std::io::Write;
 
+    use hfx::{Crs, FlowAccumulationUnits, FlowDirEncoding, FormatVersion, Topology};
     use serde_json::json;
     use tempfile::TempDir;
 
-    use super::*;
+    use super::read_manifest;
     use crate::error::SessionError;
 
     fn write_manifest(dir: &TempDir, value: &serde_json::Value) -> std::path::PathBuf {
@@ -560,9 +582,13 @@ mod tests {
         let mut value = minimal_json();
         value["auxiliary"] = json!([
             {
-                "schema": "hfx.aux.d8_raster.v1",
+                "schema": "hfx.aux.d8_raster.v2",
                 "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
-                "metadata": { "flow_dir_encoding": "esri" }
+                "metadata": {
+                    "crs": "EPSG:4326",
+                    "flow_dir_encoding": "esri",
+                    "flow_acc_units": "cells"
+                }
             },
             {
                 "schema": "hfx.aux.snap.v2",
@@ -580,8 +606,16 @@ mod tests {
         assert_eq!(parsed.aux.d8_rasters.len(), 1);
         assert_eq!(parsed.aux.d8_rasters[0].flow_dir, "flow_dir.tif");
         assert_eq!(
-            parsed.aux.d8_rasters[0].flow_dir_encoding,
+            parsed.aux.d8_rasters[0].metadata.flow_dir_encoding(),
             FlowDirEncoding::Esri
+        );
+        assert_eq!(
+            parsed.aux.d8_rasters[0].metadata.crs().as_str(),
+            "EPSG:4326"
+        );
+        assert_eq!(
+            parsed.aux.d8_rasters[0].metadata.flow_acc_units(),
+            FlowAccumulationUnits::Cells
         );
         assert_eq!(parsed.aux.snaps.len(), 1);
         assert_eq!(parsed.aux.snaps[0].name, "segment-stems");

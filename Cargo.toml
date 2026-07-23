@@ -2,9 +2,9 @@
 members = ["crates/*"]
 
 [workspace.dependencies]
-# HFX on-disk format 0.3.0 is implemented by the published hfx 0.4.x crate
-# (crate version != format version: the 0.4.0 crate implements the 0.3.0 contract).
-hfx = "0.4.0"
+# HFX on-disk format 0.3.0 is implemented by the published hfx 0.5.x crate
+# (crate version != format version: the 0.5.0 crate implements the 0.3.0 contract).
+hfx = "0.5.0"
 
 [package]
 name = "pourpoint"

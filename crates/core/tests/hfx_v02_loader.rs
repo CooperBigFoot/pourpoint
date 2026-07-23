@@ -5,10 +5,10 @@ use arrow::array::{
     Array, BinaryArray, Int16Array, Int64Array, LargeBinaryArray, LargeListArray, ListArray,
 };
 use arrow::datatypes::DataType;
-use geo::Geometry;
+use geo::{Geometry, Rect, coord};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx::{Topology, WkbGeometry};
+use hfx::{EpsgCode, FlowAccumulationUnits, FlowDirEncoding, Topology, WkbGeometry};
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use parquet::arrow::ProjectionMask;
@@ -36,6 +36,21 @@ fn push_auxiliary(root: &std::path::Path, aux: Value) {
     let mut manifest = read_manifest(root);
     manifest["auxiliary"].as_array_mut().unwrap().push(aux);
     write_manifest(root, &manifest);
+}
+
+fn replace_auxiliary(root: &std::path::Path, aux: Value) {
+    let mut manifest = read_manifest(root);
+    manifest["auxiliary"] = json!([aux]);
+    write_manifest(root, &manifest);
+    std::fs::write(root.join("flow_dir.tif"), b"stub").unwrap();
+    std::fs::write(root.join("flow_acc.tif"), b"stub").unwrap();
+}
+
+fn replace_raster_stubs_with_committed_fixture(root: &std::path::Path) {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parity/v021_synthetic_refined");
+    std::fs::copy(fixture.join("flow_dir.tif"), root.join("flow_dir.tif")).unwrap();
+    std::fs::copy(fixture.join("flow_acc.tif"), root.join("flow_acc.tif")).unwrap();
 }
 
 #[test]
@@ -117,6 +132,67 @@ fn manifest_unit_count_mismatch_is_typed() {
 }
 
 #[test]
+fn auxiliary_d8_v2_opens_through_session_path() {
+    let (_dir, root) = DatasetBuilder::new(3).build();
+    replace_auxiliary(
+        &root,
+        json!({
+            "schema": "hfx.aux.d8_raster.v2",
+            "artifacts": {
+                "flow_dir": "flow_dir.tif",
+                "flow_acc": "flow_acc.tif"
+            },
+            "metadata": {
+                "crs": "EPSG:4326",
+                "flow_dir_encoding": "esri",
+                "flow_acc_units": "cells"
+            }
+        }),
+    );
+
+    let session = DatasetSession::open_path(&root).expect("v2 D8 declaration should open");
+    assert!(session.has_d8_aux());
+    replace_raster_stubs_with_committed_fixture(&root);
+    let handle = session
+        .select_d8_raster_for_bbox(Rect::new(
+            coord! { x: 0.0, y: -5.0 },
+            coord! { x: 5.0, y: 0.0 },
+        ))
+        .expect("v2 D8 handle should be selected through the session");
+    let expected_crs: EpsgCode = "EPSG:4326".parse().unwrap();
+    assert_eq!(handle.crs(), &expected_crs);
+    assert_eq!(handle.flow_dir_encoding(), FlowDirEncoding::Esri);
+    assert_eq!(
+        handle.flow_accumulation_units(),
+        FlowAccumulationUnits::Cells
+    );
+}
+
+#[test]
+fn auxiliary_d8_v1_is_rejected_during_session_open() {
+    let (_dir, root) = DatasetBuilder::new(3).build();
+    replace_auxiliary(
+        &root,
+        json!({
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": {
+                "flow_dir": "flow_dir.tif",
+                "flow_acc": "flow_acc.tif"
+            },
+            "metadata": {
+                "flow_dir_encoding": "esri"
+            }
+        }),
+    );
+
+    let error = DatasetSession::open_path(&root).expect_err("v1 D8 declaration should be rejected");
+    assert!(matches!(&error, SessionError::UnsupportedD8RasterV1));
+    let rendered = error.to_string();
+    assert!(rendered.contains("hfx.aux.d8_raster.v1"));
+    assert!(rendered.contains("recompile the dataset with a v2-emitting adapter"));
+}
+
+#[test]
 fn legacy_graph_arrow_is_rejected_without_fallback() {
     let (_dir, root) = DatasetBuilder::new(3).build();
     std::fs::write(root.join("graph.arrow"), b"legacy arrow bytes").unwrap();
@@ -134,27 +210,88 @@ fn legacy_graph_arrow_is_rejected_without_fallback() {
 fn auxiliary_d8_missing_or_invalid_metadata_is_typed() {
     let cases = [
         (
+            "non-object metadata",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": "invalid"
+            }),
+        ),
+        (
+            "missing crs",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "flow_dir_encoding": "esri", "flow_acc_units": "cells" }
+            }),
+        ),
+        (
             "missing encoding",
             json!({
-                "schema": "hfx.aux.d8_raster.v1",
+                "schema": "hfx.aux.d8_raster.v2",
                 "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
-                "metadata": {}
+                "metadata": { "crs": "EPSG:4326", "flow_acc_units": "cells" }
+            }),
+        ),
+        (
+            "missing accumulation units",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "crs": "EPSG:4326", "flow_dir_encoding": "esri" }
+            }),
+        ),
+        (
+            "non-string crs",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "crs": 4326, "flow_dir_encoding": "esri", "flow_acc_units": "cells" }
+            }),
+        ),
+        (
+            "invalid crs",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "crs": "epsg:4326", "flow_dir_encoding": "esri", "flow_acc_units": "cells" }
             }),
         ),
         (
             "invalid encoding",
             json!({
-                "schema": "hfx.aux.d8_raster.v1",
+                "schema": "hfx.aux.d8_raster.v2",
                 "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
-                "metadata": { "flow_dir_encoding": "bad" }
+                "metadata": { "crs": "EPSG:4326", "flow_dir_encoding": "bad", "flow_acc_units": "cells" }
+            }),
+        ),
+        (
+            "invalid accumulation units",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": { "crs": "EPSG:4326", "flow_dir_encoding": "esri", "flow_acc_units": "square_kilometers" }
+            }),
+        ),
+        (
+            "additional metadata property",
+            json!({
+                "schema": "hfx.aux.d8_raster.v2",
+                "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
+                "metadata": {
+                    "crs": "EPSG:4326",
+                    "flow_dir_encoding": "esri",
+                    "flow_acc_units": "cells",
+                    "dtype": "uint8"
+                }
             }),
         ),
         (
             "missing artifact key",
             json!({
-                "schema": "hfx.aux.d8_raster.v1",
+                "schema": "hfx.aux.d8_raster.v2",
                 "artifacts": { "flow_dir": "flow_dir.tif" },
-                "metadata": { "flow_dir_encoding": "esri" }
+                "metadata": { "crs": "EPSG:4326", "flow_dir_encoding": "esri", "flow_acc_units": "cells" }
             }),
         ),
     ];
@@ -168,7 +305,7 @@ fn auxiliary_d8_missing_or_invalid_metadata_is_typed() {
             matches!(
                 err,
                 SessionError::AuxiliaryDeclParse { ref schema, .. }
-                    if schema == "hfx.aux.d8_raster.v1"
+                    if schema == "hfx.aux.d8_raster.v2"
             ),
             "{case}: got {err}"
         );
@@ -181,9 +318,9 @@ fn auxiliary_d8_path_escape_is_typed() {
     push_auxiliary(
         &root,
         json!({
-            "schema": "hfx.aux.d8_raster.v1",
+            "schema": "hfx.aux.d8_raster.v2",
             "artifacts": { "flow_dir": "../flow_dir.tif", "flow_acc": "flow_acc.tif" },
-            "metadata": { "flow_dir_encoding": "esri" }
+            "metadata": { "crs": "EPSG:4326", "flow_dir_encoding": "esri", "flow_acc_units": "cells" }
         }),
     );
 
@@ -194,7 +331,7 @@ fn auxiliary_d8_path_escape_is_typed() {
             ref schema,
             ref artifact,
             ..
-        } if schema == "hfx.aux.d8_raster.v1" && artifact == "flow_dir"
+        } if schema == "hfx.aux.d8_raster.v2" && artifact == "flow_dir"
     ));
 }
 
@@ -204,9 +341,9 @@ fn auxiliary_d8_declared_but_missing_artifact_is_typed() {
     push_auxiliary(
         &root,
         json!({
-            "schema": "hfx.aux.d8_raster.v1",
+            "schema": "hfx.aux.d8_raster.v2",
             "artifacts": { "flow_dir": "flow_dir.tif", "flow_acc": "flow_acc.tif" },
-            "metadata": { "flow_dir_encoding": "esri" }
+            "metadata": { "crs": "EPSG:4326", "flow_dir_encoding": "esri", "flow_acc_units": "cells" }
         }),
     );
 
@@ -217,7 +354,7 @@ fn auxiliary_d8_declared_but_missing_artifact_is_typed() {
             ref schema,
             ref artifact,
             ..
-        } if schema == "hfx.aux.d8_raster.v1"
+        } if schema == "hfx.aux.d8_raster.v2"
             && (artifact == "flow_acc" || artifact == "flow_dir")
     ));
 }

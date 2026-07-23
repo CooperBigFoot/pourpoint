@@ -5,6 +5,7 @@
 //! basins.
 
 use gdal::Dataset;
+use gdal::raster::GdalDataType;
 use geo::Rect;
 use hfx::FlowDirEncoding;
 use tracing::{debug, instrument};
@@ -16,6 +17,7 @@ use pourpoint_core::algo::geo_transform::GeoTransform;
 use pourpoint_core::algo::raster_tile::RasterTile;
 use pourpoint_core::algo::tile_state::Raw;
 use pourpoint_core::algo::traits::{RasterSource, RasterSourceError};
+use pourpoint_core::session::RasterKind;
 
 use crate::config::{GdalConfig, ensure_gdal_configured};
 use crate::error::RasterReadError;
@@ -96,24 +98,45 @@ impl RasterSource for GdalRasterSource {
                 reason: e.to_string(),
             })?;
 
-        let buf = band
-            .read_as::<u8>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
-            .map_err(|e| RasterSourceError::ReadFailed {
-                path: path_str.clone(),
-                reason: e.to_string(),
-            })?;
+        let data = match band.band_type() {
+            GdalDataType::UInt8 => band
+                .read_as::<u8>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
+                .map(|buffer| buffer.data().to_vec()),
+            GdalDataType::Int8 => band
+                .read_as::<i8>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
+                .map(|buffer| {
+                    buffer
+                        .data()
+                        .iter()
+                        .map(|value| *value as u8)
+                        .collect::<Vec<_>>()
+                }),
+            found => {
+                return Err(map_raster_read_error(
+                    RasterReadError::UnsupportedSampleType {
+                        path: path_str.clone(),
+                        kind: RasterKind::FlowDir,
+                        found,
+                    },
+                    &path_str,
+                ));
+            }
+        }
+        .map_err(|e| RasterSourceError::ReadFailed {
+            path: path_str.clone(),
+            reason: e.to_string(),
+        })?;
 
         let window_gt = window_geo_transform(&gt, x_off, y_off);
         let dims = GridDims::new(y_size, x_size);
 
         debug!(x_off, y_off, x_size, y_size, "read windowed u8 band");
 
-        let tile =
-            RasterTile::from_vec(buf.data().to_vec(), dims, 255u8, window_gt).map_err(|e| {
-                RasterSourceError::TileConstruction {
-                    reason: e.to_string(),
-                }
-            })?;
+        let tile = RasterTile::from_vec(data, dims, 255u8, window_gt).map_err(|e| {
+            RasterSourceError::TileConstruction {
+                reason: e.to_string(),
+            }
+        })?;
 
         Ok(FlowDirectionTile::from_raw(tile, self.encoding))
     }
@@ -154,14 +177,28 @@ impl RasterSource for GdalRasterSource {
 
         let gdal_nodata = band.no_data_value();
 
-        let buf = band
-            .read_as::<f32>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
-            .map_err(|e| RasterSourceError::ReadFailed {
-                path: path_str.clone(),
-                reason: e.to_string(),
-            })?;
-
-        let data = replace_nodata_with_nan(buf.data().to_vec(), gdal_nodata);
+        let data = match band.band_type() {
+            GdalDataType::Float32 => band
+                .read_as::<f32>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
+                .map(|buffer| replace_nodata_with_nan(buffer.data().to_vec(), gdal_nodata)),
+            GdalDataType::Int32 => band
+                .read_as::<i32>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
+                .map(|buffer| normalize_i32_accumulation(buffer.data(), gdal_nodata)),
+            found => {
+                return Err(map_raster_read_error(
+                    RasterReadError::UnsupportedSampleType {
+                        path: path_str.clone(),
+                        kind: RasterKind::FlowAcc,
+                        found,
+                    },
+                    &path_str,
+                ));
+            }
+        }
+        .map_err(|e| RasterSourceError::ReadFailed {
+            path: path_str.clone(),
+            reason: e.to_string(),
+        })?;
         let window_gt = window_geo_transform(&gt, x_off, y_off);
         let dims = GridDims::new(y_size, x_size);
 
@@ -280,6 +317,19 @@ fn replace_nodata_with_nan(mut data: Vec<f32>, gdal_nodata: Option<f64>) -> Vec<
     data
 }
 
+fn normalize_i32_accumulation(data: &[i32], gdal_nodata: Option<f64>) -> Vec<f32> {
+    let nodata = gdal_nodata.map(|value| value as i32);
+    data.iter()
+        .map(|value| {
+            if Some(*value) == nodata {
+                f32::NAN
+            } else {
+                *value as f32
+            }
+        })
+        .collect()
+}
+
 /// Map a `RasterReadError` to the trait's `RasterSourceError`.
 fn map_raster_read_error(e: RasterReadError, path: &str) -> RasterSourceError {
     match e {
@@ -289,6 +339,12 @@ fn map_raster_read_error(e: RasterReadError, path: &str) -> RasterSourceError {
         }
         RasterReadError::GdalRead { path, reason } => {
             RasterSourceError::ReadFailed { path, reason }
+        }
+        unsupported @ RasterReadError::UnsupportedSampleType { .. } => {
+            RasterSourceError::ReadFailed {
+                path: path.to_owned(),
+                reason: unsupported.to_string(),
+            }
         }
         RasterReadError::EmptyWindow { path } => RasterSourceError::EmptyWindow { path },
         RasterReadError::TileConstruction { reason } => {

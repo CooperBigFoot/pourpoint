@@ -1,11 +1,14 @@
 //! Isolated GDAL parity proof for committed raster fixtures.
 
+use gdal::DriverManager;
+use gdal::raster::Buffer;
 use geo::Rect;
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
-use hfx::UnitId;
+use hfx::{FlowDirEncoding, UnitId};
 use pourpoint_core::algo::{
-    GeoCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon, refine_terminal_from_source,
+    GeoCoord, GridCoord, GridDims, RasterSource, SnapThreshold, canonical_wkb_multi_polygon,
+    refine_terminal_from_source,
 };
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
@@ -17,6 +20,98 @@ const MERIT_URL: &str = "https://basin-delineations-public.upstream.tech/merit-b
 const MERIT_GOLDEN: &str =
     "../core/tests/fixtures/parity/goldens/v01_merit_refined/oracle_c_merit_refined.json";
 const MERIT_WINDOW_ROOT: &str = "merit_basins/0.1.0/raster-windows";
+
+#[test]
+fn signed_tiff_samples_match_local_and_gdal_normalization() {
+    let directory = tempfile::tempdir().expect("signed TIFF temp directory should be created");
+    let flow_dir_path = directory.path().join("flow_dir_int8.tif");
+    let flow_acc_path = directory.path().join("flow_acc_int32.tif");
+    write_signed_flow_direction(&flow_dir_path);
+    write_signed_accumulation(&flow_acc_path);
+
+    let bbox = Rect::new(
+        geo::coord! { x: 0.0, y: 0.0 },
+        geo::coord! { x: 2.0, y: 2.0 },
+    );
+    let local = LocalTiffRasterSource::with_encoding(FlowDirEncoding::Grass);
+    let gdal = GdalRasterSource::with_encoding(FlowDirEncoding::Grass);
+
+    let local_fd = local
+        .load_flow_direction(&flow_dir_path.to_string_lossy(), &bbox)
+        .expect("local TIFF source should decode int8 flow direction");
+    let gdal_fd = gdal
+        .load_flow_direction(&flow_dir_path.to_string_lossy(), &bbox)
+        .expect("GDAL source should decode int8 flow direction");
+    assert_eq!(local_fd.dims(), GridDims::new(2, 2));
+    assert_eq!(gdal_fd.dims(), GridDims::new(2, 2));
+    assert_eq!(local_fd.inner().data(), &[1_u8, 254, 8, 0]);
+    assert_eq!(local_fd.inner().data(), gdal_fd.inner().data());
+    assert_eq!(local_fd.geo(), gdal_fd.geo());
+    assert_eq!(local_fd.geo().origin_x(), 0.0);
+    assert_eq!(local_fd.geo().origin_y(), 2.0);
+    assert_eq!(local_fd.geo().pixel_width(), 1.0);
+    assert_eq!(local_fd.geo().pixel_height(), -1.0);
+    assert_eq!(
+        local_fd.get(GridCoord::new(0, 0)),
+        Some(pourpoint_core::algo::FlowDir::Northeast)
+    );
+    assert_eq!(local_fd.get(GridCoord::new(0, 1)), None);
+    assert_eq!(
+        local_fd.get(GridCoord::new(1, 0)),
+        Some(pourpoint_core::algo::FlowDir::East)
+    );
+    assert_eq!(local_fd.get(GridCoord::new(1, 1)), None);
+
+    let local_acc = local
+        .load_accumulation(&flow_acc_path.to_string_lossy(), &bbox)
+        .expect("local TIFF source should decode int32 accumulation");
+    let gdal_acc = gdal
+        .load_accumulation(&flow_acc_path.to_string_lossy(), &bbox)
+        .expect("GDAL source should decode int32 accumulation");
+    assert_eq!(local_acc.dims(), GridDims::new(2, 2));
+    assert_eq!(gdal_acc.dims(), GridDims::new(2, 2));
+    assert_f32_tiles_equal(local_acc.inner().data(), &[1.0_f32, f32::NAN, 3.0, 4.0]);
+    assert_f32_tiles_equal(local_acc.inner().data(), gdal_acc.inner().data());
+    assert!(local_acc.inner().nodata().is_nan());
+    assert!(gdal_acc.inner().nodata().is_nan());
+    assert_eq!(local_acc.geo(), gdal_acc.geo());
+}
+
+fn write_signed_flow_direction(path: &std::path::Path) {
+    let driver = DriverManager::get_driver_by_name("GTiff").expect("GTiff driver should exist");
+    let mut dataset = driver
+        .create_with_band_type::<i8, _>(path, 2, 2, 1)
+        .expect("int8 flow-direction TIFF should be created");
+    dataset
+        .set_geo_transform(&[0.0, 1.0, 0.0, 2.0, 0.0, -1.0])
+        .expect("flow-direction geotransform should be written");
+    let mut band = dataset
+        .rasterband(1)
+        .expect("flow-direction band should exist");
+    band.set_no_data_value(Some(-1.0))
+        .expect("flow-direction nodata should be written");
+    let mut buffer = Buffer::new((2, 2), vec![1_i8, -2, 8, 0]);
+    band.write((0, 0), (2, 2), &mut buffer)
+        .expect("flow-direction samples should be written");
+}
+
+fn write_signed_accumulation(path: &std::path::Path) {
+    let driver = DriverManager::get_driver_by_name("GTiff").expect("GTiff driver should exist");
+    let mut dataset = driver
+        .create_with_band_type::<i32, _>(path, 2, 2, 1)
+        .expect("int32 accumulation TIFF should be created");
+    dataset
+        .set_geo_transform(&[0.0, 1.0, 0.0, 2.0, 0.0, -1.0])
+        .expect("accumulation geotransform should be written");
+    let mut band = dataset
+        .rasterband(1)
+        .expect("accumulation band should exist");
+    band.set_no_data_value(Some(-9999.0))
+        .expect("accumulation nodata should be written");
+    let mut buffer = Buffer::new((2, 2), vec![1_i32, -9999, 3, 4]);
+    band.write((0, 0), (2, 2), &mut buffer)
+        .expect("accumulation samples should be written");
+}
 
 #[test]
 #[ignore = "requires GDAL runtime"]
