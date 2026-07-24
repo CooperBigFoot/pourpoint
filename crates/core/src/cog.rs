@@ -1290,12 +1290,14 @@ mod tests {
     use std::fs;
     use std::future::Future;
     use std::io;
+    use std::io::Read;
     use std::ops::Range;
     use std::path::PathBuf;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, OnceLock};
 
+    use flate2::read::ZlibDecoder;
     use futures_util::stream::BoxStream;
     use geo::coord;
     use object_store::local::LocalFileSystem;
@@ -1620,6 +1622,430 @@ mod tests {
         {
             Box::pin(async move { self.inner.copy_opts(from, to, options).await })
         }
+    }
+
+    // prototype_layout : bounded TIFF bytes -> dimensions × GeoTIFF transform × lazy tile-index descriptors
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PrototypeTiffFormat {
+        Classic,
+        BigTiff,
+    }
+
+    impl PrototypeTiffFormat {
+        fn magic(self) -> u16 {
+            match self {
+                Self::Classic => 42,
+                Self::BigTiff => 43,
+            }
+        }
+
+        fn header_width(self) -> u64 {
+            match self {
+                Self::Classic => 8,
+                Self::BigTiff => 16,
+            }
+        }
+
+        fn count_width(self) -> usize {
+            match self {
+                Self::Classic => 2,
+                Self::BigTiff => 8,
+            }
+        }
+
+        fn entry_width(self) -> usize {
+            match self {
+                Self::Classic => 12,
+                Self::BigTiff => 20,
+            }
+        }
+
+        fn inline_value_width(self) -> usize {
+            match self {
+                Self::Classic => 4,
+                Self::BigTiff => 8,
+            }
+        }
+
+        fn offset_width(self) -> usize {
+            match self {
+                Self::Classic => 4,
+                Self::BigTiff => 8,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PrototypeIndexStorage {
+        InlineScalar(u64),
+        OutOfLine(u64),
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct PrototypeIndexDescriptor {
+        field_type: u16,
+        element_width: u64,
+        count: u64,
+        storage: PrototypeIndexStorage,
+    }
+
+    impl PrototypeIndexDescriptor {
+        fn byte_extent(self) -> io::Result<Option<Range<u64>>> {
+            let PrototypeIndexStorage::OutOfLine(offset) = self.storage else {
+                return Ok(None);
+            };
+            let byte_count = self
+                .count
+                .checked_mul(self.element_width)
+                .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field size overflow"))?;
+            let end = offset
+                .checked_add(byte_count)
+                .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field end overflow"))?;
+            Ok(Some(offset..end))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    struct PrototypeLayout {
+        format: PrototypeTiffFormat,
+        width: u64,
+        height: u64,
+        scale: [f64; 3],
+        tiepoint: [f64; 6],
+        tile_offsets: PrototypeIndexDescriptor,
+        tile_byte_counts: PrototypeIndexDescriptor,
+        bytes_read: usize,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct PrototypeIfdEntry {
+        tag: u16,
+        field_type: u16,
+        count: u64,
+        value: u64,
+    }
+
+    fn prototype_field_width(field_type: u16) -> io::Result<u64> {
+        match field_type {
+            1 | 2 => Ok(1),
+            3 => Ok(2),
+            4 => Ok(4),
+            5 | 12 | 16 => Ok(8),
+            _ => Err(io::Error::new(
+                ErrorKind::InvalidData,
+                format!("unsupported prototype TIFF field type {field_type}"),
+            )),
+        }
+    }
+
+    fn prototype_u16(bytes: &[u8]) -> io::Result<u16> {
+        bytes
+            .try_into()
+            .map(u16::from_le_bytes)
+            .map_err(|_| io::Error::new(ErrorKind::UnexpectedEof, "missing TIFF u16"))
+    }
+
+    fn prototype_u32(bytes: &[u8]) -> io::Result<u32> {
+        bytes
+            .try_into()
+            .map(u32::from_le_bytes)
+            .map_err(|_| io::Error::new(ErrorKind::UnexpectedEof, "missing TIFF u32"))
+    }
+
+    fn prototype_u64(bytes: &[u8]) -> io::Result<u64> {
+        bytes
+            .try_into()
+            .map(u64::from_le_bytes)
+            .map_err(|_| io::Error::new(ErrorKind::UnexpectedEof, "missing TIFF u64"))
+    }
+
+    fn prototype_ifd_entry(
+        format: PrototypeTiffFormat,
+        bytes: &[u8],
+    ) -> io::Result<PrototypeIfdEntry> {
+        let tag = prototype_u16(&bytes[0..2])?;
+        let field_type = prototype_u16(&bytes[2..4])?;
+        let (count, value) = match format {
+            PrototypeTiffFormat::Classic => (
+                u64::from(prototype_u32(&bytes[4..8])?),
+                u64::from(prototype_u32(&bytes[8..12])?),
+            ),
+            PrototypeTiffFormat::BigTiff => (
+                prototype_u64(&bytes[4..12])?,
+                prototype_u64(&bytes[12..20])?,
+            ),
+        };
+        prototype_field_width(field_type)?;
+        Ok(PrototypeIfdEntry {
+            tag,
+            field_type,
+            count,
+            value,
+        })
+    }
+
+    fn prototype_descriptor(
+        format: PrototypeTiffFormat,
+        entry: PrototypeIfdEntry,
+    ) -> io::Result<PrototypeIndexDescriptor> {
+        let element_width = prototype_field_width(entry.field_type)?;
+        let byte_count = entry
+            .count
+            .checked_mul(element_width)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field size overflow"))?;
+        let storage = if byte_count <= format.inline_value_width() as u64 {
+            PrototypeIndexStorage::InlineScalar(entry.value)
+        } else {
+            PrototypeIndexStorage::OutOfLine(entry.value)
+        };
+        Ok(PrototypeIndexDescriptor {
+            field_type: entry.field_type,
+            element_width,
+            count: entry.count,
+            storage,
+        })
+    }
+
+    fn prototype_entry(entries: &[PrototypeIfdEntry], tag: u16) -> io::Result<&PrototypeIfdEntry> {
+        entries
+            .iter()
+            .find(|entry| entry.tag == tag)
+            .ok_or_else(|| {
+                io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!("missing prototype TIFF tag {tag}"),
+                )
+            })
+    }
+
+    fn prototype_out_of_line_range(entry: PrototypeIfdEntry) -> io::Result<Range<u64>> {
+        let byte_count = entry
+            .count
+            .checked_mul(prototype_field_width(entry.field_type)?)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field size overflow"))?;
+        let end = entry
+            .value
+            .checked_add(byte_count)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field end overflow"))?;
+        Ok(entry.value..end)
+    }
+
+    fn prototype_doubles<const N: usize>(bytes: &[u8]) -> io::Result<[f64; N]> {
+        let expected = N
+            .checked_mul(8)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "double size overflow"))?;
+        if bytes.len() != expected {
+            return Err(io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "incomplete TIFF double field",
+            ));
+        }
+        let mut values = [0.0; N];
+        for (value, chunk) in values.iter_mut().zip(bytes.chunks_exact(8)) {
+            *value =
+                f64::from_le_bytes(chunk.try_into().map_err(|_| {
+                    io::Error::new(ErrorKind::UnexpectedEof, "incomplete TIFF double")
+                })?);
+        }
+        Ok(values)
+    }
+
+    async fn prototype_layout(
+        store: &dyn ObjectStore,
+        path: &ObjectPath,
+        format: PrototypeTiffFormat,
+    ) -> Result<PrototypeLayout, Box<dyn std::error::Error>> {
+        let header = store.get_range(path, 0..format.header_width()).await?;
+        if &header[0..2] != b"II" || prototype_u16(&header[2..4])? != format.magic() {
+            return Err(io::Error::new(ErrorKind::InvalidData, "unexpected TIFF header").into());
+        }
+        if format == PrototypeTiffFormat::BigTiff
+            && (prototype_u16(&header[4..6])? != 8 || prototype_u16(&header[6..8])? != 0)
+        {
+            return Err(
+                io::Error::new(ErrorKind::InvalidData, "invalid BigTIFF offset header").into(),
+            );
+        }
+        let ifd_offset = match format {
+            PrototypeTiffFormat::Classic => u64::from(prototype_u32(&header[4..8])?),
+            PrototypeTiffFormat::BigTiff => prototype_u64(&header[8..16])?,
+        };
+
+        let count_end = ifd_offset
+            .checked_add(format.count_width() as u64)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "IFD count end overflow"))?;
+        let count_bytes = store.get_range(path, ifd_offset..count_end).await?;
+        let entry_count = match format {
+            PrototypeTiffFormat::Classic => u64::from(prototype_u16(&count_bytes)?),
+            PrototypeTiffFormat::BigTiff => prototype_u64(&count_bytes)?,
+        };
+        let entries_len = entry_count
+            .checked_mul(format.entry_width() as u64)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "IFD entries size overflow"))?;
+        let entries_end = count_end
+            .checked_add(entries_len)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "IFD entries end overflow"))?;
+        let entry_bytes = store.get_range(path, count_end..entries_end).await?;
+        let entries = entry_bytes
+            .chunks_exact(format.entry_width())
+            .map(|bytes| prototype_ifd_entry(format, bytes))
+            .collect::<io::Result<Vec<_>>>()?;
+
+        let width_entry = *prototype_entry(&entries, 256)?;
+        let height_entry = *prototype_entry(&entries, 257)?;
+        let scale_entry = *prototype_entry(&entries, 33_550)?;
+        let tiepoint_entry = *prototype_entry(&entries, 33_922)?;
+        let tile_offsets = prototype_descriptor(format, *prototype_entry(&entries, 324)?)?;
+        let tile_byte_counts = prototype_descriptor(format, *prototype_entry(&entries, 325)?)?;
+        let value_ranges = [
+            prototype_out_of_line_range(scale_entry)?,
+            prototype_out_of_line_range(tiepoint_entry)?,
+        ];
+        let values = store.get_ranges(path, &value_ranges).await?;
+
+        Ok(PrototypeLayout {
+            format,
+            width: width_entry.value,
+            height: height_entry.value,
+            scale: prototype_doubles(&values[0])?,
+            tiepoint: prototype_doubles(&values[1])?,
+            tile_offsets,
+            tile_byte_counts,
+            bytes_read: header.len()
+                + count_bytes.len()
+                + entry_bytes.len()
+                + values.iter().map(Bytes::len).sum::<usize>(),
+        })
+    }
+
+    // prototype_decode : zlib DEFLATE bytes × predictor 1 -> sample bytes
+    fn prototype_decode(compressed: &[u8], predictor: u16) -> io::Result<Vec<u8>> {
+        let mut samples = Vec::new();
+        ZlibDecoder::new(compressed).read_to_end(&mut samples)?;
+        match predictor {
+            1 => Ok(samples),
+            _ => Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                format!("unsupported prototype predictor {predictor}"),
+            )),
+        }
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_reads_classic_metadata_without_materializing_indexes() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
+        let store = CogFixtureCountingStore::new(inner);
+        let path = ObjectPath::from("classic.tif");
+
+        let layout = prototype_layout(&store, &path, PrototypeTiffFormat::Classic)
+            .await
+            .expect("classic TIFF metadata should parse");
+
+        assert_eq!(layout.format, PrototypeTiffFormat::Classic);
+        assert_eq!(layout.format.count_width(), 2);
+        assert_eq!(layout.format.entry_width(), 12);
+        assert_eq!(layout.format.inline_value_width(), 4);
+        assert_eq!(layout.format.offset_width(), 4);
+        assert_eq!(layout.width, 512);
+        assert_eq!(layout.height, 512);
+        assert_eq!(layout.scale, [1.0, 1.0, 0.0]);
+        assert_eq!(layout.tiepoint, [0.0; 6]);
+        assert_eq!(
+            layout.tile_offsets,
+            PrototypeIndexDescriptor {
+                field_type: 4,
+                element_width: 4,
+                count: 1,
+                storage: PrototypeIndexStorage::InlineScalar(278),
+            }
+        );
+        assert_eq!(
+            layout.tile_byte_counts,
+            PrototypeIndexDescriptor {
+                field_type: 4,
+                element_width: 4,
+                count: 1,
+                storage: PrototypeIndexStorage::InlineScalar(1),
+            }
+        );
+        assert_eq!(layout.tile_offsets.byte_extent().unwrap(), None);
+        assert_eq!(layout.tile_byte_counts.byte_extent().unwrap(), None);
+        assert_eq!(layout.bytes_read, 274);
+        assert_eq!(store.head_calls(), 0);
+        assert_eq!(store.get_range_calls(), 3);
+        assert_eq!(store.get_ranges_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_reads_bigtiff_metadata_without_materializing_indexes() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
+        let store = CogFixtureCountingStore::new(inner);
+
+        let layout = prototype_layout(
+            &store,
+            &fixtures.planetary_object_path,
+            PrototypeTiffFormat::BigTiff,
+        )
+        .await
+        .expect("BigTIFF metadata should parse");
+
+        assert_eq!(layout.format, PrototypeTiffFormat::BigTiff);
+        assert_eq!(layout.format.count_width(), 8);
+        assert_eq!(layout.format.entry_width(), 20);
+        assert_eq!(layout.format.inline_value_width(), 8);
+        assert_eq!(layout.format.offset_width(), 8);
+        assert_eq!(layout.width, 1_070_000);
+        assert_eq!(layout.height, 500_000);
+        assert_eq!(layout.scale, [1.0, 1.0, 0.0]);
+        assert_eq!(layout.tiepoint, [0.0; 6]);
+        assert_eq!(
+            layout.tile_offsets,
+            PrototypeIndexDescriptor {
+                field_type: 16,
+                element_width: 8,
+                count: PLANETARY_TILE_COUNT,
+                storage: PrototypeIndexStorage::OutOfLine(3_998),
+            }
+        );
+        assert_eq!(
+            layout.tile_byte_counts,
+            PrototypeIndexDescriptor {
+                field_type: 4,
+                element_width: 4,
+                count: PLANETARY_TILE_COUNT,
+                storage: PrototypeIndexStorage::OutOfLine(16_339_438),
+            }
+        );
+        assert_eq!(
+            layout.tile_offsets.byte_extent().unwrap(),
+            Some(3_998..16_339_438)
+        );
+        assert_eq!(
+            layout.tile_byte_counts.byte_extent().unwrap(),
+            Some(16_339_438..PLANETARY_INDEX_END)
+        );
+        assert_eq!(layout.bytes_read, 476);
+        assert!(layout.bytes_read < 3_998);
+        assert_eq!(store.head_calls(), 0);
+        assert_eq!(store.get_range_calls(), 3);
+        assert_eq!(store.get_ranges_calls(), 1);
+    }
+
+    #[test]
+    fn known_value_deflate_chunk_with_predictor_one_decodes_without_differencing() {
+        let compressed = [
+            120, 156, 99, 100, 98, 102, 97, 101, 99, 231, 0, 0, 0, 128, 0, 37,
+        ];
+
+        let decoded = prototype_decode(&compressed, 1).expect("zlib DEFLATE payload should decode");
+
+        assert_eq!(decoded, [1, 2, 3, 4, 5, 6, 7, 8]);
     }
 
     fn metadata() -> CogMetadata {
