@@ -1286,9 +1286,341 @@ impl Seek for RangeBackedTiffReader {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt;
+    use std::fs;
+    use std::future::Future;
+    use std::io;
+    use std::ops::Range;
+    use std::path::PathBuf;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, OnceLock};
+
+    use futures_util::stream::BoxStream;
     use geo::coord;
+    use object_store::local::LocalFileSystem;
+    use object_store::{
+        CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta,
+        PutMultipartOptions, PutOptions, PutPayload, PutResult, Result as ObjectStoreResult,
+    };
 
     use super::*;
+
+    const PLANETARY_INDEX_END: u64 = 24_507_158;
+    /// Pre-M2 extent bound, recorded as historical fact so this invariant does not
+    /// depend on a production constant that M2 deletes.
+    const LEGACY_EXTENT_BOUND: u64 = 262_144;
+    /// Pre-M3 window-prefix bound, recorded as historical fact for the same reason.
+    const LEGACY_WINDOW_BOUND: u64 = 16_777_216;
+    const PLANETARY_FILE_LEN: u64 = 24_507_159;
+    const PLANETARY_TILE_COUNT: u64 = 2_041_930;
+
+    struct CogFixtures {
+        temp_dir: tempfile::TempDir,
+        planetary_object_path: ObjectPath,
+        classic_path: PathBuf,
+    }
+
+    fn write_u16(file: &mut File, value: u16) -> io::Result<()> {
+        file.write_all(&value.to_le_bytes())
+    }
+
+    fn write_u32(file: &mut File, value: u32) -> io::Result<()> {
+        file.write_all(&value.to_le_bytes())
+    }
+
+    fn write_u64(file: &mut File, value: u64) -> io::Result<()> {
+        file.write_all(&value.to_le_bytes())
+    }
+
+    fn write_f64(file: &mut File, value: f64) -> io::Result<()> {
+        file.write_all(&value.to_le_bytes())
+    }
+
+    fn write_bigtiff_entry(
+        file: &mut File,
+        tag: u16,
+        field_type: u16,
+        count: u64,
+        value: u64,
+    ) -> io::Result<()> {
+        write_u16(file, tag)?;
+        write_u16(file, field_type)?;
+        write_u64(file, count)?;
+        write_u64(file, value)
+    }
+
+    fn write_classic_tiff_entry(
+        file: &mut File,
+        tag: u16,
+        field_type: u16,
+        count: u32,
+        value: u32,
+    ) -> io::Result<()> {
+        write_u16(file, tag)?;
+        write_u16(file, field_type)?;
+        write_u32(file, count)?;
+        write_u32(file, value)
+    }
+
+    fn write_planetary_fixture(path: &Path) -> io::Result<()> {
+        let mut file = File::create(path)?;
+        file.set_len(PLANETARY_FILE_LEN)?;
+        file.write_all(b"II")?;
+        write_u16(&mut file, 43)?;
+        write_u16(&mut file, 8)?;
+        write_u16(&mut file, 0)?;
+        write_u64(&mut file, 200)?;
+
+        file.seek(SeekFrom::Start(200))?;
+        write_u64(&mut file, 19)?;
+        write_bigtiff_entry(&mut file, 256, 4, 1, 1_070_000)?;
+        write_bigtiff_entry(&mut file, 257, 4, 1, 500_000)?;
+        write_bigtiff_entry(&mut file, 258, 3, 1, 8)?;
+        write_bigtiff_entry(&mut file, 259, 3, 1, 8)?;
+        write_bigtiff_entry(&mut file, 262, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 277, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 282, 5, 1, (1_u64 << 32) | 1)?;
+        write_bigtiff_entry(&mut file, 283, 5, 1, (1_u64 << 32) | 1)?;
+        write_bigtiff_entry(&mut file, 284, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 296, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 317, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 322, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 323, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 324, 16, PLANETARY_TILE_COUNT, 3_998)?;
+        write_bigtiff_entry(&mut file, 325, 4, PLANETARY_TILE_COUNT, 16_339_438)?;
+        write_bigtiff_entry(&mut file, 339, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 33_550, 12, 3, 596)?;
+        write_bigtiff_entry(&mut file, 33_922, 12, 6, 620)?;
+        write_bigtiff_entry(
+            &mut file,
+            42_113,
+            2,
+            4,
+            u64::from_le_bytes(*b"255\0\0\0\0\0"),
+        )?;
+        write_u64(&mut file, 0)?;
+
+        file.seek(SeekFrom::Start(596))?;
+        for value in [1.0, 1.0, 0.0] {
+            write_f64(&mut file, value)?;
+        }
+        for value in [0.0; 6] {
+            write_f64(&mut file, value)?;
+        }
+
+        file.seek(SeekFrom::Start(3_998))?;
+        write_u64(&mut file, PLANETARY_INDEX_END)?;
+        file.seek(SeekFrom::Start(16_339_438))?;
+        write_u32(&mut file, 1)?;
+        file.seek(SeekFrom::Start(PLANETARY_INDEX_END))?;
+        file.write_all(&[0])
+    }
+
+    fn write_classic_fixture(path: &Path) -> io::Result<()> {
+        let mut file = File::create(path)?;
+        file.set_len(279)?;
+        file.write_all(b"II")?;
+        write_u16(&mut file, 42)?;
+        write_u32(&mut file, 8)?;
+        write_u16(&mut file, 16)?;
+        write_classic_tiff_entry(&mut file, 256, 4, 1, 512)?;
+        write_classic_tiff_entry(&mut file, 257, 4, 1, 512)?;
+        write_classic_tiff_entry(&mut file, 258, 3, 1, 8)?;
+        write_classic_tiff_entry(&mut file, 259, 3, 1, 8)?;
+        write_classic_tiff_entry(&mut file, 262, 3, 1, 1)?;
+        write_classic_tiff_entry(&mut file, 277, 3, 1, 1)?;
+        write_classic_tiff_entry(&mut file, 284, 3, 1, 1)?;
+        write_classic_tiff_entry(&mut file, 317, 3, 1, 1)?;
+        write_classic_tiff_entry(&mut file, 322, 4, 1, 512)?;
+        write_classic_tiff_entry(&mut file, 323, 4, 1, 512)?;
+        write_classic_tiff_entry(&mut file, 324, 4, 1, 278)?;
+        write_classic_tiff_entry(&mut file, 325, 4, 1, 1)?;
+        write_classic_tiff_entry(&mut file, 339, 3, 1, 1)?;
+        write_classic_tiff_entry(&mut file, 33_550, 12, 3, 206)?;
+        write_classic_tiff_entry(&mut file, 33_922, 12, 6, 230)?;
+        write_classic_tiff_entry(&mut file, 42_113, 2, 4, u32::from_le_bytes(*b"255\0"))?;
+        write_u32(&mut file, 0)?;
+
+        for value in [1.0, 1.0, 0.0] {
+            write_f64(&mut file, value)?;
+        }
+        for value in [0.0; 6] {
+            write_f64(&mut file, value)?;
+        }
+        file.write_all(&[0])
+    }
+
+    fn fixtures() -> &'static CogFixtures {
+        static FIXTURES: OnceLock<CogFixtures> = OnceLock::new();
+        FIXTURES.get_or_init(|| {
+            let temp_dir =
+                tempfile::TempDir::new().expect("fixture temp directory should be created");
+            let planetary_object_path = ObjectPath::from("planetary.tif");
+            let planetary_path = temp_dir.path().join(planetary_object_path.as_ref());
+            let classic_path = temp_dir.path().join("classic.tif");
+            write_planetary_fixture(&planetary_path)
+                .expect("planetary BigTIFF fixture should be written");
+            write_classic_fixture(&classic_path).expect("classic TIFF fixture should be written");
+            CogFixtures {
+                temp_dir,
+                planetary_object_path,
+                classic_path,
+            }
+        })
+    }
+
+    #[derive(Debug, Default)]
+    struct CogFixtureStoreCounters {
+        head_calls: AtomicUsize,
+        get_range_calls: AtomicUsize,
+        get_ranges_calls: AtomicUsize,
+    }
+
+    #[derive(Debug)]
+    struct CogFixtureCountingStore {
+        inner: Arc<dyn ObjectStore>,
+        counters: Arc<CogFixtureStoreCounters>,
+    }
+
+    impl CogFixtureCountingStore {
+        fn new(inner: Arc<dyn ObjectStore>) -> Self {
+            Self {
+                inner,
+                counters: Arc::new(CogFixtureStoreCounters::default()),
+            }
+        }
+
+        fn head_calls(&self) -> usize {
+            self.counters.head_calls.load(Ordering::SeqCst)
+        }
+
+        fn get_range_calls(&self) -> usize {
+            self.counters.get_range_calls.load(Ordering::SeqCst)
+        }
+
+        fn get_ranges_calls(&self) -> usize {
+            self.counters.get_ranges_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl fmt::Display for CogFixtureCountingStore {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "CogFixtureCountingStore({})", self.inner)
+        }
+    }
+
+    impl ObjectStore for CogFixtureCountingStore {
+        fn put_opts<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            payload: PutPayload,
+            opts: PutOptions,
+        ) -> Pin<Box<dyn Future<Output = ObjectStoreResult<PutResult>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.put_opts(location, payload, opts).await })
+        }
+
+        fn put_multipart_opts<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            opts: PutMultipartOptions,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = ObjectStoreResult<Box<dyn MultipartUpload>>>
+                    + Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.put_multipart_opts(location, opts).await })
+        }
+
+        fn get_opts<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            options: GetOptions,
+        ) -> Pin<Box<dyn Future<Output = ObjectStoreResult<GetResult>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            if options.head {
+                self.counters.head_calls.fetch_add(1, Ordering::SeqCst);
+            }
+            if options.range.is_some() {
+                self.counters.get_range_calls.fetch_add(1, Ordering::SeqCst);
+            }
+            Box::pin(async move { self.inner.get_opts(location, options).await })
+        }
+
+        fn get_ranges<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            location: &'life1 ObjectPath,
+            ranges: &'life2 [Range<u64>],
+        ) -> Pin<Box<dyn Future<Output = ObjectStoreResult<Vec<Bytes>>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.counters
+                .get_ranges_calls
+                .fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move { self.inner.get_ranges(location, ranges).await })
+        }
+
+        fn delete_stream(
+            &self,
+            locations: BoxStream<'static, ObjectStoreResult<ObjectPath>>,
+        ) -> BoxStream<'static, ObjectStoreResult<ObjectPath>> {
+            self.inner.delete_stream(locations)
+        }
+
+        fn list(
+            &self,
+            prefix: Option<&ObjectPath>,
+        ) -> BoxStream<'static, ObjectStoreResult<ObjectMeta>> {
+            self.inner.list(prefix)
+        }
+
+        fn list_with_delimiter<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            prefix: Option<&'life1 ObjectPath>,
+        ) -> Pin<Box<dyn Future<Output = ObjectStoreResult<ListResult>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.list_with_delimiter(prefix).await })
+        }
+
+        fn copy_opts<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            from: &'life1 ObjectPath,
+            to: &'life2 ObjectPath,
+            options: CopyOptions,
+        ) -> Pin<Box<dyn Future<Output = ObjectStoreResult<()>> + Send + 'async_trait>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move { self.inner.copy_opts(from, to, options).await })
+        }
+    }
 
     fn metadata() -> CogMetadata {
         CogMetadata {
@@ -1307,6 +1639,121 @@ mod tests {
             tile_offsets: (0..8).map(|idx| 1000 + idx * 100).collect(),
             tile_byte_counts: vec![50; 8],
         }
+    }
+
+    #[test]
+    fn planetary_fixture_exceeds_legacy_header_bounds() {
+        let fixtures = fixtures();
+        let mut file = File::open(
+            fixtures
+                .temp_dir
+                .path()
+                .join(fixtures.planetary_object_path.as_ref()),
+        )
+        .expect("planetary fixture should be readable");
+        let mut tile_byte_counts_entry = [0_u8; 20];
+        file.seek(SeekFrom::Start(488))
+            .expect("TileByteCounts entry should be seekable");
+        file.read_exact(&mut tile_byte_counts_entry)
+            .expect("TileByteCounts entry should be readable");
+        let tag = u16::from_le_bytes(tile_byte_counts_entry[0..2].try_into().unwrap());
+        let field_type = u16::from_le_bytes(tile_byte_counts_entry[2..4].try_into().unwrap());
+        let count = u64::from_le_bytes(tile_byte_counts_entry[4..12].try_into().unwrap());
+        let value_offset = u64::from_le_bytes(tile_byte_counts_entry[12..20].try_into().unwrap());
+        let index_end = value_offset
+            .checked_add(
+                count
+                    .checked_mul(4)
+                    .expect("index byte count should fit u64"),
+            )
+            .expect("index end should fit u64");
+
+        // DURABLE generator invariant: the index exceeds 262,144 and 16,777,216 across M2 and M3.
+        assert!(
+            tag == 325
+                && field_type == 4
+                && index_end == PLANETARY_INDEX_END
+                && index_end > LEGACY_EXTENT_BOUND
+                && index_end > LEGACY_WINDOW_BOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn planetary_extent_locks_bounded_header_failure() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
+        let store = CogFixtureCountingStore::new(inner);
+
+        let error = read_remote_extent(&store as &dyn ObjectStore, &fixtures.planetary_object_path)
+            .await
+            .expect_err("bounded extent read should retain the baseline failure");
+
+        assert_eq!(store.head_calls(), 1);
+        assert_eq!(store.get_range_calls(), 1);
+        assert_eq!(store.get_ranges_calls(), 0);
+        // TRANSITIONAL: M2 owns conversion to green success; this assertion may not be deleted.
+        assert!(matches!(
+            error,
+            CacheError::UnsupportedCog { path, reason }
+                if path == fixtures.planetary_object_path
+                    && reason == "extent header too large for bounded 262144 byte range"
+        ));
+    }
+
+    #[tokio::test]
+    async fn planetary_window_locks_truncated_tile_byte_counts_failure() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
+        let store = CogFixtureCountingStore::new(inner);
+        let request = RasterWindowRequest::new(
+            RasterKind::FlowDir,
+            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
+        );
+
+        // The [0, 16,777,216) prefix truncates TileByteCounts by exactly 7,729,942 bytes.
+        let error = prepare_window(
+            &store as &dyn ObjectStore,
+            &fixtures.planetary_object_path,
+            &request,
+        )
+        .await
+        .expect_err("bounded window read should retain the baseline failure");
+
+        assert_eq!(store.head_calls(), 1);
+        assert_eq!(store.get_range_calls(), 1);
+        assert_eq!(store.get_ranges_calls(), 0);
+        // TRANSITIONAL: M3 owns conversion to green success; this assertion may not be deleted.
+        assert!(matches!(
+            error,
+            CacheError::Tiff {
+                source: tiff::TiffError::IoError(source),
+                ..
+            } if source.kind() == ErrorKind::UnexpectedEof
+        ));
+    }
+
+    #[test]
+    fn classic_fixture_round_trips_magic_and_four_byte_offsets() {
+        let fixtures = fixtures();
+        let bytes = fs::read(&fixtures.classic_path).expect("classic fixture should be readable");
+
+        assert_eq!(&bytes[0..2], b"II");
+        assert_eq!(u16::from_le_bytes(bytes[2..4].try_into().unwrap()), 42);
+        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 8);
+        assert_eq!(u16::from_le_bytes(bytes[8..10].try_into().unwrap()), 16);
+        assert_eq!(u16::from_le_bytes(bytes[130..132].try_into().unwrap()), 324);
+        assert_eq!(u16::from_le_bytes(bytes[132..134].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(bytes[134..138].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(bytes[138..142].try_into().unwrap()), 278);
+
+        let mut decoder =
+            Decoder::new(File::open(&fixtures.classic_path).unwrap()).expect("TIFF should open");
+        assert_eq!(decoder.dimensions().unwrap(), (512, 512));
+        assert_eq!(decoder.chunk_dimensions(), (512, 512));
     }
 
     #[test]
