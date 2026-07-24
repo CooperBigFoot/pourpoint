@@ -26,6 +26,11 @@ use tiff::encoder::{TiffEncoder, colortype};
 use tiff::tags::Tag;
 
 const FIXTURE_DIR: &str = "tests/fixtures/parity/v021_synthetic_refined";
+// Cross-libm variance is ~1 ulp (~1.8e-15 at magnitude 10). A 1e-12-degree
+// tolerance gives >500x headroom while remaining 1000x tighter than the
+// engine's 1e-9-degree canonical budget, so real CRS wiring errors still fail
+// by many orders of magnitude.
+const INVERSE_PROJECTION_TOLERANCE_DEGREES: f64 = 1e-12;
 
 #[test]
 fn projected_d8_selection_projects_terminal_before_extent_comparison() {
@@ -276,7 +281,15 @@ fn projected_refinement_carves_natively_and_returns_geographic_output() {
     else {
         panic!("projected carve should apply");
     };
-    assert_eq!(refined_outlet, GeoCoord::new(10.0, 9.999999999999988));
+    let expected_refined_outlet = GeoCoord::new(10.0, 9.999999999999988);
+    assert!(
+        (refined_outlet.lon - expected_refined_outlet.lon).abs()
+            <= INVERSE_PROJECTION_TOLERANCE_DEGREES
+            && (refined_outlet.lat - expected_refined_outlet.lat).abs()
+                <= INVERSE_PROJECTION_TOLERANCE_DEGREES,
+        "inverse-projected refined outlet should be {expected_refined_outlet:?} within \
+         {INVERSE_PROJECTION_TOLERANCE_DEGREES} degrees; got {refined_outlet:?}"
+    );
     let expected_bbox = Rect::new(
         coord! { x: 951_078.944_848_778, y: 1_281_580.009_108_443_3 },
         coord! { x: 951_117.540_068_018_6, y: 1_281_631.011_053_289_8 },
@@ -298,9 +311,10 @@ fn projected_refinement_carves_natively_and_returns_geographic_output() {
     ];
     for expected in expected_corners {
         assert!(
-            exterior
-                .iter()
-                .any(|coordinate| (coordinate.x, coordinate.y) == expected),
+            exterior.iter().any(|coordinate| {
+                (coordinate.x - expected.0).abs() <= INVERSE_PROJECTION_TOLERANCE_DEGREES
+                    && (coordinate.y - expected.1).abs() <= INVERSE_PROJECTION_TOLERANCE_DEGREES
+            }),
             "inverse-projected carved ring should contain {expected:?}; got {exterior:?}"
         );
     }
@@ -355,9 +369,10 @@ fn projected_refinement_inverse_projects_carved_interior_ring() {
     });
     for expected in expected_geographic_corners {
         assert!(
-            interior
-                .iter()
-                .any(|coordinate| (coordinate.x, coordinate.y) == (expected.lon, expected.lat)),
+            interior.iter().any(|coordinate| {
+                (coordinate.x - expected.lon).abs() <= INVERSE_PROJECTION_TOLERANCE_DEGREES
+                    && (coordinate.y - expected.lat).abs() <= INVERSE_PROJECTION_TOLERANCE_DEGREES
+            }),
             "inverse-projected interior ring should contain ({}, {}); got {interior:?}",
             expected.lon,
             expected.lat
