@@ -62,10 +62,24 @@ jobs:
             cibw_build: cp39-win_amd64
 
     steps:
+      - name: Allow Windows-reserved fixture paths in the git index
+        if: runner.os == 'Windows'
+        # The vendored fixture path contains `aux`, a Windows reserved device name.
+        # Git's verify_path() rejects it at INDEX level, so sparse-checkout alone
+        # cannot avoid it. protectNTFS=false lifts the index-level check; the
+        # sparse exclusion below still prevents the path from being materialized.
+        run: git config --global core.protectNTFS false
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+          # Keep the Windows-reserved fixture out of the working tree after the
+          # index-level check is disabled above. Wheel builds never read test fixtures.
+          sparse-checkout: |
+            /*
+            !/crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass/
+          sparse-checkout-cone-mode: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
