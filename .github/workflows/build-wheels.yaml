@@ -66,6 +66,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+          # The vendored fixture contains Windows-reserved `aux`, breaking Git checkout
+          # on Windows runners. Wheel builds never read test fixtures; CIBW only imports
+          # the installed wheel and checks bundled data.
+          sparse-checkout: |
+            /*
+            !/crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass/
+          sparse-checkout-cone-mode: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
