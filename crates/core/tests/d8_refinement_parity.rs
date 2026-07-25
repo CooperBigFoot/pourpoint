@@ -34,7 +34,8 @@ const REAL_D8_ENV: &str = "POURPOINT_HFX_V02_REAL_D8_REFINEMENT";
 const REAL_MERIT_SEARCH_RADIUS_M: f64 = 5_000.0;
 const EXPECTED_REAL_MERIT_D8_DECLS: usize = 60;
 const EXPECTED_REAL_MERIT_SNAP_DECLS: usize = 1;
-const EXTENT_HEADER_RANGE_BYTES: u64 = 256 * 1024;
+/// Gross-regression per-path backstop against whole-raster extent reads.
+const D8_EXTENT_READ_BACKSTOP_BYTES: u64 = 65_536;
 
 #[test]
 fn projected_grass_capture_child() {
@@ -806,17 +807,70 @@ fn assert_no_root_raster_reads(snapshot: &pourpoint_core::source_telemetry::Http
 fn assert_only_extent_headers_for_all_d8(
     snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot,
 ) {
-    for (path, counters) in snapshot
+    let inspected = snapshot
         .per_path
         .iter()
         .filter(|(path, _)| path.contains("merit/0.2.0/aux/d8/"))
-    {
-        assert!(
-            counters.bytes_in <= EXTENT_HEADER_RANGE_BYTES,
-            "D8 declaration {path} read {} bytes before ambiguity detection, exceeding the bounded extent-header range; selection must not full-raster download",
-            counters.bytes_in
+        .collect::<Vec<_>>();
+    let flow_dir = inspected
+        .iter()
+        .filter(|(path, _)| path.ends_with("/flow_dir.tif"))
+        .map(|(path, counters)| (path.as_str(), (counters.requests, counters.bytes_in)))
+        .collect::<Vec<_>>();
+    let flow_acc = inspected
+        .iter()
+        .filter(|(path, _)| path.ends_with("/flow_acc.tif"))
+        .map(|(path, counters)| (path.as_str(), (counters.requests, counters.bytes_in)))
+        .collect::<Vec<_>>();
+    let unclassified = inspected
+        .iter()
+        .filter(|(path, _)| !path.ends_with("/flow_dir.tif") && !path.ends_with("/flow_acc.tif"))
+        .map(|(path, _)| path.as_str())
+        .collect::<Vec<_>>();
+
+    // session.rs:728 reads flow_dir for every declaration, while session.rs:732
+    // reads flow_acc for every declaration whose flow-direction extent intersects
+    // the terminal bbox. Both filenames therefore appear in after_selection, but
+    // their group sizes differ.
+    assert_eq!(
+        flow_dir.len(),
+        EXPECTED_REAL_MERIT_D8_DECLS,
+        "expected exactly {EXPECTED_REAL_MERIT_D8_DECLS} flow-direction paths, got {}",
+        flow_dir.len()
+    );
+    let expected_flow_dir = flow_dir[0].1;
+    for (path, actual) in &flow_dir {
+        assert_eq!(
+            *actual, expected_flow_dir,
+            "flow-direction path {path} had (requests, bytes_in) {actual:?}, expected common pair {expected_flow_dir:?}"
         );
     }
+
+    // This is not proof by itself because reaching after_selection already
+    // guarantees at least one flow-accumulation read.
+    assert!(
+        !flow_acc.is_empty(),
+        "after_selection must include at least one flow-accumulation path"
+    );
+    for (path, actual) in &flow_acc {
+        assert_eq!(
+            actual.0, expected_flow_dir.0,
+            "flow-accumulation path {path} had (requests, bytes_in) {actual:?}, expected requests {}",
+            expected_flow_dir.0
+        );
+    }
+
+    for (path, actual) in flow_dir.iter().chain(&flow_acc) {
+        assert!(
+            actual.1 <= D8_EXTENT_READ_BACKSTOP_BYTES,
+            "D8 path {path} had (requests, bytes_in) {actual:?}, exceeding gross-regression limit {D8_EXTENT_READ_BACKSTOP_BYTES}"
+        );
+    }
+    assert_eq!(
+        flow_dir.len() + flow_acc.len(),
+        inspected.len(),
+        "all inspected D8 paths must be flow_dir.tif or flow_acc.tif; unclassified paths: {unclassified:?}"
+    );
 }
 
 fn d8_bytes_in(snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot) -> u64 {
