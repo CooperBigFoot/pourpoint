@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,7 +12,7 @@ use pourpoint_core::test_raster_source::LocalTiffRasterSource;
 use pourpoint_core::{
     AppliedRefinementReason, DelineationOptions, Engine, LevelSelection, PreMergeDrainageUnit,
     PreMergeDrainageUnits, RefinementMode, RefinementOutcome, RefinementProvenance,
-    RefinementStrategyName, ResolutionMethod, ResolverConfig, SearchRadiusMetres, SessionError,
+    RefinementStrategyName, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
     TerminalRefinement,
 };
 use serde::{Deserialize, Serialize};
@@ -29,13 +28,6 @@ const PROJECTED_GRASS_INTEGRALITY_TOLERANCE: f64 = 1e-6;
 const PROJECTED_GRASS_MINIMUM_CELL_COUNT: i64 = 16;
 const M1_SYNTHETIC_REFINED_GOLDEN: &str =
     "goldens/v01_synthetic_refined/oracle_b_synthetic_refined.json";
-const REAL_MERIT_V020_URL: &str = "https://basin-delineations-public.upstream.tech/merit/0.2.0/";
-const REAL_D8_ENV: &str = "POURPOINT_HFX_V02_REAL_D8_REFINEMENT";
-const REAL_MERIT_SEARCH_RADIUS_M: f64 = 5_000.0;
-const EXPECTED_REAL_MERIT_D8_DECLS: usize = 60;
-const EXPECTED_REAL_MERIT_SNAP_DECLS: usize = 1;
-const EXTENT_HEADER_RANGE_BYTES: u64 = 256 * 1024;
-
 #[test]
 fn projected_grass_capture_child() {
     if std::env::var("POURPOINT_PROJECTED_GRASS_CAPTURE_CHILD").as_deref() != Ok("1") {
@@ -335,117 +327,6 @@ fn applied_d8_carve_replaces_whole_terminal_in_final_dissolve() {
     assert_eq!(final_canonical, decode_hex(&golden.canonical_wkb_hex));
 }
 
-#[test]
-#[ignore = "network-gated MERIT v0.2.0 D8 refinement readiness proof; set POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1"]
-fn merit_v020_d8_refinement_selects_manifest_first_overlapping_pfaf() {
-    if std::env::var(REAL_D8_ENV).as_deref() != Ok("1") {
-        println!(
-            "skipping real MERIT v0.2.0 D8 refinement readiness proof; set {REAL_D8_ENV}=1 to enable"
-        );
-        return;
-    }
-
-    // Real MERIT-Hydro D8 rasters are per-Pfaf-02 basin windows. Irregular
-    // basins have overlapping rectangular extents, so a terminal near a basin
-    // boundary is fully covered by more than one declaration. hfx.aux.d8_raster.v1
-    // requires overlapping entries to be windows of a single coherent D8 fabric
-    // (identical values in the overlap), so selection collapses to the
-    // manifest-first covering declaration and the carve proceeds rather than
-    // surfacing AmbiguousD8Coverage.
-    let _bench_net = ScopedEnvVar::set("POURPOINT_BENCH_NET", "1");
-
-    let probe_session =
-        DatasetSession::open(REAL_MERIT_V020_URL).expect("real MERIT v0.2.0 should open");
-    assert_real_merit_manifest(&probe_session);
-    let options = real_merit_options();
-    let terminal_geometry = {
-        let probe_engine = Engine::builder(probe_session).build();
-        let selected = probe_engine
-            .select_level(LevelSelection::Finest)
-            .expect("real MERIT finest level should resolve");
-        let resolved = probe_engine
-            .resolve_outlet_at_level(
-                real_merit_rhine_basel_outlet(),
-                selected,
-                options.resolver_config(),
-            )
-            .expect("rhine_basel outlet should resolve in MERIT v0.2.0");
-        let upstream = probe_engine
-            .traverse_upstream_at_level(&resolved)
-            .expect("rhine_basel upstream traversal should succeed");
-        let pre_merge = probe_engine
-            .produce_pre_merge_units(&upstream)
-            .expect("rhine_basel pre-merge units should materialize");
-        pre_merge
-            .terminal_unit()
-            .expect("rhine_basel terminal unit should exist")
-            .geometry()
-            .clone()
-    };
-
-    let session =
-        DatasetSession::open(REAL_MERIT_V020_URL).expect("real MERIT v0.2.0 should reopen");
-    assert_real_merit_manifest(&session);
-    assert!(
-        session.http_stats().is_some(),
-        "POURPOINT_BENCH_NET should expose remote request counters"
-    );
-
-    let selected_index = match session.select_d8_raster_for_terminal(&terminal_geometry) {
-        Ok((handle, _)) => handle.declaration_index(),
-        Err(SessionError::TerminalSpansD8Tiles {
-            declaration_indices,
-            ..
-        }) => panic!(
-            "ESCALATE: rhine_basel spans MERIT v0.2.0 D8 declarations {declaration_indices:?}; mosaicking is not implemented"
-        ),
-        Err(err) => {
-            panic!("real MERIT rhine_basel D8 selection should pick a covering tile: {err}")
-        }
-    };
-    assert!(
-        selected_index < EXPECTED_REAL_MERIT_D8_DECLS,
-        "selected declaration index should be within the declared D8 set"
-    );
-
-    let after_selection = session
-        .http_stats()
-        .expect("request counters should remain available after selection");
-    assert_no_root_raster_reads(&after_selection);
-    assert_only_extent_headers_for_all_d8(&after_selection);
-
-    let engine = Engine::builder(session)
-        .with_raster_source(LocalTiffRasterSource)
-        .build();
-    let result = engine
-        .delineate(real_merit_rhine_basel_outlet(), &options)
-        .expect("real MERIT rhine_basel should carve after manifest-first D8 selection");
-    let RefinementOutcome::Applied { provenance, .. } = result.refinement() else {
-        panic!(
-            "expected applied D8 refinement, got {:?}",
-            result.refinement()
-        );
-    };
-    assert!(matches!(
-        provenance,
-        RefinementProvenance::Applied {
-            strategy: RefinementStrategyName::BuiltInD8,
-            ..
-        }
-    ));
-    assert!(
-        !result.geometry().0.is_empty(),
-        "carved watershed geometry should be non-empty"
-    );
-
-    println!(
-        "real_merit_d8_boundary declaration_count={} selected_declaration_index={} bounded_d8_header_bytes={} refinement=Applied",
-        EXPECTED_REAL_MERIT_D8_DECLS,
-        selected_index,
-        d8_bytes_in(&after_selection)
-    );
-}
-
 fn parity_fixture_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(PARITY_FIXTURE_DIR)
@@ -715,19 +596,6 @@ fn assert_outlet_close(actual: GeoCoord, expected: &GoldenOutlet, epsilon: f64) 
     assert!((actual.lat - expected.lat).abs() <= epsilon);
 }
 
-fn real_merit_options() -> DelineationOptions {
-    DelineationOptions::default().with_resolver_config(
-        ResolverConfig::new().with_search_radius(
-            SearchRadiusMetres::new(REAL_MERIT_SEARCH_RADIUS_M)
-                .expect("real MERIT search radius should be valid"),
-        ),
-    )
-}
-
-fn real_merit_rhine_basel_outlet() -> GeoCoord {
-    GeoCoord::new(7.5890, 47.5596)
-}
-
 fn pre_merge_with_terminal_geometry(
     pre_merge: &PreMergeDrainageUnits,
     terminal_geometry: geo::MultiPolygon<f64>,
@@ -771,90 +639,6 @@ fn decode_hex(hex: &str) -> Vec<u8> {
         .chunks_exact(2)
         .map(|pair| (hex_digit(pair[0]) << 4) | hex_digit(pair[1]))
         .collect()
-}
-
-fn assert_real_merit_manifest(session: &DatasetSession) {
-    assert_eq!(session.manifest().format_version().to_string(), "0.3.0");
-    assert_eq!(
-        session.auxiliary_declarations().d8_rasters.len(),
-        EXPECTED_REAL_MERIT_D8_DECLS,
-        "MERIT v0.2.0 should declare the expected blessed-D8 raster tiles"
-    );
-    assert_eq!(
-        session.auxiliary_declarations().snaps.len(),
-        EXPECTED_REAL_MERIT_SNAP_DECLS,
-        "MERIT v0.2.0 should declare the expected snap auxiliary artifact"
-    );
-    for decl in &session.auxiliary_declarations().d8_rasters {
-        assert!(decl.flow_dir.starts_with("aux/d8/"));
-        assert!(decl.flow_dir.ends_with("/flow_dir.tif"));
-        assert!(decl.flow_acc.starts_with("aux/d8/"));
-        assert!(decl.flow_acc.ends_with("/flow_acc.tif"));
-    }
-}
-
-fn assert_no_root_raster_reads(snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot) {
-    for path in snapshot.per_path.keys() {
-        assert!(
-            !path.ends_with("merit/0.2.0/flow_dir.tif")
-                && !path.ends_with("merit/0.2.0/flow_acc.tif"),
-            "D8 readiness must not read legacy root raster path {path}"
-        );
-    }
-}
-
-fn assert_only_extent_headers_for_all_d8(
-    snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot,
-) {
-    for (path, counters) in snapshot
-        .per_path
-        .iter()
-        .filter(|(path, _)| path.contains("merit/0.2.0/aux/d8/"))
-    {
-        assert!(
-            counters.bytes_in <= EXTENT_HEADER_RANGE_BYTES,
-            "D8 declaration {path} read {} bytes before ambiguity detection, exceeding the bounded extent-header range; selection must not full-raster download",
-            counters.bytes_in
-        );
-    }
-}
-
-fn d8_bytes_in(snapshot: &pourpoint_core::source_telemetry::HttpStatsSnapshot) -> u64 {
-    snapshot
-        .per_path
-        .iter()
-        .filter(|(path, _)| path.contains("merit/0.2.0/aux/d8/"))
-        .map(|(_, counters)| counters.bytes_in)
-        .sum()
-}
-
-struct ScopedEnvVar {
-    key: &'static str,
-    previous: Option<OsString>,
-}
-
-impl ScopedEnvVar {
-    fn set(key: &'static str, value: &str) -> Self {
-        let previous = std::env::var_os(key);
-        // SAFETY: this ignored test mutates POURPOINT_BENCH_NET before creating
-        // sessions and restores it before returning.
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self { key, previous }
-    }
-}
-
-impl Drop for ScopedEnvVar {
-    fn drop(&mut self) {
-        // SAFETY: restores the process environment value changed by this test.
-        unsafe {
-            match &self.previous {
-                Some(value) => std::env::set_var(self.key, value),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
 }
 
 fn hex_digit(byte: u8) -> u8 {

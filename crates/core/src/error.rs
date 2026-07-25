@@ -556,21 +556,6 @@ pub enum SessionError {
         /// Underlying cache/COG error.
         source: CacheError,
     },
-
-    /// Fired when the initial bounded extent range is too small for the COG IFD.
-    #[error(
-        "D8 COG extent header for declaration {declaration_index} {kind:?} at {path} exceeds bounded range of {limit_bytes} bytes"
-    )]
-    CogExtentHeaderTooLarge {
-        /// Zero-based D8 declaration index in manifest order.
-        declaration_index: usize,
-        /// Raster kind whose extent was being read.
-        kind: crate::session::RasterKind,
-        /// Resolved raster path or URI.
-        path: String,
-        /// Maximum range size used for extent reads.
-        limit_bytes: u64,
-    },
 }
 
 impl SessionError {

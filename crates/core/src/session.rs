@@ -20,8 +20,7 @@ use crate::algo::coord::GeoCoord;
 use crate::algo::projection::{Crs, forward};
 use crate::cache::{ArtifactMeta, RemoteArtifactCache, ValidationSidecar};
 use crate::cog::{
-    CogExtent, EXTENT_HEADER_RANGE_BYTES, LocalizedRasterWindow, RasterWindowRequest,
-    read_local_extent, read_remote_extent,
+    CogExtent, LocalizedRasterWindow, RasterWindowRequest, read_local_extent, read_remote_extent,
 };
 use crate::error::{CacheError, D8NativeCoverageCandidate, SessionError};
 use crate::parquet_cache::{
@@ -975,21 +974,11 @@ fn map_extent_error(
     path: &str,
     source: CacheError,
 ) -> SessionError {
-    match &source {
-        CacheError::UnsupportedCog { reason, .. } if reason.contains("extent header too large") => {
-            SessionError::CogExtentHeaderTooLarge {
-                declaration_index,
-                kind,
-                path: path.to_string(),
-                limit_bytes: EXTENT_HEADER_RANGE_BYTES,
-            }
-        }
-        _ => SessionError::CogExtentHeaderRead {
-            declaration_index,
-            kind,
-            path: path.to_string(),
-            source,
-        },
+    SessionError::CogExtentHeaderRead {
+        declaration_index,
+        kind,
+        path: path.to_string(),
+        source,
     }
 }
 

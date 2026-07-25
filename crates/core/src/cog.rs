@@ -1,4 +1,5 @@
 //! Windowed COG reads for remote raster refinement.
+//! remote_layout : RemoteTiff × ObjectSize → Dimensions × GeoTiffTransform × LazyTileIndexDescriptors
 
 use std::cmp::{max, min};
 use std::fs::File;
@@ -24,13 +25,6 @@ use crate::error::CacheError;
 use crate::session::RasterKind;
 
 const HEADER_RANGE_BYTES: u64 = 16 * 1024 * 1024;
-/// Bounded range for D8 declaration extent reads.
-///
-/// Selecting among 60 D8 declarations may inspect roughly 60 object `head`
-/// responses plus 60 small range reads before fetching any selected window.
-/// Keeping this at 256 KiB bounds worst-case pre-selection range transfer near
-/// 15 MiB and fails loudly when an IFD is too far from the TIFF header.
-pub(crate) const EXTENT_HEADER_RANGE_BYTES: u64 = 256 * 1024;
 const MODEL_PIXEL_SCALE_TAG: Tag = Tag::ModelPixelScaleTag;
 const MODEL_TIEPOINT_TAG: Tag = Tag::ModelTiepointTag;
 const GEO_KEY_DIRECTORY_TAG: Tag = Tag::GeoKeyDirectoryTag;
@@ -258,6 +252,422 @@ pub(crate) struct PreparedCogWindow {
     plan: TilePlan,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TiffFormat {
+    Classic,
+    BigTiff,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IndexStorage {
+    InlineScalar(u64),
+    OutOfLine(u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct IndexDescriptor {
+    field_type: u16,
+    element_width: u64,
+    count: u64,
+    storage: IndexStorage,
+}
+
+impl IndexDescriptor {
+    fn byte_extent(self) -> Result<Option<Range<u64>>, String> {
+        let IndexStorage::OutOfLine(offset) = self.storage else {
+            return Ok(None);
+        };
+        let byte_count = self
+            .count
+            .checked_mul(self.element_width)
+            .ok_or_else(|| "TIFF field size overflow".to_string())?;
+        let end = offset
+            .checked_add(byte_count)
+            .ok_or_else(|| "TIFF field end overflow".to_string())?;
+        Ok(Some(offset..end))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct IfdEntry {
+    tag: u16,
+    field_type: u16,
+    count: u64,
+    value: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RemoteLayout {
+    /// Retained as S1 accounting evidence; M3 consumes the parsed TIFF format.
+    #[allow(dead_code)]
+    format: TiffFormat,
+    width: u64,
+    height: u64,
+    scale: [f64; 3],
+    tiepoint: [f64; 6],
+    /// Retained as an S1 lazy-descriptor proof; M3 consumes tile offsets.
+    #[allow(dead_code)]
+    tile_offsets: IndexDescriptor,
+    /// Retained as an S1 lazy-descriptor proof; M3 consumes tile byte counts.
+    #[allow(dead_code)]
+    tile_byte_counts: IndexDescriptor,
+    /// Retained as S1 fixed-range accounting evidence for M3.
+    #[allow(dead_code)]
+    bytes_read: usize,
+}
+
+fn remote_layout_error(path: &ObjectPath, reason: impl Into<String>) -> CacheError {
+    CacheError::UnsupportedCog {
+        path: path.clone(),
+        reason: reason.into(),
+    }
+}
+
+fn checked_remote_range(
+    path: &ObjectPath,
+    start: u64,
+    length: u64,
+    object_size: u64,
+) -> Result<Range<u64>, CacheError> {
+    let end = start
+        .checked_add(length)
+        .ok_or_else(|| remote_layout_error(path, "TIFF range end overflow"))?;
+    if end > object_size {
+        return Err(remote_layout_error(
+            path,
+            format!("TIFF range {start}..{end} exceeds object size {object_size}"),
+        ));
+    }
+    Ok(start..end)
+}
+
+fn remote_u16(path: &ObjectPath, bytes: &[u8]) -> Result<u16, CacheError> {
+    bytes
+        .try_into()
+        .map(u16::from_le_bytes)
+        .map_err(|_| remote_layout_error(path, "missing TIFF u16"))
+}
+
+fn remote_u32(path: &ObjectPath, bytes: &[u8]) -> Result<u32, CacheError> {
+    bytes
+        .try_into()
+        .map(u32::from_le_bytes)
+        .map_err(|_| remote_layout_error(path, "missing TIFF u32"))
+}
+
+fn remote_u64(path: &ObjectPath, bytes: &[u8]) -> Result<u64, CacheError> {
+    bytes
+        .try_into()
+        .map(u64::from_le_bytes)
+        .map_err(|_| remote_layout_error(path, "missing TIFF u64"))
+}
+
+fn remote_field_width(path: &ObjectPath, field_type: u16) -> Result<u64, CacheError> {
+    match field_type {
+        1 | 2 => Ok(1),
+        3 => Ok(2),
+        4 => Ok(4),
+        5 | 12 | 16 => Ok(8),
+        _ => Err(remote_layout_error(
+            path,
+            format!("unsupported TIFF field type {field_type}"),
+        )),
+    }
+}
+
+fn remote_ifd_entry(
+    path: &ObjectPath,
+    format: TiffFormat,
+    bytes: &[u8],
+) -> Result<IfdEntry, CacheError> {
+    let tag = remote_u16(path, &bytes[0..2])?;
+    let field_type = remote_u16(path, &bytes[2..4])?;
+    let (count, value) = match format {
+        TiffFormat::Classic => (
+            u64::from(remote_u32(path, &bytes[4..8])?),
+            u64::from(remote_u32(path, &bytes[8..12])?),
+        ),
+        TiffFormat::BigTiff => (
+            remote_u64(path, &bytes[4..12])?,
+            remote_u64(path, &bytes[12..20])?,
+        ),
+    };
+    remote_field_width(path, field_type)?;
+    Ok(IfdEntry {
+        tag,
+        field_type,
+        count,
+        value,
+    })
+}
+
+fn remote_entry<'a>(
+    path: &ObjectPath,
+    entries: &'a [IfdEntry],
+    tag: u16,
+) -> Result<&'a IfdEntry, CacheError> {
+    entries
+        .iter()
+        .find(|entry| entry.tag == tag)
+        .ok_or_else(|| remote_layout_error(path, format!("missing TIFF tag {tag}")))
+}
+
+fn remote_inline_long(
+    path: &ObjectPath,
+    entries: &[IfdEntry],
+    tag: u16,
+) -> Result<u64, CacheError> {
+    let entry = remote_entry(path, entries, tag)?;
+    if entry.field_type != 4 || entry.count != 1 {
+        return Err(remote_layout_error(
+            path,
+            format!("TIFF tag {tag} must be one LONG value"),
+        ));
+    }
+    if entry.value > u64::from(u32::MAX) {
+        return Err(remote_layout_error(
+            path,
+            format!("TIFF tag {tag} has non-zero LONG padding"),
+        ));
+    }
+    Ok(entry.value)
+}
+
+fn remote_value_range(
+    path: &ObjectPath,
+    entry: IfdEntry,
+    expected_count: u64,
+    object_size: u64,
+) -> Result<Range<u64>, CacheError> {
+    if entry.field_type != 12 || entry.count != expected_count {
+        return Err(remote_layout_error(
+            path,
+            format!(
+                "TIFF tag {} must contain {expected_count} DOUBLE values",
+                entry.tag
+            ),
+        ));
+    }
+    let byte_count = entry
+        .count
+        .checked_mul(remote_field_width(path, entry.field_type)?)
+        .ok_or_else(|| remote_layout_error(path, "TIFF field size overflow"))?;
+    checked_remote_range(path, entry.value, byte_count, object_size)
+}
+
+fn remote_descriptor(
+    path: &ObjectPath,
+    format: TiffFormat,
+    entry: IfdEntry,
+    object_size: u64,
+) -> Result<IndexDescriptor, CacheError> {
+    if entry.count == 0 || !matches!(entry.field_type, 4 | 16) {
+        return Err(remote_layout_error(
+            path,
+            format!(
+                "TIFF tile-index tag {} has unsupported type {} or count {}",
+                entry.tag, entry.field_type, entry.count
+            ),
+        ));
+    }
+    let element_width = remote_field_width(path, entry.field_type)?;
+    let byte_count = entry
+        .count
+        .checked_mul(element_width)
+        .ok_or_else(|| remote_layout_error(path, "TIFF tile-index size overflow"))?;
+    let inline_value_width = match format {
+        TiffFormat::Classic => 4,
+        TiffFormat::BigTiff => 8,
+    };
+    let storage = if byte_count <= inline_value_width {
+        IndexStorage::InlineScalar(entry.value)
+    } else {
+        IndexStorage::OutOfLine(entry.value)
+    };
+    let descriptor = IndexDescriptor {
+        field_type: entry.field_type,
+        element_width,
+        count: entry.count,
+        storage,
+    };
+    if let Some(range) = descriptor
+        .byte_extent()
+        .map_err(|reason| remote_layout_error(path, reason))?
+        && range.end > object_size
+    {
+        return Err(remote_layout_error(
+            path,
+            format!(
+                "TIFF range {}..{} exceeds object size {object_size}",
+                range.start, range.end
+            ),
+        ));
+    }
+    Ok(descriptor)
+}
+
+fn remote_doubles<const N: usize>(path: &ObjectPath, bytes: &[u8]) -> Result<[f64; N], CacheError> {
+    let expected = N
+        .checked_mul(8)
+        .ok_or_else(|| remote_layout_error(path, "TIFF double size overflow"))?;
+    if bytes.len() != expected {
+        return Err(remote_layout_error(path, "incomplete TIFF double field"));
+    }
+    let mut values = [0.0; N];
+    for (value, chunk) in values.iter_mut().zip(bytes.chunks_exact(8)) {
+        *value = f64::from_le_bytes(
+            chunk
+                .try_into()
+                .map_err(|_| remote_layout_error(path, "incomplete TIFF double"))?,
+        );
+    }
+    Ok(values)
+}
+
+async fn read_remote_layout(
+    store: &dyn ObjectStore,
+    path: &ObjectPath,
+    object_size: u64,
+) -> Result<RemoteLayout, CacheError> {
+    let header_range = checked_remote_range(path, 0, 16, object_size)?;
+    let header = store
+        .get_range(path, header_range)
+        .await
+        .map_err(|source| CacheError::ObjectStore {
+            path: path.clone(),
+            source,
+        })?;
+    if header.len() != 16 {
+        return Err(remote_layout_error(path, "incomplete 16-byte TIFF header"));
+    }
+    if &header[0..2] != b"II" {
+        return Err(remote_layout_error(
+            path,
+            "only little-endian TIFF byte order is supported",
+        ));
+    }
+    let format = match remote_u16(path, &header[2..4])? {
+        42 => TiffFormat::Classic,
+        43 => TiffFormat::BigTiff,
+        magic => {
+            return Err(remote_layout_error(
+                path,
+                format!("unsupported TIFF magic {magic}"),
+            ));
+        }
+    };
+    if format == TiffFormat::BigTiff
+        && (remote_u16(path, &header[4..6])? != 8 || remote_u16(path, &header[6..8])? != 0)
+    {
+        return Err(remote_layout_error(path, "invalid BigTIFF offset header"));
+    }
+    let ifd_offset = match format {
+        TiffFormat::Classic => u64::from(remote_u32(path, &header[4..8])?),
+        TiffFormat::BigTiff => remote_u64(path, &header[8..16])?,
+    };
+    let (count_width, entry_width) = match format {
+        TiffFormat::Classic => (2, 12),
+        TiffFormat::BigTiff => (8, 20),
+    };
+
+    let count_range = checked_remote_range(path, ifd_offset, count_width, object_size)?;
+    let count_bytes = store
+        .get_range(path, count_range.clone())
+        .await
+        .map_err(|source| CacheError::ObjectStore {
+            path: path.clone(),
+            source,
+        })?;
+    if count_bytes.len()
+        != usize::try_from(count_width)
+            .map_err(|_| remote_layout_error(path, "TIFF IFD count width does not fit usize"))?
+    {
+        return Err(remote_layout_error(path, "incomplete TIFF IFD count"));
+    }
+    let entry_count = match format {
+        TiffFormat::Classic => u64::from(remote_u16(path, &count_bytes)?),
+        TiffFormat::BigTiff => remote_u64(path, &count_bytes)?,
+    };
+    if entry_count == 0 {
+        return Err(remote_layout_error(path, "TIFF IFD contains no entries"));
+    }
+    let entries_len = entry_count
+        .checked_mul(entry_width)
+        .ok_or_else(|| remote_layout_error(path, "TIFF IFD entries size overflow"))?;
+    let entries_range = checked_remote_range(path, count_range.end, entries_len, object_size)?;
+    let entry_bytes = store
+        .get_range(path, entries_range)
+        .await
+        .map_err(|source| CacheError::ObjectStore {
+            path: path.clone(),
+            source,
+        })?;
+    if entry_bytes.len()
+        != usize::try_from(entries_len)
+            .map_err(|_| remote_layout_error(path, "TIFF IFD size does not fit usize"))?
+    {
+        return Err(remote_layout_error(path, "incomplete TIFF IFD entries"));
+    }
+    let entry_width = usize::try_from(entry_width)
+        .map_err(|_| remote_layout_error(path, "TIFF IFD entry width does not fit usize"))?;
+    let entries = entry_bytes
+        .chunks_exact(entry_width)
+        .map(|bytes| remote_ifd_entry(path, format, bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let width = remote_inline_long(path, &entries, 256)?;
+    let height = remote_inline_long(path, &entries, 257)?;
+    if width == 0 || height == 0 {
+        return Err(remote_layout_error(
+            path,
+            "TIFF dimensions must be non-zero",
+        ));
+    }
+    let scale_range =
+        remote_value_range(path, *remote_entry(path, &entries, 33_550)?, 3, object_size)?;
+    let tiepoint_range =
+        remote_value_range(path, *remote_entry(path, &entries, 33_922)?, 6, object_size)?;
+    let tile_offsets = remote_descriptor(
+        path,
+        format,
+        *remote_entry(path, &entries, 324)?,
+        object_size,
+    )?;
+    let tile_byte_counts = remote_descriptor(
+        path,
+        format,
+        *remote_entry(path, &entries, 325)?,
+        object_size,
+    )?;
+    let values = store
+        .get_ranges(path, &[scale_range, tiepoint_range])
+        .await
+        .map_err(|source| CacheError::ObjectStore {
+            path: path.clone(),
+            source,
+        })?;
+    if values.len() != 2 {
+        return Err(remote_layout_error(
+            path,
+            "TIFF transform range response is incomplete",
+        ));
+    }
+
+    Ok(RemoteLayout {
+        format,
+        width,
+        height,
+        scale: remote_doubles(path, &values[0])?,
+        tiepoint: remote_doubles(path, &values[1])?,
+        tile_offsets,
+        tile_byte_counts,
+        bytes_read: header.len()
+            + count_bytes.len()
+            + entry_bytes.len()
+            + values.iter().map(Bytes::len).sum::<usize>(),
+    })
+}
+
 impl PreparedCogWindow {
     pub(crate) fn cache_fragment(&self) -> String {
         self.window.cache_fragment()
@@ -307,7 +717,7 @@ pub(crate) async fn prepare_window(
     })
 }
 
-/// Read only the bounded COG header range needed for raster extent selection.
+/// Read only the COG layout ranges needed for raster extent selection.
 pub(crate) async fn read_remote_extent(
     store: &dyn ObjectStore,
     remote_path: &ObjectPath,
@@ -320,28 +730,28 @@ pub(crate) async fn read_remote_extent(
             source,
         })?;
     let object_size = object_meta.size as u64;
-    let header_end = min(EXTENT_HEADER_RANGE_BYTES, object_size);
-    let header = store
-        .get_range(remote_path, 0..header_end)
-        .await
-        .map_err(|source| CacheError::ObjectStore {
+    let layout = read_remote_layout(store, remote_path, object_size).await?;
+    let origin_x = layout.tiepoint[3] - layout.tiepoint[0] * layout.scale[0];
+    let origin_y = layout.tiepoint[4] + layout.tiepoint[1] * layout.scale[1];
+    let pixel_width = layout.scale[0];
+    let pixel_height = -layout.scale[1];
+    if pixel_width <= 0.0 || pixel_height >= 0.0 {
+        return Err(CacheError::UnsupportedCog {
             path: remote_path.clone(),
-            source,
-        })?;
-    let reader = RangeBackedTiffReader::new(object_size, vec![(0..header_end, header)]);
-    match read_extent(reader, remote_path.as_ref()) {
-        Ok(extent) => Ok(extent),
-        Err(CacheError::Tiff { .. }) if object_size > header_end => {
-            Err(CacheError::UnsupportedCog {
-                path: remote_path.clone(),
-                reason: format!(
-                    "extent header too large for bounded {} byte range",
-                    EXTENT_HEADER_RANGE_BYTES
-                ),
-            })
-        }
-        Err(source) => Err(source),
+            reason: "only north-up rasters with positive x and negative y pixels are supported"
+                .to_string(),
+        });
     }
+    let min_x = origin_x;
+    let max_x = origin_x + layout.width as f64 * pixel_width;
+    let max_y = origin_y;
+    let min_y = origin_y + layout.height as f64 * pixel_height;
+    Ok(CogExtent {
+        rect: Rect::new(
+            geo::coord! { x: min_x, y: min_y },
+            geo::coord! { x: max_x, y: max_y },
+        ),
+    })
 }
 
 /// Read only local GeoTIFF header tags needed for raster extent selection.
@@ -1294,7 +1704,7 @@ mod tests {
     use std::ops::Range;
     use std::path::PathBuf;
     use std::pin::Pin;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Arc, OnceLock};
 
     use flate2::read::ZlibDecoder;
@@ -1302,7 +1712,7 @@ mod tests {
     use geo::coord;
     use object_store::local::LocalFileSystem;
     use object_store::{
-        CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta,
+        CopyOptions, GetOptions, GetRange, GetResult, ListResult, MultipartUpload, ObjectMeta,
         PutMultipartOptions, PutOptions, PutPayload, PutResult, Result as ObjectStoreResult,
     };
 
@@ -1316,10 +1726,13 @@ mod tests {
     const LEGACY_WINDOW_BOUND: u64 = 16_777_216;
     const PLANETARY_FILE_LEN: u64 = 24_507_159;
     const PLANETARY_TILE_COUNT: u64 = 2_041_930;
+    const REGIONAL_FILE_LEN: u64 = 16_287;
+    const REGIONAL_TILE_COUNT: u64 = 1_024;
 
     struct CogFixtures {
         temp_dir: tempfile::TempDir,
         planetary_object_path: ObjectPath,
+        regional_object_path: ObjectPath,
         classic_path: PathBuf,
     }
 
@@ -1419,6 +1832,60 @@ mod tests {
         file.write_all(&[0])
     }
 
+    fn write_regional_fixture(path: &Path) -> io::Result<()> {
+        let mut file = File::create(path)?;
+        file.set_len(REGIONAL_FILE_LEN)?;
+        file.write_all(b"II")?;
+        write_u16(&mut file, 43)?;
+        write_u16(&mut file, 8)?;
+        write_u16(&mut file, 0)?;
+        write_u64(&mut file, 200)?;
+
+        file.seek(SeekFrom::Start(200))?;
+        write_u64(&mut file, 19)?;
+        write_bigtiff_entry(&mut file, 256, 4, 1, 16_384)?;
+        write_bigtiff_entry(&mut file, 257, 4, 1, 16_384)?;
+        write_bigtiff_entry(&mut file, 258, 3, 1, 8)?;
+        write_bigtiff_entry(&mut file, 259, 3, 1, 8)?;
+        write_bigtiff_entry(&mut file, 262, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 277, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 282, 5, 1, (1_u64 << 32) | 1)?;
+        write_bigtiff_entry(&mut file, 283, 5, 1, (1_u64 << 32) | 1)?;
+        write_bigtiff_entry(&mut file, 284, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 296, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 317, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 322, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 323, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 324, 16, REGIONAL_TILE_COUNT, 3_998)?;
+        write_bigtiff_entry(&mut file, 325, 4, REGIONAL_TILE_COUNT, 12_190)?;
+        write_bigtiff_entry(&mut file, 339, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 33_550, 12, 3, 596)?;
+        write_bigtiff_entry(&mut file, 33_922, 12, 6, 620)?;
+        write_bigtiff_entry(
+            &mut file,
+            42_113,
+            2,
+            4,
+            u64::from_le_bytes(*b"255\0\0\0\0\0"),
+        )?;
+        write_u64(&mut file, 0)?;
+
+        file.seek(SeekFrom::Start(596))?;
+        for value in [1.0, 1.0, 0.0] {
+            write_f64(&mut file, value)?;
+        }
+        for value in [0.0; 6] {
+            write_f64(&mut file, value)?;
+        }
+
+        file.seek(SeekFrom::Start(3_998))?;
+        write_u64(&mut file, 16_286)?;
+        file.seek(SeekFrom::Start(12_190))?;
+        write_u32(&mut file, 1)?;
+        file.seek(SeekFrom::Start(16_286))?;
+        file.write_all(&[0])
+    }
+
     fn write_classic_fixture(path: &Path) -> io::Result<()> {
         let mut file = File::create(path)?;
         file.set_len(279)?;
@@ -1460,13 +1927,18 @@ mod tests {
                 tempfile::TempDir::new().expect("fixture temp directory should be created");
             let planetary_object_path = ObjectPath::from("planetary.tif");
             let planetary_path = temp_dir.path().join(planetary_object_path.as_ref());
+            let regional_object_path = ObjectPath::from("regional.tif");
+            let regional_path = temp_dir.path().join(regional_object_path.as_ref());
             let classic_path = temp_dir.path().join("classic.tif");
             write_planetary_fixture(&planetary_path)
                 .expect("planetary BigTIFF fixture should be written");
+            write_regional_fixture(&regional_path)
+                .expect("regional BigTIFF fixture should be written");
             write_classic_fixture(&classic_path).expect("classic TIFF fixture should be written");
             CogFixtures {
                 temp_dir,
                 planetary_object_path,
+                regional_object_path,
                 classic_path,
             }
         })
@@ -1477,6 +1949,8 @@ mod tests {
         head_calls: AtomicUsize,
         get_range_calls: AtomicUsize,
         get_ranges_calls: AtomicUsize,
+        requested_range_bytes: AtomicU64,
+        consumed_range_bytes: AtomicU64,
     }
 
     #[derive(Debug)]
@@ -1503,6 +1977,14 @@ mod tests {
 
         fn get_ranges_calls(&self) -> usize {
             self.counters.get_ranges_calls.load(Ordering::SeqCst)
+        }
+
+        fn requested_range_bytes(&self) -> u64 {
+            self.counters.requested_range_bytes.load(Ordering::SeqCst)
+        }
+
+        fn consumed_range_bytes(&self) -> u64 {
+            self.counters.consumed_range_bytes.load(Ordering::SeqCst)
         }
     }
 
@@ -1559,10 +2041,24 @@ mod tests {
             if options.head {
                 self.counters.head_calls.fetch_add(1, Ordering::SeqCst);
             }
-            if options.range.is_some() {
+            let is_range = options.range.is_some();
+            if let Some(range) = &options.range {
                 self.counters.get_range_calls.fetch_add(1, Ordering::SeqCst);
+                if let GetRange::Bounded(range) = range {
+                    self.counters
+                        .requested_range_bytes
+                        .fetch_add(range.end - range.start, Ordering::SeqCst);
+                }
             }
-            Box::pin(async move { self.inner.get_opts(location, options).await })
+            Box::pin(async move {
+                let result = self.inner.get_opts(location, options).await?;
+                if is_range {
+                    self.counters
+                        .consumed_range_bytes
+                        .fetch_add(result.range.end - result.range.start, Ordering::SeqCst);
+                }
+                Ok(result)
+            })
         }
 
         fn get_ranges<'life0, 'life1, 'life2, 'async_trait>(
@@ -1579,7 +2075,38 @@ mod tests {
             self.counters
                 .get_ranges_calls
                 .fetch_add(1, Ordering::SeqCst);
-            Box::pin(async move { self.inner.get_ranges(location, ranges).await })
+            let requested_bytes = ranges.iter().try_fold(0_u64, |total, range| {
+                total.checked_add(range.end - range.start)
+            });
+            Box::pin(async move {
+                let requested_bytes =
+                    requested_bytes.ok_or_else(|| object_store::Error::Generic {
+                        store: "CogFixtureCountingStore",
+                        source: Box::new(io::Error::new(
+                            ErrorKind::InvalidInput,
+                            "requested range byte total overflow",
+                        )),
+                    })?;
+                self.counters
+                    .requested_range_bytes
+                    .fetch_add(requested_bytes, Ordering::SeqCst);
+                let results = self.inner.get_ranges(location, ranges).await?;
+                let consumed_bytes = results
+                    .iter()
+                    .try_fold(0_u64, |total, bytes| total.checked_add(bytes.len() as u64));
+                let consumed_bytes =
+                    consumed_bytes.ok_or_else(|| object_store::Error::Generic {
+                        store: "CogFixtureCountingStore",
+                        source: Box::new(io::Error::new(
+                            ErrorKind::InvalidData,
+                            "consumed range byte total overflow",
+                        )),
+                    })?;
+                self.counters
+                    .consumed_range_bytes
+                    .fetch_add(consumed_bytes, Ordering::SeqCst);
+                Ok(results)
+            })
         }
 
         fn delete_stream(
@@ -1624,300 +2151,6 @@ mod tests {
         }
     }
 
-    // prototype_layout : bounded TIFF bytes -> dimensions × GeoTIFF transform × lazy tile-index descriptors
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum PrototypeTiffFormat {
-        Classic,
-        BigTiff,
-    }
-
-    impl PrototypeTiffFormat {
-        fn magic(self) -> u16 {
-            match self {
-                Self::Classic => 42,
-                Self::BigTiff => 43,
-            }
-        }
-
-        fn header_width(self) -> u64 {
-            match self {
-                Self::Classic => 8,
-                Self::BigTiff => 16,
-            }
-        }
-
-        fn count_width(self) -> usize {
-            match self {
-                Self::Classic => 2,
-                Self::BigTiff => 8,
-            }
-        }
-
-        fn entry_width(self) -> usize {
-            match self {
-                Self::Classic => 12,
-                Self::BigTiff => 20,
-            }
-        }
-
-        fn inline_value_width(self) -> usize {
-            match self {
-                Self::Classic => 4,
-                Self::BigTiff => 8,
-            }
-        }
-
-        fn offset_width(self) -> usize {
-            match self {
-                Self::Classic => 4,
-                Self::BigTiff => 8,
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum PrototypeIndexStorage {
-        InlineScalar(u64),
-        OutOfLine(u64),
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct PrototypeIndexDescriptor {
-        field_type: u16,
-        element_width: u64,
-        count: u64,
-        storage: PrototypeIndexStorage,
-    }
-
-    impl PrototypeIndexDescriptor {
-        fn byte_extent(self) -> io::Result<Option<Range<u64>>> {
-            let PrototypeIndexStorage::OutOfLine(offset) = self.storage else {
-                return Ok(None);
-            };
-            let byte_count = self
-                .count
-                .checked_mul(self.element_width)
-                .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field size overflow"))?;
-            let end = offset
-                .checked_add(byte_count)
-                .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field end overflow"))?;
-            Ok(Some(offset..end))
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    struct PrototypeLayout {
-        format: PrototypeTiffFormat,
-        width: u64,
-        height: u64,
-        scale: [f64; 3],
-        tiepoint: [f64; 6],
-        tile_offsets: PrototypeIndexDescriptor,
-        tile_byte_counts: PrototypeIndexDescriptor,
-        bytes_read: usize,
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    struct PrototypeIfdEntry {
-        tag: u16,
-        field_type: u16,
-        count: u64,
-        value: u64,
-    }
-
-    fn prototype_field_width(field_type: u16) -> io::Result<u64> {
-        match field_type {
-            1 | 2 => Ok(1),
-            3 => Ok(2),
-            4 => Ok(4),
-            5 | 12 | 16 => Ok(8),
-            _ => Err(io::Error::new(
-                ErrorKind::InvalidData,
-                format!("unsupported prototype TIFF field type {field_type}"),
-            )),
-        }
-    }
-
-    fn prototype_u16(bytes: &[u8]) -> io::Result<u16> {
-        bytes
-            .try_into()
-            .map(u16::from_le_bytes)
-            .map_err(|_| io::Error::new(ErrorKind::UnexpectedEof, "missing TIFF u16"))
-    }
-
-    fn prototype_u32(bytes: &[u8]) -> io::Result<u32> {
-        bytes
-            .try_into()
-            .map(u32::from_le_bytes)
-            .map_err(|_| io::Error::new(ErrorKind::UnexpectedEof, "missing TIFF u32"))
-    }
-
-    fn prototype_u64(bytes: &[u8]) -> io::Result<u64> {
-        bytes
-            .try_into()
-            .map(u64::from_le_bytes)
-            .map_err(|_| io::Error::new(ErrorKind::UnexpectedEof, "missing TIFF u64"))
-    }
-
-    fn prototype_ifd_entry(
-        format: PrototypeTiffFormat,
-        bytes: &[u8],
-    ) -> io::Result<PrototypeIfdEntry> {
-        let tag = prototype_u16(&bytes[0..2])?;
-        let field_type = prototype_u16(&bytes[2..4])?;
-        let (count, value) = match format {
-            PrototypeTiffFormat::Classic => (
-                u64::from(prototype_u32(&bytes[4..8])?),
-                u64::from(prototype_u32(&bytes[8..12])?),
-            ),
-            PrototypeTiffFormat::BigTiff => (
-                prototype_u64(&bytes[4..12])?,
-                prototype_u64(&bytes[12..20])?,
-            ),
-        };
-        prototype_field_width(field_type)?;
-        Ok(PrototypeIfdEntry {
-            tag,
-            field_type,
-            count,
-            value,
-        })
-    }
-
-    fn prototype_descriptor(
-        format: PrototypeTiffFormat,
-        entry: PrototypeIfdEntry,
-    ) -> io::Result<PrototypeIndexDescriptor> {
-        let element_width = prototype_field_width(entry.field_type)?;
-        let byte_count = entry
-            .count
-            .checked_mul(element_width)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field size overflow"))?;
-        let storage = if byte_count <= format.inline_value_width() as u64 {
-            PrototypeIndexStorage::InlineScalar(entry.value)
-        } else {
-            PrototypeIndexStorage::OutOfLine(entry.value)
-        };
-        Ok(PrototypeIndexDescriptor {
-            field_type: entry.field_type,
-            element_width,
-            count: entry.count,
-            storage,
-        })
-    }
-
-    fn prototype_entry(entries: &[PrototypeIfdEntry], tag: u16) -> io::Result<&PrototypeIfdEntry> {
-        entries
-            .iter()
-            .find(|entry| entry.tag == tag)
-            .ok_or_else(|| {
-                io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!("missing prototype TIFF tag {tag}"),
-                )
-            })
-    }
-
-    fn prototype_out_of_line_range(entry: PrototypeIfdEntry) -> io::Result<Range<u64>> {
-        let byte_count = entry
-            .count
-            .checked_mul(prototype_field_width(entry.field_type)?)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field size overflow"))?;
-        let end = entry
-            .value
-            .checked_add(byte_count)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "field end overflow"))?;
-        Ok(entry.value..end)
-    }
-
-    fn prototype_doubles<const N: usize>(bytes: &[u8]) -> io::Result<[f64; N]> {
-        let expected = N
-            .checked_mul(8)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "double size overflow"))?;
-        if bytes.len() != expected {
-            return Err(io::Error::new(
-                ErrorKind::UnexpectedEof,
-                "incomplete TIFF double field",
-            ));
-        }
-        let mut values = [0.0; N];
-        for (value, chunk) in values.iter_mut().zip(bytes.chunks_exact(8)) {
-            *value =
-                f64::from_le_bytes(chunk.try_into().map_err(|_| {
-                    io::Error::new(ErrorKind::UnexpectedEof, "incomplete TIFF double")
-                })?);
-        }
-        Ok(values)
-    }
-
-    async fn prototype_layout(
-        store: &dyn ObjectStore,
-        path: &ObjectPath,
-        format: PrototypeTiffFormat,
-    ) -> Result<PrototypeLayout, Box<dyn std::error::Error>> {
-        let header = store.get_range(path, 0..format.header_width()).await?;
-        if &header[0..2] != b"II" || prototype_u16(&header[2..4])? != format.magic() {
-            return Err(io::Error::new(ErrorKind::InvalidData, "unexpected TIFF header").into());
-        }
-        if format == PrototypeTiffFormat::BigTiff
-            && (prototype_u16(&header[4..6])? != 8 || prototype_u16(&header[6..8])? != 0)
-        {
-            return Err(
-                io::Error::new(ErrorKind::InvalidData, "invalid BigTIFF offset header").into(),
-            );
-        }
-        let ifd_offset = match format {
-            PrototypeTiffFormat::Classic => u64::from(prototype_u32(&header[4..8])?),
-            PrototypeTiffFormat::BigTiff => prototype_u64(&header[8..16])?,
-        };
-
-        let count_end = ifd_offset
-            .checked_add(format.count_width() as u64)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "IFD count end overflow"))?;
-        let count_bytes = store.get_range(path, ifd_offset..count_end).await?;
-        let entry_count = match format {
-            PrototypeTiffFormat::Classic => u64::from(prototype_u16(&count_bytes)?),
-            PrototypeTiffFormat::BigTiff => prototype_u64(&count_bytes)?,
-        };
-        let entries_len = entry_count
-            .checked_mul(format.entry_width() as u64)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "IFD entries size overflow"))?;
-        let entries_end = count_end
-            .checked_add(entries_len)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "IFD entries end overflow"))?;
-        let entry_bytes = store.get_range(path, count_end..entries_end).await?;
-        let entries = entry_bytes
-            .chunks_exact(format.entry_width())
-            .map(|bytes| prototype_ifd_entry(format, bytes))
-            .collect::<io::Result<Vec<_>>>()?;
-
-        let width_entry = *prototype_entry(&entries, 256)?;
-        let height_entry = *prototype_entry(&entries, 257)?;
-        let scale_entry = *prototype_entry(&entries, 33_550)?;
-        let tiepoint_entry = *prototype_entry(&entries, 33_922)?;
-        let tile_offsets = prototype_descriptor(format, *prototype_entry(&entries, 324)?)?;
-        let tile_byte_counts = prototype_descriptor(format, *prototype_entry(&entries, 325)?)?;
-        let value_ranges = [
-            prototype_out_of_line_range(scale_entry)?,
-            prototype_out_of_line_range(tiepoint_entry)?,
-        ];
-        let values = store.get_ranges(path, &value_ranges).await?;
-
-        Ok(PrototypeLayout {
-            format,
-            width: width_entry.value,
-            height: height_entry.value,
-            scale: prototype_doubles(&values[0])?,
-            tiepoint: prototype_doubles(&values[1])?,
-            tile_offsets,
-            tile_byte_counts,
-            bytes_read: header.len()
-                + count_bytes.len()
-                + entry_bytes.len()
-                + values.iter().map(Bytes::len).sum::<usize>(),
-        })
-    }
-
     // prototype_decode : zlib DEFLATE bytes × predictor 1 -> sample bytes
     fn prototype_decode(compressed: &[u8], predictor: u16) -> io::Result<Vec<u8>> {
         let mut samples = Vec::new();
@@ -1940,43 +2173,46 @@ mod tests {
         let store = CogFixtureCountingStore::new(inner);
         let path = ObjectPath::from("classic.tif");
 
-        let layout = prototype_layout(&store, &path, PrototypeTiffFormat::Classic)
+        let layout = read_remote_layout(&store, &path, 279)
             .await
             .expect("classic TIFF metadata should parse");
 
-        assert_eq!(layout.format, PrototypeTiffFormat::Classic);
-        assert_eq!(layout.format.count_width(), 2);
-        assert_eq!(layout.format.entry_width(), 12);
-        assert_eq!(layout.format.inline_value_width(), 4);
-        assert_eq!(layout.format.offset_width(), 4);
+        assert_eq!(layout.format, TiffFormat::Classic);
         assert_eq!(layout.width, 512);
         assert_eq!(layout.height, 512);
         assert_eq!(layout.scale, [1.0, 1.0, 0.0]);
         assert_eq!(layout.tiepoint, [0.0; 6]);
         assert_eq!(
             layout.tile_offsets,
-            PrototypeIndexDescriptor {
+            IndexDescriptor {
                 field_type: 4,
                 element_width: 4,
                 count: 1,
-                storage: PrototypeIndexStorage::InlineScalar(278),
+                storage: IndexStorage::InlineScalar(278),
             }
         );
         assert_eq!(
             layout.tile_byte_counts,
-            PrototypeIndexDescriptor {
+            IndexDescriptor {
                 field_type: 4,
                 element_width: 4,
                 count: 1,
-                storage: PrototypeIndexStorage::InlineScalar(1),
+                storage: IndexStorage::InlineScalar(1),
             }
         );
         assert_eq!(layout.tile_offsets.byte_extent().unwrap(), None);
         assert_eq!(layout.tile_byte_counts.byte_extent().unwrap(), None);
-        assert_eq!(layout.bytes_read, 274);
-        assert_eq!(store.head_calls(), 0);
-        assert_eq!(store.get_range_calls(), 3);
-        assert_eq!(store.get_ranges_calls(), 1);
+        assert_eq!(layout.bytes_read, 282);
+        assert_eq!(store.requested_range_bytes(), layout.bytes_read as u64);
+        assert_eq!(store.consumed_range_bytes(), layout.bytes_read as u64);
+        assert_eq!(
+            (
+                store.head_calls(),
+                store.get_range_calls(),
+                store.get_ranges_calls()
+            ),
+            (0, 3, 1)
+        );
     }
 
     #[tokio::test]
@@ -1987,39 +2223,32 @@ mod tests {
         let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
         let store = CogFixtureCountingStore::new(inner);
 
-        let layout = prototype_layout(
-            &store,
-            &fixtures.planetary_object_path,
-            PrototypeTiffFormat::BigTiff,
-        )
-        .await
-        .expect("BigTIFF metadata should parse");
+        let layout =
+            read_remote_layout(&store, &fixtures.planetary_object_path, PLANETARY_FILE_LEN)
+                .await
+                .expect("BigTIFF metadata should parse");
 
-        assert_eq!(layout.format, PrototypeTiffFormat::BigTiff);
-        assert_eq!(layout.format.count_width(), 8);
-        assert_eq!(layout.format.entry_width(), 20);
-        assert_eq!(layout.format.inline_value_width(), 8);
-        assert_eq!(layout.format.offset_width(), 8);
+        assert_eq!(layout.format, TiffFormat::BigTiff);
         assert_eq!(layout.width, 1_070_000);
         assert_eq!(layout.height, 500_000);
         assert_eq!(layout.scale, [1.0, 1.0, 0.0]);
         assert_eq!(layout.tiepoint, [0.0; 6]);
         assert_eq!(
             layout.tile_offsets,
-            PrototypeIndexDescriptor {
+            IndexDescriptor {
                 field_type: 16,
                 element_width: 8,
                 count: PLANETARY_TILE_COUNT,
-                storage: PrototypeIndexStorage::OutOfLine(3_998),
+                storage: IndexStorage::OutOfLine(3_998),
             }
         );
         assert_eq!(
             layout.tile_byte_counts,
-            PrototypeIndexDescriptor {
+            IndexDescriptor {
                 field_type: 4,
                 element_width: 4,
                 count: PLANETARY_TILE_COUNT,
-                storage: PrototypeIndexStorage::OutOfLine(16_339_438),
+                storage: IndexStorage::OutOfLine(16_339_438),
             }
         );
         assert_eq!(
@@ -2032,9 +2261,16 @@ mod tests {
         );
         assert_eq!(layout.bytes_read, 476);
         assert!(layout.bytes_read < 3_998);
-        assert_eq!(store.head_calls(), 0);
-        assert_eq!(store.get_range_calls(), 3);
-        assert_eq!(store.get_ranges_calls(), 1);
+        assert_eq!(store.requested_range_bytes(), 476);
+        assert_eq!(store.consumed_range_bytes(), 476);
+        assert_eq!(
+            (
+                store.head_calls(),
+                store.get_range_calls(),
+                store.get_ranges_calls()
+            ),
+            (0, 3, 1)
+        );
     }
 
     #[test]
@@ -2105,27 +2341,159 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn planetary_extent_locks_bounded_header_failure() {
+    async fn planetary_extent_reads_without_materializing_tile_indexes() {
         let fixtures = fixtures();
         let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
             .expect("fixture object store should be rooted");
         let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
         let store = CogFixtureCountingStore::new(inner);
 
-        let error = read_remote_extent(&store as &dyn ObjectStore, &fixtures.planetary_object_path)
-            .await
-            .expect_err("bounded extent read should retain the baseline failure");
+        let extent =
+            read_remote_extent(&store as &dyn ObjectStore, &fixtures.planetary_object_path)
+                .await
+                .expect("planetary extent should parse without materializing tile indexes");
 
+        assert_eq!(
+            extent.rect(),
+            Rect::new(
+                coord! { x: 0.0, y: -500_000.0 },
+                coord! { x: 1_070_000.0, y: 0.0 }
+            )
+        );
         assert_eq!(store.head_calls(), 1);
-        assert_eq!(store.get_range_calls(), 1);
-        assert_eq!(store.get_ranges_calls(), 0);
-        // TRANSITIONAL: M2 owns conversion to green success; this assertion may not be deleted.
-        assert!(matches!(
-            error,
-            CacheError::UnsupportedCog { path, reason }
-                if path == fixtures.planetary_object_path
-                    && reason == "extent header too large for bounded 262144 byte range"
-        ));
+        assert_eq!(store.get_range_calls(), 3);
+        assert_eq!(store.get_ranges_calls(), 1);
+        assert_eq!(store.requested_range_bytes(), 476);
+        assert_eq!(store.consumed_range_bytes(), 476);
+        // TRANSITIONAL: [the M2 extent obligation](../../../docs/releases/tile-count-independent-planetary-cog-reads.md#baseline-failure-mechanisms) is converted to green success here; this assertion may not be deleted.
+    }
+
+    #[tokio::test]
+    async fn remote_extent_reads_are_tile_count_independent() {
+        let fixtures = fixtures();
+        let regional_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("regional fixture object store should be rooted");
+        let planetary_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("planetary fixture object store should be rooted");
+        let regional_store = CogFixtureCountingStore::new(Arc::new(regional_local));
+        let planetary_store = CogFixtureCountingStore::new(Arc::new(planetary_local));
+
+        assert!(std::hint::black_box(PLANETARY_TILE_COUNT) / REGIONAL_TILE_COUNT >= 1_000);
+        let mut regional_file = File::open(
+            fixtures
+                .temp_dir
+                .path()
+                .join(fixtures.regional_object_path.as_ref()),
+        )
+        .expect("regional fixture should be readable");
+        regional_file
+            .seek(SeekFrom::Start(200))
+            .expect("regional IFD count should be seekable");
+        let mut regional_count = [0_u8; 8];
+        regional_file
+            .read_exact(&mut regional_count)
+            .expect("regional IFD count should be readable");
+        let mut planetary_file = File::open(
+            fixtures
+                .temp_dir
+                .path()
+                .join(fixtures.planetary_object_path.as_ref()),
+        )
+        .expect("planetary fixture should be readable");
+        planetary_file
+            .seek(SeekFrom::Start(200))
+            .expect("planetary IFD count should be seekable");
+        let mut planetary_count = [0_u8; 8];
+        planetary_file
+            .read_exact(&mut planetary_count)
+            .expect("planetary IFD count should be readable");
+        assert_eq!(u64::from_le_bytes(regional_count), 19);
+        assert_eq!(u64::from_le_bytes(planetary_count), 19);
+
+        let regional_extent = read_remote_extent(
+            &regional_store as &dyn ObjectStore,
+            &fixtures.regional_object_path,
+        )
+        .await
+        .expect("regional extent should parse");
+        let planetary_extent = read_remote_extent(
+            &planetary_store as &dyn ObjectStore,
+            &fixtures.planetary_object_path,
+        )
+        .await
+        .expect("planetary extent should parse");
+
+        assert_eq!(
+            regional_extent.rect(),
+            Rect::new(
+                coord! { x: 0.0, y: -16_384.0 },
+                coord! { x: 16_384.0, y: 0.0 }
+            )
+        );
+        assert_eq!(
+            planetary_extent.rect(),
+            Rect::new(
+                coord! { x: 0.0, y: -500_000.0 },
+                coord! { x: 1_070_000.0, y: 0.0 }
+            )
+        );
+        assert_eq!(
+            regional_store.requested_range_bytes(),
+            planetary_store.requested_range_bytes()
+        );
+        assert_eq!(
+            regional_store.consumed_range_bytes(),
+            planetary_store.consumed_range_bytes()
+        );
+        assert_eq!(regional_store.requested_range_bytes(), 476);
+        assert_eq!(regional_store.consumed_range_bytes(), 476);
+        assert_eq!(planetary_store.requested_range_bytes(), 476);
+        assert_eq!(planetary_store.consumed_range_bytes(), 476);
+        assert!(regional_store.requested_range_bytes() < 3_998);
+        assert_eq!(
+            (
+                regional_store.head_calls(),
+                regional_store.get_range_calls(),
+                regional_store.get_ranges_calls()
+            ),
+            (1, 3, 1)
+        );
+        assert_eq!(
+            (
+                planetary_store.head_calls(),
+                planetary_store.get_range_calls(),
+                planetary_store.get_ranges_calls()
+            ),
+            (1, 3, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn classic_remote_extent_reads_owned_layout() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let store = CogFixtureCountingStore::new(Arc::new(local_store));
+        let path = ObjectPath::from("classic.tif");
+
+        let extent = read_remote_extent(&store as &dyn ObjectStore, &path)
+            .await
+            .expect("classic remote extent should parse");
+
+        assert_eq!(
+            extent.rect(),
+            Rect::new(coord! { x: 0.0, y: -512.0 }, coord! { x: 512.0, y: 0.0 })
+        );
+        assert_eq!(
+            (
+                store.head_calls(),
+                store.get_range_calls(),
+                store.get_ranges_calls()
+            ),
+            (1, 3, 1)
+        );
+        assert_eq!(store.requested_range_bytes(), 282);
+        assert_eq!(store.consumed_range_bytes(), 282);
     }
 
     #[tokio::test]
