@@ -2215,6 +2215,61 @@ mod tests {
         encoder.finish()
     }
 
+    // Gross-regression alarms only; these ceilings do not define or prove boundedness.
+    const REMOTE_WINDOW_BYTE_BACKSTOP: u64 = 4_096;
+    const REMOTE_WINDOW_API_CALL_BACKSTOP: usize = 8;
+
+    #[derive(Debug, PartialEq)]
+    struct WindowReadCost {
+        header_bytes: u64,
+        tile_bytes: u64,
+        tile_count: usize,
+        head_calls: usize,
+        non_range_get_calls: usize,
+        get_range_calls: usize,
+        get_ranges_calls: usize,
+        requested_range_bytes: u64,
+        consumed_range_bytes: u64,
+        charged_non_range_object_range_bytes: u64,
+        total_consumed_bytes: u64,
+        total_object_store_api_calls: usize,
+    }
+
+    async fn measure_window_read_cost(
+        fixtures: &CogFixtures,
+        path: &ObjectPath,
+        bbox: Rect<f64>,
+    ) -> WindowReadCost {
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let store = CogFixtureCountingStore::new(Arc::new(local_store));
+        let cache_temp = tempfile::TempDir::new().expect("cache temp directory should be created");
+        let cache = crate::raster_cache::RemoteRasterCache::new(cache_temp.path().to_path_buf());
+        let request = RasterWindowRequest::new(RasterKind::FlowDir, bbox);
+        let localized = cache
+            .get_or_fetch_window(&store, path, &request, "test-fabric", "0.1.0")
+            .await
+            .expect("cache route should materialize a bounded window");
+        assert!(localized.path().exists());
+
+        let consumed_range_bytes = store.consumed_range_bytes();
+        let charged_non_range_object_range_bytes = store.charged_non_range_object_range_bytes();
+        WindowReadCost {
+            header_bytes: localized.header_bytes(),
+            tile_bytes: localized.tile_bytes(),
+            tile_count: localized.tile_count(),
+            head_calls: store.head_calls(),
+            non_range_get_calls: store.non_range_get_calls(),
+            get_range_calls: store.get_range_calls(),
+            get_ranges_calls: store.get_ranges_calls(),
+            requested_range_bytes: store.requested_range_bytes(),
+            consumed_range_bytes,
+            charged_non_range_object_range_bytes,
+            total_consumed_bytes: consumed_range_bytes + charged_non_range_object_range_bytes,
+            total_object_store_api_calls: store.total_object_store_api_calls(),
+        }
+    }
+
     fn write_planetary_fixture(path: &Path) -> io::Result<()> {
         let mut tile_0 = vec![0_u8; 512 * 512];
         tile_0[..8].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
@@ -2511,10 +2566,12 @@ mod tests {
     #[derive(Debug, Default)]
     struct CogFixtureStoreCounters {
         head_calls: AtomicUsize,
+        non_range_get_calls: AtomicUsize,
         get_range_calls: AtomicUsize,
         get_ranges_calls: AtomicUsize,
         requested_range_bytes: AtomicU64,
         consumed_range_bytes: AtomicU64,
+        charged_non_range_object_range_bytes: AtomicU64,
     }
 
     #[derive(Debug)]
@@ -2548,6 +2605,10 @@ mod tests {
             self.counters.head_calls.load(Ordering::SeqCst)
         }
 
+        fn non_range_get_calls(&self) -> usize {
+            self.counters.non_range_get_calls.load(Ordering::SeqCst)
+        }
+
         fn get_range_calls(&self) -> usize {
             self.counters.get_range_calls.load(Ordering::SeqCst)
         }
@@ -2562,6 +2623,21 @@ mod tests {
 
         fn consumed_range_bytes(&self) -> u64 {
             self.counters.consumed_range_bytes.load(Ordering::SeqCst)
+        }
+
+        fn charged_non_range_object_range_bytes(&self) -> u64 {
+            self.counters
+                .charged_non_range_object_range_bytes
+                .load(Ordering::SeqCst)
+        }
+
+        fn total_object_store_api_calls(&self) -> usize {
+            // One get_ranges API call is one ObjectStore accounting unit; it is not
+            // asserted to be one HTTP request.
+            self.head_calls()
+                + self.non_range_get_calls()
+                + self.get_range_calls()
+                + self.get_ranges_calls()
         }
     }
 
@@ -2615,11 +2691,15 @@ mod tests {
             'life1: 'async_trait,
             Self: 'async_trait,
         {
+            let is_range = !options.head && options.range.is_some();
+            let is_non_range_get = !options.head && options.range.is_none();
             if options.head {
                 self.counters.head_calls.fetch_add(1, Ordering::SeqCst);
-            }
-            let is_range = options.range.is_some();
-            if let Some(range) = &options.range {
+            } else if is_non_range_get {
+                self.counters
+                    .non_range_get_calls
+                    .fetch_add(1, Ordering::SeqCst);
+            } else if let Some(range) = &options.range {
                 self.counters.get_range_calls.fetch_add(1, Ordering::SeqCst);
                 if let GetRange::Bounded(range) = range {
                     self.counters
@@ -2632,6 +2712,13 @@ mod tests {
                 if is_range {
                     self.counters
                         .consumed_range_bytes
+                        .fetch_add(result.range.end - result.range.start, Ordering::SeqCst);
+                }
+                if is_non_range_get {
+                    // Charge the declared object range at get_opts return; this is
+                    // not a measurement of bytes drained from the payload stream.
+                    self.counters
+                        .charged_non_range_object_range_bytes
                         .fetch_add(result.range.end - result.range.start, Ordering::SeqCst);
                 }
                 Ok(result)
@@ -2737,6 +2824,29 @@ mod tests {
         {
             Box::pin(async move { self.inner.copy_opts(from, to, options).await })
         }
+    }
+
+    #[tokio::test]
+    async fn cog_fixture_counting_store_charges_non_range_gets() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let store = CogFixtureCountingStore::new(Arc::new(local_store));
+
+        store
+            .get(&fixtures.regional_object_path)
+            .await
+            .expect("regional fixture should be readable")
+            .bytes()
+            .await
+            .expect("regional fixture bytes should be consumed");
+
+        assert_eq!(store.non_range_get_calls(), 1);
+        assert_eq!(store.charged_non_range_object_range_bytes(), 16_287);
+        assert_eq!(store.get_range_calls(), 0);
+        assert_eq!(store.get_ranges_calls(), 0);
+        assert_eq!(store.requested_range_bytes(), 0);
+        assert_eq!(store.consumed_range_bytes(), 0);
     }
 
     // prototype_decode : zlib DEFLATE bytes × predictor 1 -> sample bytes
@@ -3363,6 +3473,27 @@ mod tests {
     }
 
     #[test]
+    fn owned_decode_predictor_three_uses_padded_plane_stride_on_edge_tile() {
+        let path = ObjectPath::from("predictor-three-padded-edge.tif");
+        let mut meta = metadata();
+        meta.width = 5;
+        meta.height = 1;
+        meta.tile_width = 3;
+        meta.tile_height = 1;
+        meta.sample_type = CogSampleType::F32;
+        meta.predictor = 3;
+        let encoded = [
+            0x3f, 0x01, 0x00, 0x40, 0x80, 0x40, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let compressed = compress_tile(&encoded).unwrap();
+
+        assert_eq!(
+            decode_owned_chunk(&compressed, &meta, 1, &path).unwrap(),
+            OwnedTileData::F32(vec![1.0, 2.0])
+        );
+    }
+
+    #[test]
     fn owned_decode_clips_padded_edge_tile() {
         let path = ObjectPath::from("padded-edge.tif");
         let mut meta = metadata();
@@ -3966,9 +4097,249 @@ mod tests {
         // M3-S4 hardens CogFixtureCountingStore and adds the byte-count backstop proving that
         // only covered index entries are read; these method-call counts do not prove byte volume.
         assert_eq!(prepared.plan.tiles[0].index, 0);
+        assert_eq!(prepared.plan.tiles.len(), 1);
+        assert_eq!(prepared.header_bytes, 488);
+        assert_eq!(store.requested_range_bytes(), 488);
+        assert_eq!(store.consumed_range_bytes(), 488);
+        assert_eq!(store.charged_non_range_object_range_bytes(), 0);
         assert_eq!(store.head_calls(), 1);
         assert_eq!(store.get_range_calls(), 3);
         assert_eq!(store.get_ranges_calls(), 2);
+    }
+
+    #[tokio::test]
+    async fn remote_window_metadata_cost_is_tile_count_independent() {
+        let fixtures = fixtures();
+        let bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 });
+        let request = RasterWindowRequest::new(RasterKind::FlowDir, bbox);
+
+        let regional_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("regional fixture object store should be rooted");
+        let regional_observation_store = CogFixtureCountingStore::new(Arc::new(regional_local));
+        let regional_prepared = prepare_window(
+            &regional_observation_store,
+            &fixtures.regional_object_path,
+            &request,
+        )
+        .await
+        .expect("regional covered entries should resolve");
+        let planetary_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("planetary fixture object store should be rooted");
+        let planetary_observation_store = CogFixtureCountingStore::new(Arc::new(planetary_local));
+        let planetary_prepared = prepare_window(
+            &planetary_observation_store,
+            &fixtures.planetary_object_path,
+            &request,
+        )
+        .await
+        .expect("planetary covered entries should resolve");
+
+        assert_eq!(
+            regional_prepared
+                .plan
+                .tiles
+                .iter()
+                .map(|tile| tile.index)
+                .collect::<Vec<_>>(),
+            [0]
+        );
+        assert_eq!(
+            planetary_prepared
+                .plan
+                .tiles
+                .iter()
+                .map(|tile| tile.index)
+                .collect::<Vec<_>>(),
+            [0]
+        );
+        let CogIndex::Remote {
+            tile_offsets: regional_offsets,
+            tile_byte_counts: regional_byte_counts,
+        } = regional_prepared.metadata.index
+        else {
+            panic!("regional fixture should use remote index descriptors");
+        };
+        let CogIndex::Remote {
+            tile_offsets: planetary_offsets,
+            tile_byte_counts: planetary_byte_counts,
+        } = planetary_prepared.metadata.index
+        else {
+            panic!("planetary fixture should use remote index descriptors");
+        };
+        assert_eq!(regional_offsets.count, 1_024);
+        assert_eq!(regional_byte_counts.count, 1_024);
+        assert_eq!(planetary_offsets.count, 2_041_930);
+        assert_eq!(planetary_byte_counts.count, 2_041_930);
+        assert_eq!(planetary_offsets.count / regional_offsets.count, 1_994);
+        assert!(planetary_offsets.count / regional_offsets.count >= 1_000);
+        assert_eq!(regional_offsets.element_width, 8);
+        assert_eq!(regional_byte_counts.element_width, 4);
+        assert_eq!(planetary_offsets.element_width, 8);
+        assert_eq!(planetary_byte_counts.element_width, 4);
+        assert_eq!(
+            (
+                regional_observation_store.head_calls(),
+                regional_observation_store.non_range_get_calls(),
+                regional_observation_store.get_range_calls(),
+                regional_observation_store.get_ranges_calls(),
+            ),
+            (1, 0, 3, 2)
+        );
+        assert_eq!(
+            (
+                planetary_observation_store.head_calls(),
+                planetary_observation_store.non_range_get_calls(),
+                planetary_observation_store.get_range_calls(),
+                planetary_observation_store.get_ranges_calls(),
+            ),
+            (1, 0, 3, 2)
+        );
+
+        let regional_cost =
+            measure_window_read_cost(fixtures, &fixtures.regional_object_path, bbox).await;
+        assert!(
+            regional_cost.total_consumed_bytes < REMOTE_WINDOW_BYTE_BACKSTOP,
+            "{} is not below {}",
+            regional_cost.total_consumed_bytes,
+            REMOTE_WINDOW_BYTE_BACKSTOP
+        );
+        assert!(regional_cost.total_object_store_api_calls < REMOTE_WINDOW_API_CALL_BACKSTOP);
+        let planetary_cost =
+            measure_window_read_cost(fixtures, &fixtures.planetary_object_path, bbox).await;
+        assert!(
+            planetary_cost.total_consumed_bytes < REMOTE_WINDOW_BYTE_BACKSTOP,
+            "{} is not below {}",
+            planetary_cost.total_consumed_bytes,
+            REMOTE_WINDOW_BYTE_BACKSTOP
+        );
+        assert!(planetary_cost.total_object_store_api_calls < REMOTE_WINDOW_API_CALL_BACKSTOP);
+
+        assert_eq!(regional_cost, planetary_cost);
+        let expected = WindowReadCost {
+            header_bytes: 488,
+            tile_bytes: 284,
+            tile_count: 1,
+            head_calls: 1,
+            non_range_get_calls: 0,
+            get_range_calls: 3,
+            get_ranges_calls: 3,
+            requested_range_bytes: 772,
+            consumed_range_bytes: 772,
+            charged_non_range_object_range_bytes: 0,
+            total_consumed_bytes: 772,
+            total_object_store_api_calls: 7,
+        };
+        assert_eq!(regional_cost, expected);
+        assert_eq!(planetary_cost, expected);
+        let fixed_layout_bytes = regional_cost.header_bytes
+            - (regional_offsets.element_width + regional_byte_counts.element_width);
+        assert_eq!(fixed_layout_bytes, 476);
+    }
+
+    #[tokio::test]
+    async fn remote_window_cost_scales_only_with_covered_tiles() {
+        let fixtures = fixtures();
+        let one_tile_bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 });
+        let two_tile_bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 600.0, y: 0.0 });
+
+        let one_tile_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("planetary fixture object store should be rooted");
+        let one_tile_observation_store = CogFixtureCountingStore::new(Arc::new(one_tile_local));
+        let one_tile_request = RasterWindowRequest::new(RasterKind::FlowDir, one_tile_bbox);
+        let one_tile_prepared = prepare_window(
+            &one_tile_observation_store,
+            &fixtures.planetary_object_path,
+            &one_tile_request,
+        )
+        .await
+        .expect("one-tile covered entries should resolve");
+        let two_tile_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("planetary fixture object store should be rooted");
+        let two_tile_observation_store = CogFixtureCountingStore::new(Arc::new(two_tile_local));
+        let two_tile_request = RasterWindowRequest::new(RasterKind::FlowDir, two_tile_bbox);
+        let two_tile_prepared = prepare_window(
+            &two_tile_observation_store,
+            &fixtures.planetary_object_path,
+            &two_tile_request,
+        )
+        .await
+        .expect("two-tile covered entries should resolve");
+
+        assert_eq!(
+            one_tile_prepared
+                .plan
+                .tiles
+                .iter()
+                .map(|tile| tile.index)
+                .collect::<Vec<_>>(),
+            [0]
+        );
+        assert_eq!(
+            two_tile_prepared
+                .plan
+                .tiles
+                .iter()
+                .map(|tile| tile.index)
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+
+        let one_tile_cost =
+            measure_window_read_cost(fixtures, &fixtures.planetary_object_path, one_tile_bbox)
+                .await;
+        let two_tile_cost =
+            measure_window_read_cost(fixtures, &fixtures.planetary_object_path, two_tile_bbox)
+                .await;
+
+        let observed_delta =
+            two_tile_cost.total_consumed_bytes - one_tile_cost.total_consumed_bytes;
+        assert_eq!(observed_delta, 296);
+        let header_delta = two_tile_cost.header_bytes - one_tile_cost.header_bytes;
+        let tile_delta = two_tile_cost.tile_bytes - one_tile_cost.tile_bytes;
+        assert_eq!(header_delta, 12);
+        assert_eq!(tile_delta, 284);
+        assert_eq!(observed_delta, header_delta + tile_delta);
+
+        assert_eq!(one_tile_cost.header_bytes, 488);
+        assert_eq!(one_tile_cost.tile_bytes, 284);
+        assert_eq!(one_tile_cost.tile_count, 1);
+        assert_eq!(one_tile_cost.total_consumed_bytes, 772);
+        assert_eq!(
+            (
+                one_tile_cost.head_calls,
+                one_tile_cost.non_range_get_calls,
+                one_tile_cost.get_range_calls,
+                one_tile_cost.get_ranges_calls,
+            ),
+            (1, 0, 3, 3)
+        );
+        assert_eq!(one_tile_cost.requested_range_bytes, 772);
+        assert_eq!(one_tile_cost.consumed_range_bytes, 772);
+        assert_eq!(one_tile_cost.charged_non_range_object_range_bytes, 0);
+        assert_eq!(one_tile_cost.total_object_store_api_calls, 7);
+
+        assert_eq!(two_tile_cost.header_bytes, 500);
+        assert_eq!(two_tile_cost.tile_bytes, 568);
+        assert_eq!(two_tile_cost.tile_count, 2);
+        assert_eq!(two_tile_cost.total_consumed_bytes, 1_068);
+        assert_eq!(
+            (
+                two_tile_cost.head_calls,
+                two_tile_cost.non_range_get_calls,
+                two_tile_cost.get_range_calls,
+                two_tile_cost.get_ranges_calls,
+            ),
+            (1, 0, 3, 3)
+        );
+        assert_eq!(two_tile_cost.requested_range_bytes, 1_068);
+        assert_eq!(two_tile_cost.consumed_range_bytes, 1_068);
+        assert_eq!(two_tile_cost.charged_non_range_object_range_bytes, 0);
+        assert_eq!(two_tile_cost.total_object_store_api_calls, 7);
+
+        assert!(one_tile_cost.total_consumed_bytes < REMOTE_WINDOW_BYTE_BACKSTOP);
+        assert!(one_tile_cost.total_object_store_api_calls < REMOTE_WINDOW_API_CALL_BACKSTOP);
+        assert!(two_tile_cost.total_consumed_bytes < REMOTE_WINDOW_BYTE_BACKSTOP);
+        assert!(two_tile_cost.total_object_store_api_calls < REMOTE_WINDOW_API_CALL_BACKSTOP);
     }
 
     #[tokio::test]
