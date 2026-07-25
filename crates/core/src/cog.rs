@@ -25,6 +25,9 @@ use crate::error::CacheError;
 use crate::session::RasterKind;
 
 const HEADER_RANGE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_REMOTE_IFD_ENTRIES: u64 = 4_096;
+const MAX_REMOTE_IFD_ENTRY_BYTES: u64 = 65_536;
+const MAX_REMOTE_METADATA_VALUE_BYTES: u64 = 65_536;
 const MODEL_PIXEL_SCALE_TAG: Tag = Tag::ModelPixelScaleTag;
 const MODEL_TIEPOINT_TAG: Tag = Tag::ModelTiepointTag;
 const GEO_KEY_DIRECTORY_TAG: Tag = Tag::GeoKeyDirectoryTag;
@@ -341,6 +344,34 @@ fn checked_remote_range(
     Ok(start..end)
 }
 
+fn checked_remote_length(
+    path: &ObjectPath,
+    length: u64,
+    ceiling: u64,
+    quantity: &str,
+) -> Result<usize, CacheError> {
+    if length > ceiling {
+        return Err(remote_layout_error(
+            path,
+            format!("TIFF {quantity} {length} exceeds parser ceiling {ceiling}"),
+        ));
+    }
+    usize::try_from(length).map_err(|_| {
+        remote_layout_error(path, format!("TIFF {quantity} {length} does not fit usize"))
+    })
+}
+
+fn checked_remote_bytes_read(
+    path: &ObjectPath,
+    lengths: impl IntoIterator<Item = usize>,
+) -> Result<usize, CacheError> {
+    lengths.into_iter().try_fold(0_usize, |total, length| {
+        total
+            .checked_add(length)
+            .ok_or_else(|| remote_layout_error(path, "TIFF bytes-read total overflow"))
+    })
+}
+
 fn remote_u16(path: &ObjectPath, bytes: &[u8]) -> Result<u16, CacheError> {
     bytes
         .try_into()
@@ -439,7 +470,7 @@ fn remote_value_range(
     expected_count: u64,
     object_size: u64,
 ) -> Result<Range<u64>, CacheError> {
-    if entry.field_type != 12 || entry.count != expected_count {
+    if entry.field_type != 12 {
         return Err(remote_layout_error(
             path,
             format!(
@@ -452,6 +483,21 @@ fn remote_value_range(
         .count
         .checked_mul(remote_field_width(path, entry.field_type)?)
         .ok_or_else(|| remote_layout_error(path, "TIFF field size overflow"))?;
+    checked_remote_length(
+        path,
+        byte_count,
+        MAX_REMOTE_METADATA_VALUE_BYTES,
+        "metadata value bytes",
+    )?;
+    if entry.count != expected_count {
+        return Err(remote_layout_error(
+            path,
+            format!(
+                "TIFF tag {} must contain {expected_count} DOUBLE values",
+                entry.tag
+            ),
+        ));
+    }
     checked_remote_range(path, entry.value, byte_count, object_size)
 }
 
@@ -591,9 +637,19 @@ async fn read_remote_layout(
     if entry_count == 0 {
         return Err(remote_layout_error(path, "TIFF IFD contains no entries"));
     }
+    let entry_capacity =
+        checked_remote_length(path, entry_count, MAX_REMOTE_IFD_ENTRIES, "IFD entry count")?;
     let entries_len = entry_count
         .checked_mul(entry_width)
         .ok_or_else(|| remote_layout_error(path, "TIFF IFD entries size overflow"))?;
+    // At 20 bytes per BigTIFF entry, the byte ceiling binds at 3,276 entries;
+    // the 4,096-entry ceiling remains reachable for 12-byte classic entries.
+    let entries_len_usize = checked_remote_length(
+        path,
+        entries_len,
+        MAX_REMOTE_IFD_ENTRY_BYTES,
+        "IFD entry bytes",
+    )?;
     let entries_range = checked_remote_range(path, count_range.end, entries_len, object_size)?;
     let entry_bytes = store
         .get_range(path, entries_range)
@@ -602,18 +658,15 @@ async fn read_remote_layout(
             path: path.clone(),
             source,
         })?;
-    if entry_bytes.len()
-        != usize::try_from(entries_len)
-            .map_err(|_| remote_layout_error(path, "TIFF IFD size does not fit usize"))?
-    {
+    if entry_bytes.len() != entries_len_usize {
         return Err(remote_layout_error(path, "incomplete TIFF IFD entries"));
     }
     let entry_width = usize::try_from(entry_width)
         .map_err(|_| remote_layout_error(path, "TIFF IFD entry width does not fit usize"))?;
-    let entries = entry_bytes
-        .chunks_exact(entry_width)
-        .map(|bytes| remote_ifd_entry(path, format, bytes))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut entries = Vec::with_capacity(entry_capacity);
+    for bytes in entry_bytes.chunks_exact(entry_width) {
+        entries.push(remote_ifd_entry(path, format, bytes)?);
+    }
 
     let width = remote_inline_long(path, &entries, 256)?;
     let height = remote_inline_long(path, &entries, 257)?;
@@ -639,6 +692,15 @@ async fn read_remote_layout(
         *remote_entry(path, &entries, 325)?,
         object_size,
     )?;
+    if tile_offsets.count != tile_byte_counts.count {
+        return Err(remote_layout_error(
+            path,
+            format!(
+                "TIFF tile-index descriptor count mismatch: TileOffsets has {} entries, TileByteCounts has {}",
+                tile_offsets.count, tile_byte_counts.count
+            ),
+        ));
+    }
     let values = store
         .get_ranges(path, &[scale_range, tiepoint_range])
         .await
@@ -653,6 +715,17 @@ async fn read_remote_layout(
         ));
     }
 
+    let bytes_read = checked_remote_bytes_read(
+        path,
+        [
+            header.len(),
+            count_bytes.len(),
+            entry_bytes.len(),
+            values[0].len(),
+            values[1].len(),
+        ],
+    )?;
+
     Ok(RemoteLayout {
         format,
         width,
@@ -661,10 +734,7 @@ async fn read_remote_layout(
         tiepoint: remote_doubles(path, &values[1])?,
         tile_offsets,
         tile_byte_counts,
-        bytes_read: header.len()
-            + count_bytes.len()
-            + entry_bytes.len()
-            + values.iter().map(Bytes::len).sum::<usize>(),
+        bytes_read,
     })
 }
 
@@ -2404,6 +2474,238 @@ mod tests {
             ),
             (0, 3, 1)
         );
+    }
+
+    fn bigtiff_ifd_offset(bytes: &[u8]) -> usize {
+        usize::try_from(u64::from_le_bytes(
+            bytes[8..16]
+                .try_into()
+                .expect("BigTIFF IFD offset should be present"),
+        ))
+        .expect("BigTIFF IFD offset should fit usize")
+    }
+
+    fn bigtiff_entry_offset(bytes: &[u8], wanted_tag: u16) -> usize {
+        let ifd_offset = bigtiff_ifd_offset(bytes);
+        let entry_count = usize::try_from(u64::from_le_bytes(
+            bytes[ifd_offset..ifd_offset + 8]
+                .try_into()
+                .expect("BigTIFF entry count should be present"),
+        ))
+        .expect("BigTIFF entry count should fit usize");
+        (0..entry_count)
+            .map(|index| ifd_offset + 8 + index * 20)
+            .find(|offset| {
+                u16::from_le_bytes(
+                    bytes[*offset..*offset + 2]
+                        .try_into()
+                        .expect("BigTIFF entry tag should be present"),
+                ) == wanted_tag
+            })
+            .expect("requested BigTIFF tag should be present")
+    }
+
+    async fn mutated_planetary_layout(
+        object_size: u64,
+        mutate: impl FnOnce(&mut [u8]),
+    ) -> (
+        Result<RemoteLayout, CacheError>,
+        (usize, usize, usize, u64, u64),
+    ) {
+        let fixtures = fixtures();
+        let mut prefix = Vec::with_capacity(838);
+        File::open(
+            fixtures
+                .temp_dir
+                .path()
+                .join(fixtures.planetary_object_path.as_ref()),
+        )
+        .expect("planetary fixture should open")
+        .take(838)
+        .read_to_end(&mut prefix)
+        .expect("planetary fixture prefix should be read");
+        assert_eq!(prefix.len(), 838);
+        mutate(&mut prefix);
+
+        let temp_dir = tempfile::TempDir::new().expect("mutated fixture directory should exist");
+        let path = ObjectPath::from("mutated.tif");
+        fs::write(temp_dir.path().join(path.as_ref()), prefix)
+            .expect("mutated fixture prefix should be written");
+        let local_store = LocalFileSystem::new_with_prefix(temp_dir.path())
+            .expect("mutated fixture object store should be rooted");
+        let store = CogFixtureCountingStore::new(Arc::new(local_store));
+        let result = read_remote_layout(&store, &path, object_size).await;
+        let counters = (
+            store.head_calls(),
+            store.get_range_calls(),
+            store.get_ranges_calls(),
+            store.requested_range_bytes(),
+            store.consumed_range_bytes(),
+        );
+        (result, counters)
+    }
+
+    fn assert_owned_layout_rejection(
+        result: Result<RemoteLayout, CacheError>,
+        expected_reason: &str,
+    ) {
+        match result {
+            Err(CacheError::UnsupportedCog { path, reason }) => {
+                assert_eq!(path, ObjectPath::from("mutated.tif"));
+                assert_eq!(reason, expected_reason);
+            }
+            other => panic!("expected UnsupportedCog rejection, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_big_endian_byte_order() {
+        let (result, counters) = mutated_planetary_layout(838, |bytes| {
+            bytes[0..2].copy_from_slice(b"MM");
+        })
+        .await;
+
+        assert_owned_layout_rejection(result, "only little-endian TIFF byte order is supported");
+        assert_eq!(counters, (0, 1, 0, 16, 16));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_bad_magic() {
+        let (result, counters) = mutated_planetary_layout(838, |bytes| {
+            bytes[2..4].copy_from_slice(&41_u16.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(result, "unsupported TIFF magic 41");
+        assert_eq!(counters, (0, 1, 0, 16, 16));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_unsupported_field_type() {
+        let (result, counters) = mutated_planetary_layout(PLANETARY_FILE_LEN, |bytes| {
+            let entry_offset = bigtiff_entry_offset(bytes, 256);
+            bytes[entry_offset + 2..entry_offset + 4].copy_from_slice(&99_u16.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(result, "unsupported TIFF field type 99");
+        assert_eq!(counters, (0, 3, 0, 404, 404));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_truncated_ifd_entries() {
+        let (result, counters) = mutated_planetary_layout(404, |_| {}).await;
+
+        assert_owned_layout_rejection(result, "TIFF range 208..588 exceeds object size 404");
+        assert_eq!(counters, (0, 2, 0, 24, 24));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_empty_ifd() {
+        let (result, counters) = mutated_planetary_layout(838, |bytes| {
+            let ifd_offset = bigtiff_ifd_offset(bytes);
+            bytes[ifd_offset..ifd_offset + 8].copy_from_slice(&0_u64.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(result, "TIFF IFD contains no entries");
+        assert_eq!(counters, (0, 2, 0, 24, 24));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_out_of_range_metadata_value_offset() {
+        let (result, counters) = mutated_planetary_layout(PLANETARY_FILE_LEN, |bytes| {
+            let entry_offset = bigtiff_entry_offset(bytes, 33_550);
+            bytes[entry_offset + 12..entry_offset + 20]
+                .copy_from_slice(&PLANETARY_FILE_LEN.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(
+            result,
+            "TIFF range 24507159..24507183 exceeds object size 24507159",
+        );
+        assert_eq!(counters, (0, 3, 0, 404, 404));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_descriptor_count_mismatch() {
+        let (result, counters) = mutated_planetary_layout(PLANETARY_FILE_LEN, |bytes| {
+            let entry_offset = bigtiff_entry_offset(bytes, 325);
+            let count = u64::from_le_bytes(
+                bytes[entry_offset + 4..entry_offset + 12]
+                    .try_into()
+                    .expect("TileByteCounts count should be present"),
+            );
+            let mismatched_count = count
+                .checked_sub(1)
+                .expect("fixture count should be positive");
+            bytes[entry_offset + 4..entry_offset + 12]
+                .copy_from_slice(&mismatched_count.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(
+            result,
+            "TIFF tile-index descriptor count mismatch: TileOffsets has 2041930 entries, TileByteCounts has 2041929",
+        );
+        assert_eq!(counters, (0, 3, 0, 404, 404));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_ifd_entry_count_ceiling() {
+        let (result, counters) = mutated_planetary_layout(838, |bytes| {
+            let ifd_offset = bigtiff_ifd_offset(bytes);
+            let count = MAX_REMOTE_IFD_ENTRIES
+                .checked_add(1)
+                .expect("entry ceiling increment should fit");
+            bytes[ifd_offset..ifd_offset + 8].copy_from_slice(&count.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(
+            result,
+            "TIFF IFD entry count 4097 exceeds parser ceiling 4096",
+        );
+        assert_eq!(counters, (0, 2, 0, 24, 24));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_ifd_entry_byte_ceiling() {
+        let (result, counters) = mutated_planetary_layout(838, |bytes| {
+            let ifd_offset = bigtiff_ifd_offset(bytes);
+            let count = MAX_REMOTE_IFD_ENTRY_BYTES
+                .checked_div(20)
+                .and_then(|value| value.checked_add(1))
+                .expect("entry-byte ceiling count should fit");
+            bytes[ifd_offset..ifd_offset + 8].copy_from_slice(&count.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(
+            result,
+            "TIFF IFD entry bytes 65540 exceeds parser ceiling 65536",
+        );
+        assert_eq!(counters, (0, 2, 0, 24, 24));
+    }
+
+    #[tokio::test]
+    async fn owned_ifd_walker_rejects_metadata_value_byte_ceiling() {
+        let (result, counters) = mutated_planetary_layout(838, |bytes| {
+            let entry_offset = bigtiff_entry_offset(bytes, 33_922);
+            let count = MAX_REMOTE_METADATA_VALUE_BYTES
+                .checked_div(8)
+                .and_then(|value| value.checked_add(1))
+                .expect("metadata-value ceiling count should fit");
+            bytes[entry_offset + 4..entry_offset + 12].copy_from_slice(&count.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(
+            result,
+            "TIFF metadata value bytes 65544 exceeds parser ceiling 65536",
+        );
+        assert_eq!(counters, (0, 3, 0, 404, 404));
     }
 
     #[test]
