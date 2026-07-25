@@ -7,6 +7,8 @@ fetching the compressed byte ranges that cover the terminal catchment rather tha
 downloading whole rasters — and caches the materialized window on disk for reuse
 across overlapping watersheds.
 
+Remote window reads resolve only the tile-offset and tile-byte-count entries for tiles covered by the requested window, then fetch only those tiles’ compressed chunks. Boundedness is structural: byte and request cost must not grow with the raster’s tile count; the numeric test ceiling is only a coarse gross-regression backstop.
+
 ## When refinement is skipped
 
 The default `refine=True` is best-effort: if a dataset declares no D8 raster, the
