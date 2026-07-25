@@ -10,9 +10,12 @@ across overlapping watersheds.
 ## When refinement is skipped
 
 The default `refine=True` is best-effort: if a dataset declares no D8 raster, the
-engine skips terminal refinement and returns whole source units. The canonical
-public GRIT (Global River Topology) dataset ships no D8 raster, so refinement is skipped automatically —
-you do not need to change anything.
+engine skips terminal refinement and returns whole source units. The intended
+canonical public GRIT (Global River Topology) D8 contract declares both flow
+direction and flow accumulation. The staged prefix carries those rasters at
+`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. Its live `manifest.json` does
+not currently carry an `hfx.aux.d8_raster.v2` entry, so the engine cannot
+discover them from that manifest and skips terminal refinement.
 
 When several D8 declarations overlap and each fully covers the terminal catchment
 — the expected case for a per-Pfafstetter-basin fabric such as MERIT-Basins — the
@@ -38,6 +41,10 @@ engine = pourpoint.Engine("/data/hfx/local", refine=False)
 ## Supported raster layout
 
 Remote refinement expects Cloud-Optimized GeoTIFFs (COGs): one band, 512×512
-tiled, `u8` flow direction and `f32` flow accumulation, with GeoTIFF
-scale/tiepoint metadata in EPSG:4326. Unsupported remote TIFF layouts fail loudly
-rather than silently downloading multi-gigabyte rasters.
+tiled, `u8` flow direction and `f32` flow accumulation. GeoTIFF scale/tiepoint
+values are interpreted in the raster's declared native CRS. The scale/tiepoint
+georeferencing arithmetic is not EPSG:4326-specific. pourpoint supports
+geographic EPSG:4326 and projected EPSG:8857 declared D8 CRSs, and rejects any
+other declared EPSG code loudly. The canonical GRIT D8 declaration uses
+projected EPSG:8857. Unsupported remote TIFF layouts fail loudly rather than
+silently downloading multi-gigabyte rasters.
