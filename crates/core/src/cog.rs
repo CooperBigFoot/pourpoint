@@ -25,13 +25,6 @@ use crate::error::CacheError;
 use crate::session::RasterKind;
 
 const HEADER_RANGE_BYTES: u64 = 16 * 1024 * 1024;
-/// Bounded range for D8 declaration extent reads.
-///
-/// Selecting among 60 D8 declarations may inspect roughly 60 object `head`
-/// responses plus 60 small range reads before fetching any selected window.
-/// Keeping this at 256 KiB bounds worst-case pre-selection range transfer near
-/// 15 MiB and fails loudly when an IFD is too far from the TIFF header.
-pub(crate) const EXTENT_HEADER_RANGE_BYTES: u64 = 256 * 1024;
 const MODEL_PIXEL_SCALE_TAG: Tag = Tag::ModelPixelScaleTag;
 const MODEL_TIEPOINT_TAG: Tag = Tag::ModelTiepointTag;
 const GEO_KEY_DIRECTORY_TAG: Tag = Tag::GeoKeyDirectoryTag;
