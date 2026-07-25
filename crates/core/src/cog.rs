@@ -1707,7 +1707,9 @@ mod tests {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Arc, OnceLock};
 
+    use flate2::Compression;
     use flate2::read::ZlibDecoder;
+    use flate2::write::ZlibEncoder;
     use futures_util::stream::BoxStream;
     use geo::coord;
     use object_store::local::LocalFileSystem;
@@ -1778,7 +1780,27 @@ mod tests {
         write_u32(file, value)
     }
 
+    fn compress_tile(tile: &[u8]) -> io::Result<Vec<u8>> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(tile)?;
+        encoder.finish()
+    }
+
     fn write_planetary_fixture(path: &Path) -> io::Result<()> {
+        let mut tile_0 = vec![0_u8; 512 * 512];
+        tile_0[..8].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let mut tile_1 = vec![0_u8; 512 * 512];
+        tile_1[..8].copy_from_slice(&[8, 7, 6, 5, 4, 3, 2, 1]);
+        let tile_0_zlib = compress_tile(&tile_0)?;
+        let tile_1_zlib = compress_tile(&tile_1)?;
+        assert!(tile_0_zlib.len() + tile_1_zlib.len() <= 3_330);
+        let tile_0_offset = 668_u64;
+        let tile_1_offset = tile_0_offset
+            .checked_add(u64::try_from(tile_0_zlib.len()).map_err(io::Error::other)?)
+            .ok_or_else(|| io::Error::other("planetary tile offset overflow"))?;
+        let tile_0_zlib_len = u32::try_from(tile_0_zlib.len()).map_err(io::Error::other)?;
+        let tile_1_zlib_len = u32::try_from(tile_1_zlib.len()).map_err(io::Error::other)?;
+
         let mut file = File::create(path)?;
         file.set_len(PLANETARY_FILE_LEN)?;
         file.write_all(b"II")?;
@@ -1824,15 +1846,34 @@ mod tests {
             write_f64(&mut file, value)?;
         }
 
+        file.seek(SeekFrom::Start(tile_0_offset))?;
+        file.write_all(&tile_0_zlib)?;
+        file.write_all(&tile_1_zlib)?;
         file.seek(SeekFrom::Start(3_998))?;
-        write_u64(&mut file, PLANETARY_INDEX_END)?;
+        write_u64(&mut file, tile_0_offset)?;
+        write_u64(&mut file, tile_1_offset)?;
         file.seek(SeekFrom::Start(16_339_438))?;
-        write_u32(&mut file, 1)?;
+        write_u32(&mut file, tile_0_zlib_len)?;
+        write_u32(&mut file, tile_1_zlib_len)?;
         file.seek(SeekFrom::Start(PLANETARY_INDEX_END))?;
         file.write_all(&[0])
     }
 
     fn write_regional_fixture(path: &Path) -> io::Result<()> {
+        let mut tile_0 = vec![0_u8; 512 * 512];
+        tile_0[..8].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let mut tile_1 = vec![0_u8; 512 * 512];
+        tile_1[..8].copy_from_slice(&[8, 7, 6, 5, 4, 3, 2, 1]);
+        let tile_0_zlib = compress_tile(&tile_0)?;
+        let tile_1_zlib = compress_tile(&tile_1)?;
+        assert!(tile_0_zlib.len() + tile_1_zlib.len() <= 3_330);
+        let tile_0_offset = 668_u64;
+        let tile_1_offset = tile_0_offset
+            .checked_add(u64::try_from(tile_0_zlib.len()).map_err(io::Error::other)?)
+            .ok_or_else(|| io::Error::other("regional tile offset overflow"))?;
+        let tile_0_zlib_len = u32::try_from(tile_0_zlib.len()).map_err(io::Error::other)?;
+        let tile_1_zlib_len = u32::try_from(tile_1_zlib.len()).map_err(io::Error::other)?;
+
         let mut file = File::create(path)?;
         file.set_len(REGIONAL_FILE_LEN)?;
         file.write_all(b"II")?;
@@ -1878,12 +1919,101 @@ mod tests {
             write_f64(&mut file, value)?;
         }
 
+        file.seek(SeekFrom::Start(tile_0_offset))?;
+        file.write_all(&tile_0_zlib)?;
+        file.write_all(&tile_1_zlib)?;
         file.seek(SeekFrom::Start(3_998))?;
-        write_u64(&mut file, 16_286)?;
+        write_u64(&mut file, tile_0_offset)?;
+        write_u64(&mut file, tile_1_offset)?;
         file.seek(SeekFrom::Start(12_190))?;
-        write_u32(&mut file, 1)?;
+        write_u32(&mut file, tile_0_zlib_len)?;
+        write_u32(&mut file, tile_1_zlib_len)?;
         file.seek(SeekFrom::Start(16_286))?;
         file.write_all(&[0])
+    }
+
+    fn write_flow_acc_fixture(path: &Path) -> io::Result<()> {
+        let make_tile = |values: [f32; 3]| {
+            let mut tile = vec![0_u8; 512 * 512 * 4];
+            values.into_iter().enumerate().for_each(|(index, value)| {
+                tile[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
+            });
+            tile
+        };
+        let tile_0_zlib = compress_tile(&make_tile([1.0, 2.0, 3.0]))?;
+        let tile_1_zlib = compress_tile(&make_tile([4.0, 5.0, 6.0]))?;
+        let tile_2_zlib = compress_tile(&make_tile([7.0, 8.0, 9.0]))?;
+        let tile_0_len = u64::try_from(tile_0_zlib.len()).map_err(io::Error::other)?;
+        let tile_1_len = u64::try_from(tile_1_zlib.len()).map_err(io::Error::other)?;
+        let tile_2_len = u64::try_from(tile_2_zlib.len()).map_err(io::Error::other)?;
+        let tile_0_offset = 704_u64;
+        let tile_1_offset = tile_0_offset
+            .checked_add(tile_0_len)
+            .ok_or_else(|| io::Error::other("FlowAcc tile 1 offset overflow"))?;
+        let tile_2_offset = tile_1_offset
+            .checked_add(tile_1_len)
+            .ok_or_else(|| io::Error::other("FlowAcc tile 2 offset overflow"))?;
+        let file_len = tile_2_offset
+            .checked_add(tile_2_len)
+            .ok_or_else(|| io::Error::other("FlowAcc fixture length overflow"))?;
+        let tile_counts = [tile_0_len, tile_1_len, tile_2_len]
+            .map(|len| u32::try_from(len).map_err(io::Error::other))
+            .into_iter()
+            .collect::<io::Result<Vec<_>>>()?;
+
+        let mut file = File::create(path)?;
+        file.set_len(file_len)?;
+        file.write_all(b"II")?;
+        write_u16(&mut file, 43)?;
+        write_u16(&mut file, 8)?;
+        write_u16(&mut file, 0)?;
+        write_u64(&mut file, 200)?;
+
+        file.seek(SeekFrom::Start(200))?;
+        write_u64(&mut file, 19)?;
+        write_bigtiff_entry(&mut file, 256, 4, 1, 1536)?;
+        write_bigtiff_entry(&mut file, 257, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 258, 3, 1, 32)?;
+        write_bigtiff_entry(&mut file, 259, 3, 1, 8)?;
+        write_bigtiff_entry(&mut file, 262, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 277, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 282, 5, 1, (1_u64 << 32) | 1)?;
+        write_bigtiff_entry(&mut file, 283, 5, 1, (1_u64 << 32) | 1)?;
+        write_bigtiff_entry(&mut file, 284, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 296, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 317, 3, 1, 1)?;
+        write_bigtiff_entry(&mut file, 322, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 323, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 324, 16, 3, 668)?;
+        write_bigtiff_entry(&mut file, 325, 4, 3, 692)?;
+        write_bigtiff_entry(&mut file, 339, 3, 1, 3)?;
+        write_bigtiff_entry(&mut file, 33_550, 12, 3, 596)?;
+        write_bigtiff_entry(&mut file, 33_922, 12, 6, 620)?;
+        write_bigtiff_entry(
+            &mut file,
+            42_113,
+            2,
+            3,
+            u64::from_le_bytes(*b"-1\0\0\0\0\0\0"),
+        )?;
+        write_u64(&mut file, 0)?;
+
+        file.seek(SeekFrom::Start(596))?;
+        for value in [1.0, 1.0, 0.0] {
+            write_f64(&mut file, value)?;
+        }
+        for value in [0.0; 6] {
+            write_f64(&mut file, value)?;
+        }
+        for offset in [tile_0_offset, tile_1_offset, tile_2_offset] {
+            write_u64(&mut file, offset)?;
+        }
+        for count in tile_counts {
+            write_u32(&mut file, count)?;
+        }
+        file.write_all(&tile_0_zlib)?;
+        file.write_all(&tile_1_zlib)?;
+        file.write_all(&tile_2_zlib)
     }
 
     fn write_classic_fixture(path: &Path) -> io::Result<()> {
@@ -1930,11 +2060,14 @@ mod tests {
             let regional_object_path = ObjectPath::from("regional.tif");
             let regional_path = temp_dir.path().join(regional_object_path.as_ref());
             let classic_path = temp_dir.path().join("classic.tif");
+            let flow_acc_path = temp_dir.path().join("flow_acc.tif");
             write_planetary_fixture(&planetary_path)
                 .expect("planetary BigTIFF fixture should be written");
             write_regional_fixture(&regional_path)
                 .expect("regional BigTIFF fixture should be written");
             write_classic_fixture(&classic_path).expect("classic TIFF fixture should be written");
+            write_flow_acc_fixture(&flow_acc_path)
+                .expect("FlowAcc BigTIFF fixture should be written");
             CogFixtures {
                 temp_dir,
                 planetary_object_path,
@@ -2282,6 +2415,19 @@ mod tests {
         let decoded = prototype_decode(&compressed, 1).expect("zlib DEFLATE payload should decode");
 
         assert_eq!(decoded, [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_ne!(decoded, [1, 3, 6, 10, 15, 21, 28, 36]);
+    }
+
+    #[test]
+    fn prototype_decode_rejects_unsupported_predictor() {
+        let compressed =
+            compress_tile(&[1, 2, 3]).expect("valid zlib DEFLATE payload should be created");
+
+        let error = prototype_decode(&compressed, 2)
+            .expect_err("unsupported prototype predictor should fail");
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "unsupported prototype predictor 2");
     }
 
     fn metadata() -> CogMetadata {
@@ -2301,6 +2447,186 @@ mod tests {
             tile_offsets: (0..8).map(|idx| 1000 + idx * 100).collect(),
             tile_byte_counts: vec![50; 8],
         }
+    }
+
+    fn assert_predictor_rejection(metadata: &CogMetadata, kind: RasterKind, expected_reason: &str) {
+        let path = ObjectPath::from("predictor-one.tif");
+        let error = validate_merit_layout(metadata, kind, &path)
+            .expect_err("predictor 1 should retain the current rejection");
+        match error {
+            CacheError::UnsupportedCog {
+                path: error_path,
+                reason,
+            } => {
+                assert_eq!(error_path, path);
+                assert_eq!(reason, expected_reason);
+            }
+            other => panic!("expected UnsupportedCog, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_merit_layout_locks_predictor_one_u8_rejection() {
+        let mut meta = metadata();
+        meta.width = 512;
+        meta.height = 512;
+        meta.tile_offsets = vec![704];
+        meta.tile_byte_counts = vec![1];
+        meta.predictor = 1;
+
+        meta.sample_type = CogSampleType::U8;
+        assert_predictor_rejection(
+            &meta,
+            RasterKind::FlowDir,
+            "FlowDir expected TIFF predictor 2, got 1",
+        );
+        meta.sample_type = CogSampleType::I8;
+        assert_predictor_rejection(
+            &meta,
+            RasterKind::FlowDir,
+            "FlowDir expected TIFF predictor 2, got 1",
+        );
+        meta.sample_type = CogSampleType::I32;
+        assert_predictor_rejection(
+            &meta,
+            RasterKind::FlowAcc,
+            "FlowAcc expected TIFF predictor 2, got 1",
+        );
+    }
+
+    #[test]
+    fn validate_merit_layout_locks_predictor_one_f32_rejection() {
+        let mut meta = metadata();
+        meta.width = 1536;
+        meta.height = 512;
+        meta.nodata = "-1".to_string();
+        meta.sample_type = CogSampleType::F32;
+        meta.predictor = 1;
+        meta.tile_offsets = vec![704; 3];
+        meta.tile_byte_counts = vec![1; 3];
+
+        assert_predictor_rejection(
+            &meta,
+            RasterKind::FlowAcc,
+            "FlowAcc expected TIFF predictor 3, got 1",
+        );
+    }
+
+    #[test]
+    fn flow_acc_fixture_indexes_are_genuinely_out_of_line() {
+        let fixtures = fixtures();
+        let bytes = fs::read(fixtures.temp_dir.path().join("flow_acc.tif"))
+            .expect("FlowAcc fixture should be readable");
+        let object_size = u64::try_from(bytes.len()).expect("fixture length should fit u64");
+        let decode_entry = |slot: &[u8]| IfdEntry {
+            tag: u16::from_le_bytes(slot[0..2].try_into().unwrap()),
+            field_type: u16::from_le_bytes(slot[2..4].try_into().unwrap()),
+            count: u64::from_le_bytes(slot[4..12].try_into().unwrap()),
+            value: u64::from_le_bytes(slot[12..20].try_into().unwrap()),
+        };
+        let offsets_entry = decode_entry(&bytes[468..488]);
+        let counts_entry = decode_entry(&bytes[488..508]);
+
+        assert_eq!(
+            (
+                offsets_entry.tag,
+                offsets_entry.field_type,
+                offsets_entry.count,
+                offsets_entry.value
+            ),
+            (324, 16, 3, 668)
+        );
+        assert_eq!(
+            (
+                counts_entry.tag,
+                counts_entry.field_type,
+                counts_entry.count,
+                counts_entry.value
+            ),
+            (325, 4, 3, 692)
+        );
+
+        let path = ObjectPath::from("flow_acc.tif");
+        let offsets =
+            remote_descriptor(&path, TiffFormat::BigTiff, offsets_entry, object_size).unwrap();
+        let counts =
+            remote_descriptor(&path, TiffFormat::BigTiff, counts_entry, object_size).unwrap();
+        assert_eq!(
+            offsets,
+            IndexDescriptor {
+                field_type: 16,
+                element_width: 8,
+                count: 3,
+                storage: IndexStorage::OutOfLine(668),
+            }
+        );
+        assert_eq!(offsets.byte_extent().unwrap(), Some(668..692));
+        assert_eq!(offsets.count * offsets.element_width, 24);
+        assert!(offsets.count * offsets.element_width > 8);
+        assert_eq!(
+            counts,
+            IndexDescriptor {
+                field_type: 4,
+                element_width: 4,
+                count: 3,
+                storage: IndexStorage::OutOfLine(692),
+            }
+        );
+        assert_eq!(counts.byte_extent().unwrap(), Some(692..704));
+        assert_eq!(counts.count * counts.element_width, 12);
+        assert!(counts.count * counts.element_width > 8);
+        assert!(!matches!(offsets.storage, IndexStorage::InlineScalar(_)));
+        assert!(!matches!(counts.storage, IndexStorage::InlineScalar(_)));
+
+        let tile_offsets = (0..3)
+            .map(|index| {
+                let start = 668 + index * 8;
+                u64::from_le_bytes(bytes[start..start + 8].try_into().unwrap())
+            })
+            .collect::<Vec<_>>();
+        let tile_counts = (0..3)
+            .map(|index| {
+                let start = 692 + index * 4;
+                u32::from_le_bytes(bytes[start..start + 4].try_into().unwrap())
+            })
+            .collect::<Vec<_>>();
+        let expected_prefixes = [
+            [1.0_f32, 2.0, 3.0],
+            [4.0_f32, 5.0, 6.0],
+            [7.0_f32, 8.0, 9.0],
+        ];
+        for ((offset, count), expected) in
+            tile_offsets.iter().zip(&tile_counts).zip(expected_prefixes)
+        {
+            let start = usize::try_from(*offset).unwrap();
+            let end = start + usize::try_from(*count).unwrap();
+            let decoded =
+                prototype_decode(&bytes[start..end], 1).expect("FlowAcc tile should inflate");
+            assert_eq!(decoded.len(), 1_048_576);
+            let prefix = [0, 4, 8]
+                .map(|start| f32::from_le_bytes(decoded[start..start + 4].try_into().unwrap()));
+            assert_eq!(prefix, expected);
+        }
+
+        let tile_0_start = usize::try_from(tile_offsets[0]).unwrap();
+        let tile_0_end = tile_0_start + usize::try_from(tile_counts[0]).unwrap();
+        let tile_0 = prototype_decode(&bytes[tile_0_start..tile_0_end], 1)
+            .expect("FlowAcc tile 0 should inflate");
+        let stored_bits =
+            [0, 4, 8].map(|start| u32::from_le_bytes(tile_0[start..start + 4].try_into().unwrap()));
+        assert_eq!(stored_bits, [0x3f800000, 0x40000000, 0x40400000]);
+        let predictor_2_bits = [0x3f800000, 0x7f800000, 0xbfc00000];
+        assert_eq!(
+            predictor_2_bits.map(f32::from_bits),
+            [1.0, f32::INFINITY, -1.5]
+        );
+        assert_ne!(predictor_2_bits, stored_bits);
+        let predictor_3_bits = [0x007f7f7f, 0x007f7f7f, 0x807f7f7f];
+        assert_eq!(
+            predictor_3_bits.map(f32::from_bits),
+            [1.1708845e-38, 1.1708845e-38, -1.1708845e-38]
+        );
+        assert_ne!(predictor_3_bits, stored_bits);
     }
 
     #[test]
@@ -2521,6 +2847,44 @@ mod tests {
         assert_eq!(store.get_range_calls(), 1);
         assert_eq!(store.get_ranges_calls(), 0);
         // TRANSITIONAL: M3 owns conversion to green success; this assertion may not be deleted.
+        assert!(matches!(
+            error,
+            CacheError::Tiff {
+                source: tiff::TiffError::IoError(source),
+                ..
+            } if source.kind() == ErrorKind::UnexpectedEof
+        ));
+    }
+
+    #[tokio::test]
+    async fn planetary_cache_window_locks_truncated_tile_byte_counts_failure() {
+        let fixtures = fixtures();
+        let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
+        let store = CogFixtureCountingStore::new(inner);
+        let cache_temp = tempfile::TempDir::new().expect("cache temp directory should be created");
+        let cache = crate::raster_cache::RemoteRasterCache::new(cache_temp.path().to_path_buf());
+        let request = RasterWindowRequest::new(
+            RasterKind::FlowDir,
+            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
+        );
+
+        let error = cache
+            .get_or_fetch_window(
+                &store,
+                &fixtures.planetary_object_path,
+                &request,
+                "test-fabric",
+                "0.1.0",
+            )
+            .await
+            .expect_err("cache route should retain the prefix truncation failure");
+
+        assert_eq!(store.head_calls(), 1);
+        assert_eq!(store.get_range_calls(), 1);
+        assert_eq!(store.get_ranges_calls(), 0);
+        assert_eq!(store.requested_range_bytes(), LEGACY_WINDOW_BOUND);
         assert!(matches!(
             error,
             CacheError::Tiff {
