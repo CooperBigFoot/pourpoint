@@ -925,9 +925,7 @@ fn staged_r2_public_carve_reads_predictor_1_rasters() {
     let weight_semantics = selected_declaration.weight_semantics.clone();
 
     let engine = Engine::builder(session)
-        .with_raster_source(LocalTiffRasterSource::with_encoding(
-            hfx::FlowDirEncoding::Grass,
-        ))
+        .with_raster_source(LocalTiffRasterSource)
         .build();
     let input = GeoCoord {
         lon: 8.5417,

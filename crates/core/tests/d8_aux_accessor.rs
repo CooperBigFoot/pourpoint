@@ -327,6 +327,7 @@ fn projected_refinement_inverse_projects_carved_interior_ring() {
     write_projected_manifest(&root);
     let mut projected = manifest(&root);
     projected["auxiliary"][0]["metadata"]["flow_acc_units"] = json!("cells");
+    projected["auxiliary"][0]["metadata"]["flow_dir_encoding"] = json!("esri");
     write_manifest(&root, projected);
     write_projected_tiff(&root.join("flow_dir.tif"), FarRasterKind::FlowDir);
     write_projected_tiff(&root.join("flow_acc.tif"), FarRasterKind::FlowAcc);
@@ -722,6 +723,7 @@ impl RasterSource for DonutRasterSource {
         &self,
         _uri: &str,
         _bbox: &Rect<f64>,
+        encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
         #[rustfmt::skip]
         let values = vec![
@@ -731,7 +733,7 @@ impl RasterSource for DonutRasterSource {
         ];
         let tile = RasterTile::from_vec(values, GridDims::new(3, 3), 255_u8, donut_geo())
             .expect("donut flow-direction tile should construct");
-        Ok(FlowDirectionTile::from_raw(tile, FlowDirEncoding::Esri))
+        Ok(FlowDirectionTile::from_raw(tile, encoding))
     }
 
     fn load_accumulation(
@@ -752,6 +754,7 @@ impl RasterSource for InverseFailureRasterSource {
         &self,
         _uri: &str,
         _bbox: &Rect<f64>,
+        encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
         let tile = RasterTile::from_vec(
             vec![0_u8],
@@ -760,7 +763,7 @@ impl RasterSource for InverseFailureRasterSource {
             inverse_failure_geo(),
         )
         .expect("inverse-failure flow-direction tile should construct");
-        Ok(FlowDirectionTile::from_raw(tile, FlowDirEncoding::Grass))
+        Ok(FlowDirectionTile::from_raw(tile, encoding))
     }
 
     fn load_accumulation(
@@ -784,6 +787,7 @@ impl RasterSource for ProjectedRasterSource {
         &self,
         _uri: &str,
         bbox: &Rect<f64>,
+        encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
         self.requests
             .lock()
@@ -792,7 +796,7 @@ impl RasterSource for ProjectedRasterSource {
         let tile =
             RasterTile::from_vec(vec![0_u8; 25], GridDims::new(5, 5), 255_u8, projected_geo())
                 .expect("projected flow-direction tile should construct");
-        Ok(FlowDirectionTile::from_raw(tile, FlowDirEncoding::Grass))
+        Ok(FlowDirectionTile::from_raw(tile, encoding))
     }
 
     fn load_accumulation(
@@ -844,6 +848,7 @@ impl RasterSource for FailingRasterSource {
         &self,
         uri: &str,
         _bbox: &Rect<f64>,
+        _encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
         Err(RasterSourceError::FileNotFound {
             path: uri.to_string(),
