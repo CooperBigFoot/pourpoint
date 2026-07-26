@@ -1,8 +1,8 @@
-# Tile-count-independent planetary COG reads: M1 evidence register
+# Tile-count-independent planetary COG reads: evidence register
 
-This document records evidence established by milestone M1. It is a milestone
-evidence register, not a release packet: no production read-path behavior,
-version, tag, or publication changed in M1. M5 owns release preparation.
+This document records evidence for the tile-count-independent planetary
+COG-read vision through M4. It remains an evidence register rather than a
+release packet; M5 still owns release preparation.
 
 ## Measured staged-object evidence
 
@@ -105,22 +105,28 @@ follows out-of-line multi-value tags into lists, and converts both tile indexes
 to vectors. It would therefore materialize at least 24,503,160 planetary index
 bytes before returning the IFD.
 
-The test-only owned walker prototype in
+The owned walker began in M1 as a test-only prototype in
 [`crates/core/src/cog.rs`](../../crates/core/src/cog.rs) reached dimensions and
 GeoTIFF scale/tiepoint with four requests and 274 bytes for classic TIFF, and
 four requests and 476 bytes for BigTIFF. Both tile indexes remained typed
 descriptors. The BigTIFF total of 476 bytes is below the first index offset of
-3,998, substantiating that the prototype did not materialize either index.
+3,998, substantiating that the prototype did not materialize either index. M2
+promoted it into the production remote extent path.
 
-The test-only decode prototype in the same file expanded a known-value
-zlib-framed `Compression=8` payload under predictor 1 to
-`[1,2,3,4,5,6,7,8]`, with no horizontal differencing.
+The decode seam began in M1 as a test-only prototype in the same file with the
+recorded known-value result: a zlib-framed `Compression=8` payload under
+predictor 1 expanded to `[1,2,3,4,5,6,7,8]`, with no horizontal differencing.
+M3 shipped owned bounded remote chunk decode.
 
-The same test module contains two assertions explicitly labelled
-`TRANSITIONAL`. The extent assertion locks the current 262,144-byte failure;
-M2 must convert it to green success. The window assertion locks the truncated
-`TileByteCounts` failure; M3 must convert it to green success. Neither
-assertion may be deleted.
+M1 shipped two assertions explicitly labelled `TRANSITIONAL`. M2 converted the
+extent assertion to green success, and its `TRANSITIONAL` label survives at
+`cog.rs:3945`; exactly one such label exists in the module today. M3 converted
+the window assertion to green success by replacing the failure-locking
+assertion and removed its `TRANSITIONAL` label. That conversion remains
+auditable through the retained failure-shaped test names
+`planetary_window_locks_truncated_tile_byte_counts_failure` (`cog.rs:4077`) and
+`planetary_cache_window_locks_truncated_tile_byte_counts_failure`
+(`cog.rs:4346`), which now assert success despite their names.
 
 It also contains one `DURABLE` generated-fixture invariant that must survive M2
 and M3. The invariant derives the index end from the fixture's own
@@ -128,9 +134,9 @@ and M3. The invariant derives the index end from the fixture's own
 bounds. Its M1-S2a falsification check set the fixture tile count to 1,000 and
 made the invariant fail; it passes only with the measured count of 2,041,930.
 
-`flate2 = "=1.1.9"` is committed in `[dev-dependencies]` for the test-only
-decode prototype. The parser-ownership ADR binds M3 to promote it to
-`[dependencies]` when owned decode ships in library code.
+`flate2 = "=1.1.9"` was initially committed under `[dev-dependencies]` for
+M1's test-only decode prototype. M3 promoted it to production `[dependencies]`
+when owned decode shipped.
 
 ## Network-gated layout guard and its limitation
 
@@ -168,6 +174,251 @@ production read-path behavior changed in M1.
   `EXTENT_HEADER_RANGE_BYTES` rather than raise or repurpose it.
 - M3 owns window index descriptors, owned bounded chunk decode, predictor-1
   support, and the `docs/raster-cache.md` correction.
-- M4 owns the live carve proof and extends this same register with its
+- M4 owned the live carve proof and extended this same register with its
   live-carve evidence.
 - M5 owns release preparation.
+
+## Witnessed public staged carve
+
+### Run authority and immutable capture
+
+The orchestrator ran the following opt-in command against the real public
+staged objects at `2026-07-25T23:36:19Z` UTC:
+
+```bash
+POURPOINT_STAGED_R2_CARVE=1 cargo test -p pourpoint-core --test staged_r2_carve -- --ignored --nocapture
+```
+
+The process exited with status `0`; libtest reported `307.14s` and the exact
+summary `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 307.14s`.
+A per-test `test <name> ... ok` line is not reliably present in either direction
+under `--nocapture`: an earlier 3.71-second `staged_cog_layout_probe` run
+printed only a bare progress dot, while this 307.14-second run printed both the
+over-60-seconds notice and the per-test success line. Merge verification
+therefore keys on the serialized evidence line plus the substring
+`test result: ok. 1 passed; 0 failed`, never on a per-test-name needle.
+
+The following line is the immutable stdout evidence transported from that run:
+
+STAGED_R2_CARVE_EVIDENCE:{"input_coord":[8.5417,47.3769],"resolved_coord":[8.538953815312432,47.38249957156025],"resolved_terminal_id":13882943,"snap":{"method":"Snap","strategy":"WeightFirst","snap_id":12115939,"weight":2234.2527,"mainstem_status":"mainstem","distance_m":652.6736170606541,"candidates_considered":5,"declaration_name":"reach-stems","declaration_artifact":"aux/snap_reaches.parquet","references_levels":[1],"weight_semantics":"drainage_area_km2_partitioned","declaration_status":"RECORDED_MEASUREMENT","bounds_status":"RECORDED_MEASUREMENTS_NOT_INDEPENDENT_PROOFS"},"upstream_count":275,"refinement":"Applied","route":{"public_custom_domain":"basin-delineations-public.upstream.tech","object_store_builder":"AmazonS3Builder::new","skip_signature":true,"bogus_aws_credentials_installed":true,"ambient_aws_credentials_consulted":false},"areas_km2":{"unrefined_terminal_geodesic":1.5045751705518662,"refined_terminal_geodesic":0.013500000000685453,"resolved_terminal_hfx_local":1.504575,"status":"DESCRIPTIVE_ONLY"},"store":{"initial_carve":{"flow_dir":{"key":"aux/d8/flow_dir.tif","get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":4,"get_ranges_range_count":7,"get_ranges_range_bytes":75905,"max_get_ranges_range_bytes":75749,"payload_ranges_beyond_24507158":1},"flow_acc":{"key":"aux/d8/flow_acc.tif","get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":4,"get_ranges_range_count":7,"get_ranges_range_bytes":267131,"max_get_ranges_range_bytes":266975,"payload_ranges_beyond_24507158":1}},"retained_session_delta":{"flow_dir":{"get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":3,"get_ranges_range_count":6,"get_ranges_range_bytes":156,"max_get_ranges_range_bytes":48,"payload_ranges_beyond_24507158":0},"flow_acc":{"get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":3,"get_ranges_range_count":6,"get_ranges_range_bytes":156,"max_get_ranges_range_bytes":48,"payload_ranges_beyond_24507158":0}},"observation_unit":"ObjectStore_API_calls_not_HTTP_requests"},"telemetry":{"event_count":1,"flow_dir":{"header_bytes":488,"tile_bytes":75749,"tile_count":1,"window_pixels":4108,"internal_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-dir.2252917690144854538.x522953-y89360-w79-h52.tif","direct_cached_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-dir.2252917690144854538.x522953-y89360-w79-h52.tif"},"flow_acc":{"header_bytes":488,"tile_bytes":266975,"tile_count":1,"window_pixels":4108,"internal_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-acc.17537180551063497292.x522953-y89360-w79-h52.tif","direct_cached_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-acc.17537180551063497292.x522953-y89360-w79-h52.tif"}},"ceilings":{"status":"RECORDED_MEASUREMENTS_NOT_INDEPENDENT_PROOFS","flow_dir":{"MAX_PLANNED_TILE_COUNT":{"observed":1,"ceiling":65536,"margin":65535},"MAX_COMPRESSED_CHUNK_BYTES":{"observed":75749,"ceiling":16777216,"margin":16701467},"MAX_COVERED_CHUNK_BYTES":{"observed":75749,"ceiling":1073741824,"margin":1073666075},"MAX_DECODED_CHUNK_BYTES":{"observed":262144,"ceiling":1048576,"margin":786432},"MAX_WINDOW_ALLOCATION_BYTES":{"observed":4108,"ceiling":1073741824,"margin":1073737716}},"flow_acc":{"MAX_PLANNED_TILE_COUNT":{"observed":1,"ceiling":65536,"margin":65535},"MAX_COMPRESSED_CHUNK_BYTES":{"observed":266975,"ceiling":16777216,"margin":16510241},"MAX_COVERED_CHUNK_BYTES":{"observed":266975,"ceiling":1073741824,"margin":1073474849},"MAX_DECODED_CHUNK_BYTES":{"observed":1048576,"ceiling":1048576,"margin":0},"MAX_WINDOW_ALLOCATION_BYTES":{"observed":16432,"ceiling":1073741824,"margin":1073725392}},"f32_decoded_chunk_statement":"512x512x4=1048576 equals MAX_DECODED_CHUNK_BYTES; ZERO MARGIN"},"decoded":{"flow_dir":{"sample_type":"U8","width":79,"height":52,"distinct_values":[1,2,3,4,5,6,7,8],"nodata_255_count":0,"nodata_255_fraction":0.0,"legal_grass_non_nodata_count":4108,"legal_grass_non_nodata_fraction":1.0,"distinct_cap":18,"distinct_cap_headroom_over_legal_plus_nodata":1,"minimum_legal_fraction":0.01},"flow_acc":{"sample_type":"F32","width":79,"height":52,"nan_count":0,"nan_fraction":0.0,"non_nan_count":4108,"non_nan_fraction":1.0,"non_nan_min":0.0009,"non_nan_max":2175.6726,"magnitude_ceiling_km2":1000000000.0,"minimum_non_nan_fraction":0.01},"claim":"value-domain bounds falsify broad differenced or grossly mis-assembled decoding but do not provide bit-exact staged-object ground truth; U8 zero-filled unwritten regions are not discriminated"},"live_manifest":{"byte_equal":true,"d8_declaration_present":false},"mutation_attempt_count":0}
+
+### End-to-end result and route provenance
+
+Both planetary predictor-1 rasters were opened over the public custom-domain
+route while deliberately bogus AWS credentials were installed in the process.
+Both initial-carve observations contain one real tile-payload range beyond byte
+`24,507,158`; both retained-session deltas contain zero, demonstrating the
+localized-window cache path. The carve resolved terminal `13,882,943`,
+traversed `275` upstream units, and completed required-D8 refinement as
+`Applied`.
+
+The live manifest remained byte-equal, still had no D8 declaration, and the
+decorator observed zero mutation attempts. The D8 declaration was injected
+CLIENT-SIDE into a clone of the LIVE manifest solely by the read-only test
+decorator. It was never written to the frozen `grit/hfx-v0.3.0` prefix.
+
+The observed route domain was
+`basin-delineations-public.upstream.tech`. Source code constructs it with
+`AmazonS3Builder::new()` and `.with_skip_signature(true)` at
+`source.rs:212-240`; completion with bogus credentials is consistent with
+unsigned access. The serialized booleans `route.skip_signature` and
+`route.ambient_aws_credentials_consulted` are unobserved literals, source-backed
+by that constructor, which never calls `from_env()`. They are not runtime
+observations, and no object-store implementation identity is asserted.
+Decorator counts use ObjectStore API calls, not HTTP-request counts;
+`get_ranges` can fan out into multiple HTTP requests.
+
+### Resolution and descriptive areas
+
+The supplied input coordinate `[8.5417, 47.3769]` resolved to
+`[8.538953815312432, 47.38249957156025]` through `Snap` with `WeightFirst`.
+The snap ID was `12,115,939`, weight `2234.2527`, mainstem status `mainstem`,
+distance `652.6736170606541 m`, and candidate count `5`. The declaration was
+named `reach-stems`, used `aux/snap_reaches.parquet`, referenced level `[1]`,
+and declared weight semantics `drainage_area_km2_partitioned`.
+
+The declared `hfx.aux.snap.v2` branch replaced the supplied coordinate with
+`winner.nearest_coord`, and terminal refinement consumed
+`resolved.resolved().resolved_coord` (`engine.rs:764-768`). WeightFirst,
+distance within 1,000 m, and a positive candidate count record the successful
+resolution path; they are not independent falsifiers because they follow from
+`ResolverConfig::new()` and successful Snap resolution. The snap-declaration
+fields are an independent recomputation over
+`session.auxiliary_declarations().snaps`, equivalent by construction to the
+engine's selection over `self.snap_stores`, not a readback of the engine's
+selected store.
+
+The areas are descriptive only:
+
+- `1.5045751705518662 km²` unrefined terminal geodesic;
+- `0.013500000000685453 km²` refined terminal geodesic; and
+- `1.504575 km²` resolved-terminal HFX local area.
+
+`PreMergeDrainageUnit::area()` returns `hfx::AreaKm2`, read with `.get()`;
+`geodesic_area_multi` returns `pourpoint_core::algo::AreaKm2`, read with
+`.as_f64()`. Both geometries are already longitude/latitude because refinement
+inverse-projects before wrapping (`refinement.rs:172-176`), so the comparison
+used no reprojection. There is no declared-area band, ratio, containment
+assertion, Disabled control, or shrinkage requirement. The difference has no
+required sign: roughly 30 m cells and the documented fraction-cell
+polygonization overshoot (`refinement.rs:321-323`) make strict shrinkage unsafe.
+
+### Second session and ObjectStore observations
+
+The decorator was created once as `Arc<dyn ObjectStore>`; `Arc::clone` opened a
+second `DatasetSession::open_remote_with_store(store, root, url)`
+(`session.rs:591-599`). This was necessary because `Engine::builder` consumes
+the first session by value (`engine.rs:522-530`), `DatasetSession` is not
+`Clone` (`session.rs:89-117`), and `Engine` exposes no session accessor.
+
+The initial-carve snapshot is frozen separately from the retained-session
+delta. Preparation happens before the filesystem cache lookup
+(`raster_cache.rs:52-68`), so manifest, snap-store, raster-metadata, header,
+and tile-index ObjectStore reads recur. The cached localized windows prevent
+repeated tile-payload ranges beyond the `24,507,158`-byte index region; this
+does not mean the raster objects were never fetched again.
+
+| Field | flow_dir | flow_acc |
+|---|---:|---:|
+| key | `aux/d8/flow_dir.tif` | `aux/d8/flow_acc.tif` |
+| `get_opts_calls` | 8 | 8 |
+| `head_calls` | 2 | 2 |
+| `full_get_calls` | 0 | 0 |
+| `ranged_get_calls` | 6 | 6 |
+| `get_opts_range_bytes` | 808 | 808 |
+| `get_ranges_calls` | 4 | 4 |
+| `get_ranges_range_count` | 7 | 7 |
+| `get_ranges_range_bytes` | 75,905 | 267,131 |
+| largest planned compressed tile range | 75,749 | 266,975 |
+| payload ranges beyond byte 24,507,158 | 1 | 1 |
+
+The largest compressed quantity is the maximum length in the exact planned
+tile-range slice passed to the decorator's `get_ranges`, the same per-tile
+quantity checked at `cog.rs:1300-1315`, not a coalesced HTTP range.
+
+For each raster, the retained-session delta was `get_opts_calls=8`,
+`head_calls=2`, `full_get_calls=0`, `ranged_get_calls=6`,
+`get_opts_range_bytes=808`, `get_ranges_calls=3`,
+`get_ranges_range_count=6`, `get_ranges_range_bytes=156`,
+`max_get_ranges_range_bytes=48`, with zero payload ranges beyond the index.
+
+### Telemetry and runtime ceilings
+
+The telemetry seam at `refinement.rs:128-138` emitted exactly one event and
+carried per-raster header bytes, tile bytes, tile count, and window pixels. The
+fresh isolated cache made these initial values strictly positive before any
+ceiling comparison. This is failure-capable cache-hit discrimination because
+`LocalizedRasterWindow::cached` zeroes all four fields (`cog.rs:70-79`).
+For both rasters, header bytes were `488`, tile count was `1`, and window pixels
+were `4,108`; tile bytes were `75,749` for flow_dir and `266,975` for flow_acc.
+The direct second-session paths exactly matched the paths captured from the
+internal refinement spans. Their equality is the relevant observation; the
+ephemeral absolute filesystem paths are not durable environmental
+requirements.
+
+The five runtime ceilings and their declaration and check locations are:
+
+- `MAX_PLANNED_TILE_COUNT=65,536` (`cog.rs:32`, checked at `:245`);
+- `MAX_COMPRESSED_CHUNK_BYTES=16,777,216` (`cog.rs:33`, checked at `:1307`);
+- `MAX_COVERED_CHUNK_BYTES=1,073,741,824` (`cog.rs:34`, checked at `:1319`);
+- `MAX_DECODED_CHUNK_BYTES=1,048,576` (`cog.rs:35`, checked at `:1456`);
+- `MAX_WINDOW_ALLOCATION_BYTES=1,073,741,824` (`cog.rs:36`, checked at
+  `:1424`).
+
+| Ceiling | flow_dir observed | flow_dir margin | flow_acc observed | flow_acc margin |
+|---|---:|---:|---:|---:|
+| `MAX_PLANNED_TILE_COUNT` | 1 | 65,535 | 1 | 65,535 |
+| `MAX_COMPRESSED_CHUNK_BYTES` | 75,749 | 16,701,467 | 266,975 | 16,510,241 |
+| `MAX_COVERED_CHUNK_BYTES` | 75,749 | 1,073,666,075 | 266,975 | 1,073,474,849 |
+| `MAX_DECODED_CHUNK_BYTES` | 262,144 | 786,432 | 1,048,576 | **0** |
+| `MAX_WINDOW_ALLOCATION_BYTES` | 4,108 | 1,073,737,716 | 16,432 | 1,073,725,392 |
+
+The `MAX_WINDOW_ALLOCATION_BYTES` values are derived allocation products, not
+direct measurements: measured `window_pixels` multiplied by the sample width,
+one byte for flow_dir and four bytes for flow_acc.
+
+These are recorded compatibility measurements, not independent proofs:
+exceeding a ceiling would have stopped localization before `Applied`. The
+decoded-chunk observations `262,144` and `1,048,576` are derived constants,
+hard-coded from the staged 512×512 tile geometry, not runtime remeasurements.
+For F32, `512 × 512 × 4 = 1,048,576`, exactly
+`MAX_DECODED_CHUNK_BYTES`; the check at `cog.rs:1456` rejects only strict `>`,
+so the staged F32 tile passes with **ZERO MARGIN**. This is compatibility,
+never decoded-chunk headroom.
+
+### Staged sample-domain evidence
+
+The public `select_d8_raster_for_terminal` (`session.rs:701`) and
+`localize_d8_raster_window` (`session.rs:777`) path reopened through
+`LocalizedRasterWindow::path()` and `tiff::Decoder` the exact cached files used
+by refinement.
+
+The U8 flow_dir decoded as width `79`, height `52`, with sorted distinct values
+exactly `[1,2,3,4,5,6,7,8]`; 255-nodata count and fraction were `0` and `0.0`;
+legal non-nodata GRASS count and fraction were `4,108` and `1.0`. The enforced
+bounds were width at least `19`, no more than `18` distinct byte values, and at
+least `1.0%` of samples in `0..=8` or `248..=254`. Width 19 is the
+combinatorial minimum at which one row can contain the 19 distinct values
+needed to breach the cap; below 19, the per-row cumulative-sum discriminator
+does not apply. The earlier staged probe measured `GDAL_NODATA=255`, but did
+not measure direction values or encoding; the client-side declaration supplied
+GRASS. The legal GRASS domain plus nodata has 17 values, so cap 18 has exactly
+one value of correct-decode headroom. It rejects 19 or more values, while the
+occupancy floor rejects all-nodata. A small structured cap breach would be an
+encoding-convention finding requiring escalation, not automatically a
+decode-failure diagnosis.
+
+The F32 flow_acc decoded as width `79`, height `52`; NaN count and fraction
+were `0` and `0.0`; non-NaN count and fraction were `4,108` and `1.0`;
+non-NaN minimum was `0.0009` and maximum `2175.6726 km²`. Every sample had to
+be NaN or finite with magnitude below `1,000,000,000.0`, with at least `1.0%`
+non-NaN occupancy. The earlier probe measured `GDAL_NODATA=NaN` but no
+accumulation samples; the declaration names km². One billion km² is a
+deliberately generous backstop above Earth's roughly 510 million km² surface
+area. These checks reject infinities, approximately 1e38-scale byte-plane or
+differenced misassembly, and an all-NaN result.
+
+These value-domain bounds falsify broad differenced or grossly misassembled
+decoding, but no public staged-object oracle supplies bit-exact expected
+samples. As a derivation rather than a measurement, a predictor-2 decode of the
+witnessed 79-wide row of values from `{1..8}` would cumulative-sum modulo 256
+into roughly 70 or more distinct bytes, far beyond cap 18. M3 did not prove
+correct decoding of these staged objects. M3's known-value tests
+(`cog.rs:3283`, `cog.rs:3313`) run against synthetic predictor-1 fixtures
+(`cog.rs:2273`, `cog.rs:2419`); they prove the shipped decoder against fixture
+oracles, not staged-byte assembly or decode.
+
+### Residual limitations and deferred risks
+
+1. **Single tile only.** Both rasters reported `tile_count: 1`, so cross-tile
+   grid assembly was not exercised. Within one tile, a wrong sub-window offset
+   can still yield legal GRASS bytes and pass every U8 bound.
+2. **U8 zero-fill is not discriminated.** `decode_window` initializes U8
+   output with `vec![0_u8; length]` at `cog.rs:1621`, whereas F32 initializes
+   with nodata/NaN at `cog.rs:1638`. Byte 0 is a legal flow-direction value, so
+   unwritten U8 regions cannot be distinguished from real data by these checks.
+3. **Decoded-chunk observations are derived.** The
+   `MAX_DECODED_CHUNK_BYTES` observed values are hard-coded from 512×512 tile
+   geometry, not measured at runtime.
+4. **Two route fields are unobserved.** `route.skip_signature` and
+   `route.ambient_aws_credentials_consulted` are source-backed literals, not
+   runtime observations; `source.rs:212-240` supports them.
+5. **Snap declaration is recomputed.** The declaration evidence is an
+   independent recomputation over `session.auxiliary_declarations().snaps`,
+   equivalent by construction but not a readback of engine selection.
+6. **No bit-exact ground truth exists.** No public oracle provides it. The
+   value-domain checks catch broad differencing or gross misassembly, but a
+   plausible wrong single-tile sub-window can pass them.
+
+- Restoration of TIFF-spec defaults for absent optional `Compression`,
+  `Predictor`, `PlanarConfiguration`, and `SampleFormat` tags is deferred
+  because this step cannot edit `cog.rs` and both staged rasters explicitly
+  carry those tags.
+- The 4,096-byte and eight-call numeric backstops are gross-regression nets and
+  cannot replace the preceding store-observed byte assertions.
+- The converted witnesses
+  `planetary_window_locks_truncated_tile_byte_counts_failure` and
+  `planetary_cache_window_locks_truncated_tile_byte_counts_failure` retain
+  failure-shaped names temporarily to preserve the auditable conversion chain.
+  Renaming is deferred outside M4 because `cog.rs` is outside this step's
+  scope.
