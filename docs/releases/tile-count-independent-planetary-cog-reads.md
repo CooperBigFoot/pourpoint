@@ -1,8 +1,9 @@
 # Tile-count-independent planetary COG reads: evidence register
 
 This document records evidence for the tile-count-independent planetary
-COG-read vision through M4. It remains an evidence register rather than a
-release packet; M5 still owns release preparation.
+COG-read vision through its 0.2.1 release-preparation commit. It remains an
+evidence register rather than a release packet; tag creation, tag pushing, and
+GitHub Release publication remain human-only actions.
 
 ## Measured staged-object evidence
 
@@ -198,6 +199,10 @@ over-60-seconds notice and the per-test success line. Merge verification
 therefore keys on the serialized evidence line plus the substring
 `test result: ok. 1 passed; 0 failed`, never on a per-test-name needle.
 
+M4 has no M1-style silent skip. Running its ignored test without
+`POURPOINT_STAGED_R2_CARVE` panics at `staged_r2_carve.rs:791` and reports
+`1 failed`.
+
 The following line is the immutable stdout evidence transported from that run:
 
 STAGED_R2_CARVE_EVIDENCE:{"input_coord":[8.5417,47.3769],"resolved_coord":[8.538953815312432,47.38249957156025],"resolved_terminal_id":13882943,"snap":{"method":"Snap","strategy":"WeightFirst","snap_id":12115939,"weight":2234.2527,"mainstem_status":"mainstem","distance_m":652.6736170606541,"candidates_considered":5,"declaration_name":"reach-stems","declaration_artifact":"aux/snap_reaches.parquet","references_levels":[1],"weight_semantics":"drainage_area_km2_partitioned","declaration_status":"RECORDED_MEASUREMENT","bounds_status":"RECORDED_MEASUREMENTS_NOT_INDEPENDENT_PROOFS"},"upstream_count":275,"refinement":"Applied","route":{"public_custom_domain":"basin-delineations-public.upstream.tech","object_store_builder":"AmazonS3Builder::new","skip_signature":true,"bogus_aws_credentials_installed":true,"ambient_aws_credentials_consulted":false},"areas_km2":{"unrefined_terminal_geodesic":1.5045751705518662,"refined_terminal_geodesic":0.013500000000685453,"resolved_terminal_hfx_local":1.504575,"status":"DESCRIPTIVE_ONLY"},"store":{"initial_carve":{"flow_dir":{"key":"aux/d8/flow_dir.tif","get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":4,"get_ranges_range_count":7,"get_ranges_range_bytes":75905,"max_get_ranges_range_bytes":75749,"payload_ranges_beyond_24507158":1},"flow_acc":{"key":"aux/d8/flow_acc.tif","get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":4,"get_ranges_range_count":7,"get_ranges_range_bytes":267131,"max_get_ranges_range_bytes":266975,"payload_ranges_beyond_24507158":1}},"retained_session_delta":{"flow_dir":{"get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":3,"get_ranges_range_count":6,"get_ranges_range_bytes":156,"max_get_ranges_range_bytes":48,"payload_ranges_beyond_24507158":0},"flow_acc":{"get_opts_calls":8,"head_calls":2,"full_get_calls":0,"ranged_get_calls":6,"get_opts_range_bytes":808,"get_ranges_calls":3,"get_ranges_range_count":6,"get_ranges_range_bytes":156,"max_get_ranges_range_bytes":48,"payload_ranges_beyond_24507158":0}},"observation_unit":"ObjectStore_API_calls_not_HTTP_requests"},"telemetry":{"event_count":1,"flow_dir":{"header_bytes":488,"tile_bytes":75749,"tile_count":1,"window_pixels":4108,"internal_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-dir.2252917690144854538.x522953-y89360-w79-h52.tif","direct_cached_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-dir.2252917690144854538.x522953-y89360-w79-h52.tif"},"flow_acc":{"header_bytes":488,"tile_bytes":266975,"tile_count":1,"window_pixels":4108,"internal_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-acc.17537180551063497292.x522953-y89360-w79-h52.tif","direct_cached_path":"/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/.tmpr9zjEL/grit/grit-global-2.0.0/raster-windows/flow-acc.17537180551063497292.x522953-y89360-w79-h52.tif"}},"ceilings":{"status":"RECORDED_MEASUREMENTS_NOT_INDEPENDENT_PROOFS","flow_dir":{"MAX_PLANNED_TILE_COUNT":{"observed":1,"ceiling":65536,"margin":65535},"MAX_COMPRESSED_CHUNK_BYTES":{"observed":75749,"ceiling":16777216,"margin":16701467},"MAX_COVERED_CHUNK_BYTES":{"observed":75749,"ceiling":1073741824,"margin":1073666075},"MAX_DECODED_CHUNK_BYTES":{"observed":262144,"ceiling":1048576,"margin":786432},"MAX_WINDOW_ALLOCATION_BYTES":{"observed":4108,"ceiling":1073741824,"margin":1073737716}},"flow_acc":{"MAX_PLANNED_TILE_COUNT":{"observed":1,"ceiling":65536,"margin":65535},"MAX_COMPRESSED_CHUNK_BYTES":{"observed":266975,"ceiling":16777216,"margin":16510241},"MAX_COVERED_CHUNK_BYTES":{"observed":266975,"ceiling":1073741824,"margin":1073474849},"MAX_DECODED_CHUNK_BYTES":{"observed":1048576,"ceiling":1048576,"margin":0},"MAX_WINDOW_ALLOCATION_BYTES":{"observed":16432,"ceiling":1073741824,"margin":1073725392}},"f32_decoded_chunk_statement":"512x512x4=1048576 equals MAX_DECODED_CHUNK_BYTES; ZERO MARGIN"},"decoded":{"flow_dir":{"sample_type":"U8","width":79,"height":52,"distinct_values":[1,2,3,4,5,6,7,8],"nodata_255_count":0,"nodata_255_fraction":0.0,"legal_grass_non_nodata_count":4108,"legal_grass_non_nodata_fraction":1.0,"distinct_cap":18,"distinct_cap_headroom_over_legal_plus_nodata":1,"minimum_legal_fraction":0.01},"flow_acc":{"sample_type":"F32","width":79,"height":52,"nan_count":0,"nan_fraction":0.0,"non_nan_count":4108,"non_nan_fraction":1.0,"non_nan_min":0.0009,"non_nan_max":2175.6726,"magnitude_ceiling_km2":1000000000.0,"minimum_non_nan_fraction":0.01},"claim":"value-domain bounds falsify broad differenced or grossly mis-assembled decoding but do not provide bit-exact staged-object ground truth; U8 zero-filled unwritten regions are not discriminated"},"live_manifest":{"byte_equal":true,"d8_declaration_present":false},"mutation_attempt_count":0}
@@ -211,6 +216,13 @@ Both initial-carve observations contain one real tile-payload range beyond byte
 localized-window cache path. The carve resolved terminal `13,882,943`,
 traversed `275` upstream units, and completed required-D8 refinement as
 `Applied`.
+
+The witnessed test builds its engine at `staged_r2_carve.rs:928-930` with the
+TEST-ONLY
+`LocalTiffRasterSource::with_encoding(hfx::FlowDirEncoding::Grass)`. The
+shipped Python engine injects the GDAL-backed `GdalRasterSource` at
+`crates/python/src/engine.rs:214`. The witness exercises the owned COG read
+path but does not exercise production raster-source wiring.
 
 The live manifest remained byte-equal, still had no D8 declaration, and the
 decorator observed zero mutation attempts. The D8 declaration was injected
@@ -289,12 +301,12 @@ does not mean the raster objects were never fetched again.
 | `get_ranges_calls` | 4 | 4 |
 | `get_ranges_range_count` | 7 | 7 |
 | `get_ranges_range_bytes` | 75,905 | 267,131 |
-| largest planned compressed tile range | 75,749 | 266,975 |
+| maximum member range across all `get_ranges` calls | 75,749 | 266,975 |
 | payload ranges beyond byte 24,507,158 | 1 | 1 |
 
-The largest compressed quantity is the maximum length in the exact planned
-tile-range slice passed to the decorator's `get_ranges`, the same per-tile
-quantity checked at `cog.rs:1300-1315`, not a coalesced HTTP range.
+`max_get_ranges_range_bytes` at `staged_r2_carve.rs:132-137` computes the
+maximum over all `get_ranges` calls, not only the planned-tile slice and not a
+coalesced HTTP range.
 
 For each raster, the retained-session delta was `get_opts_calls=8`,
 `head_calls=2`, `full_get_calls=0`, `ranged_get_calls=6`,
@@ -400,9 +412,10 @@ oracles, not staged-byte assembly or decode.
 3. **Decoded-chunk observations are derived.** The
    `MAX_DECODED_CHUNK_BYTES` observed values are hard-coded from 512×512 tile
    geometry, not measured at runtime.
-4. **Two route fields are unobserved.** `route.skip_signature` and
-   `route.ambient_aws_credentials_consulted` are source-backed literals, not
-   runtime observations; `source.rs:212-240` supports them.
+4. **Three route fields are unobserved.** `route.object_store_builder`,
+   `route.skip_signature`, and `route.ambient_aws_credentials_consulted` are
+   source-backed literals, not runtime observations;
+   `staged_r2_carve.rs:1408` and `source.rs:212-240` support them.
 5. **Snap declaration is recomputed.** The declaration evidence is an
    independent recomputation over `session.auxiliary_declarations().snaps`,
    equivalent by construction but not a readback of engine selection.
@@ -411,14 +424,13 @@ oracles, not staged-byte assembly or decode.
    plausible wrong single-tile sub-window can pass them.
 
 - Restoration of TIFF-spec defaults for absent optional `Compression`,
-  `Predictor`, `PlanarConfiguration`, and `SampleFormat` tags is deferred
-  because this step cannot edit `cog.rs` and both staged rasters explicitly
-  carry those tags.
+  `Predictor`, `PlanarConfiguration`, and `SampleFormat` tags was deferred in
+  M4 because M4 did not edit `cog.rs` and both staged rasters explicitly carry
+  those tags.
 - The 4,096-byte and eight-call numeric backstops are gross-regression nets and
   cannot replace the preceding store-observed byte assertions.
 - The converted witnesses
   `planetary_window_locks_truncated_tile_byte_counts_failure` and
   `planetary_cache_window_locks_truncated_tile_byte_counts_failure` retain
   failure-shaped names temporarily to preserve the auditable conversion chain.
-  Renaming is deferred outside M4 because `cog.rs` is outside this step's
-  scope.
+  Renaming was deferred outside M4 because `cog.rs` was outside M4's scope.
