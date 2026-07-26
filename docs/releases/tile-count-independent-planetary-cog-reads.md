@@ -107,7 +107,7 @@ to vectors. It would therefore materialize at least 24,503,160 planetary index
 bytes before returning the IFD.
 
 The owned walker began in M1 as a test-only prototype in
-[`crates/core/src/cog.rs`](../../crates/core/src/cog.rs) reached dimensions and
+`crates/core/src/cog.rs` reached dimensions and
 GeoTIFF scale/tiepoint with four requests and 274 bytes for classic TIFF, and
 four requests and 476 bytes for BigTIFF. Both tile indexes remained typed
 descriptors. The BigTIFF total of 476 bytes is below the first index offset of
@@ -142,7 +142,7 @@ when owned decode shipped.
 ## Network-gated layout guard and its limitation
 
 The
-[`staged_cog_layout_probe.rs`](../../crates/core/tests/staged_cog_layout_probe.rs)
+`crates/core/tests/staged_cog_layout_probe.rs`
 layout guard is `#[ignore]`d and additionally requires
 `POURPOINT_STAGED_R2_COG_PROBE=1`. Libtest captures stderr, so this command is
 not evidence:
