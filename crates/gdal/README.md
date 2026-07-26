@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`pourpoint-gdal` is the GDAL/GEOS bridge for `pourpoint-core`: it provides windowed raster reads and geometry repair through implementations of the `RasterSource` and `GeometryRepair` traits, while keeping native GDAL and GEOS dependencies out of the core engine crate.
+`pourpoint-gdal` is the GDAL/GEOS bridge for `pourpoint-core`: it provides windowed raster reads and geometry repair through implementations of the `RasterSource` and `GeometryRepair` traits, while keeping native GDAL and GEOS dependencies out of the core engine crate. `GdalRasterSource` receives the HFX-declared flow-direction encoding on each `load_flow_direction` call and retains only GDAL configuration, with no reader encoding default.
 
 ## Architecture
 
@@ -48,7 +48,7 @@ flowchart LR
 
 | Type / Function | Module | Role |
 |---|---|---|
-| `GdalRasterSource` | `raster_reader.rs` | Implements `pourpoint_core::algo::traits::RasterSource` with GDAL-backed windowed raster reads |
+| `GdalRasterSource` | `raster_reader.rs` | Reads windowed raster bytes and decodes flow directions using the per-call HFX `FlowDirEncoding`; retains GDAL configuration but no encoding state |
 | `GdalGeometryRepair` | `geometry_repair.rs` | Implements `pourpoint_core::algo::traits::GeometryRepair` with GDAL/GEOS geometry repair |
 | `GdalConfig` | `config.rs` | Carries source-specific GDAL runtime configuration, including S3-compatible endpoint settings |
 | `ensure_gdal_configured` | `config.rs` | Applies process-wide GDAL/CPL options needed for remote raster reads |

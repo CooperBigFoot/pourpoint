@@ -126,9 +126,7 @@ fn projected_grass_offline_golden_is_applied_and_stable() {
     let session = DatasetSession::open_path(&parity_fixture_path(PROJECTED_GRASS_DIR))
         .expect("projected GRASS parity fixture should open");
     let engine = Engine::builder(session)
-        .with_raster_source(LocalTiffRasterSource::with_encoding(
-            hfx::FlowDirEncoding::Grass,
-        ))
+        .with_raster_source(LocalTiffRasterSource)
         .build();
     let options = projected_grass_options();
     let result = engine
@@ -369,9 +367,7 @@ fn capture_projected_grass(outlet: GeoCoord) -> ProjectedGrassCapture {
     let session = DatasetSession::open_path(&parity_fixture_path(PROJECTED_GRASS_DIR))
         .expect("projected GRASS parity fixture should open");
     let engine = Engine::builder(session)
-        .with_raster_source(LocalTiffRasterSource::with_encoding(
-            hfx::FlowDirEncoding::Grass,
-        ))
+        .with_raster_source(LocalTiffRasterSource)
         .build();
     let options = projected_grass_options();
     let result = engine

@@ -128,7 +128,7 @@ sequenceDiagram
     S->>R: terminal refinement strategy seam
     R->>S: select inclusive covering D8 declaration
     R->>S: localize declared D8 raster windows
-    S->>T: load_flow_direction(bbox)
+    S->>T: load_flow_direction(uri, bbox, declared_encoding)
     S->>T: load_accumulation(bbox)
     T-->>R: FlowDirectionTile<Raw>
     T-->>R: AccumulationTile<Raw>
@@ -140,6 +140,9 @@ sequenceDiagram
     A->>A: dissolve → MultiPolygon
     A->>A: WatershedGeometry pipeline → Polygon
 ```
+
+The selected HFX declaration is the sole authority for CRS, flow-direction
+encoding, and accumulation units; a `RasterSource` has no encoding default.
 
 ## Terminal Refinement Scope
 

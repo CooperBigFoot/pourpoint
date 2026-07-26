@@ -2,16 +2,17 @@
 
 use gdal::DriverManager;
 use gdal::raster::Buffer;
-use geo::Rect;
+use geo::{Area, BoundingRect, Rect};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use hfx::{FlowAccumulationUnits, FlowDirEncoding, UnitId};
 use pourpoint_core::algo::{
-    GridCoord, GridDims, NativeCoord, RasterSource, SnapThreshold, canonical_wkb_multi_polygon,
-    refine_terminal_from_source,
+    Crs, GeoCoord, GridCoord, GridDims, NativeCoord, RasterSource, SnapThreshold,
+    canonical_wkb_multi_polygon, forward, refine_terminal_from_source,
 };
-use pourpoint_core::session::DatasetSession;
+use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
+use pourpoint_core::{DelineationOptions, Engine, ResolverConfig, SearchRadiusMetres};
 use pourpoint_gdal::GdalRasterSource;
 use serde::Deserialize;
 
@@ -20,6 +21,33 @@ const MERIT_URL: &str = "https://basin-delineations-public.upstream.tech/merit-b
 const MERIT_GOLDEN: &str =
     "../core/tests/fixtures/parity/goldens/v01_merit_refined/oracle_c_merit_refined.json";
 const MERIT_WINDOW_ROOT: &str = "merit_basins/0.1.0/raster-windows";
+const PROJECTED_GRASS_ROOT: &str = "../core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass";
+const PROJECTED_GRASS_GOLDEN: &str = "../core/tests/fixtures/parity/goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined.json";
+
+#[derive(Debug, Deserialize)]
+struct ProjectedGrassGolden {
+    canonical_wkb_hex: String,
+    input_outlet: Outlet,
+    resolved_outlet: Outlet,
+    terminal_id: i64,
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert_eq!(
+        value.len() % 2,
+        0,
+        "projected GRASS golden hex must have an even length"
+    );
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).expect("projected GRASS golden hex must be ASCII");
+            u8::from_str_radix(pair, 16)
+                .expect("projected GRASS golden must contain hexadecimal bytes")
+        })
+        .collect()
+}
 
 #[test]
 fn signed_tiff_samples_match_local_and_gdal_normalization() {
@@ -33,14 +61,22 @@ fn signed_tiff_samples_match_local_and_gdal_normalization() {
         geo::coord! { x: 0.0, y: 0.0 },
         geo::coord! { x: 2.0, y: 2.0 },
     );
-    let local = LocalTiffRasterSource::with_encoding(FlowDirEncoding::Grass);
-    let gdal = GdalRasterSource::with_encoding(FlowDirEncoding::Grass);
+    let local = LocalTiffRasterSource;
+    let gdal = GdalRasterSource::new();
 
     let local_fd = local
-        .load_flow_direction(&flow_dir_path.to_string_lossy(), &bbox)
+        .load_flow_direction(
+            &flow_dir_path.to_string_lossy(),
+            &bbox,
+            FlowDirEncoding::Grass,
+        )
         .expect("local TIFF source should decode int8 flow direction");
     let gdal_fd = gdal
-        .load_flow_direction(&flow_dir_path.to_string_lossy(), &bbox)
+        .load_flow_direction(
+            &flow_dir_path.to_string_lossy(),
+            &bbox,
+            FlowDirEncoding::Grass,
+        )
         .expect("GDAL source should decode int8 flow direction");
     assert_eq!(local_fd.dims(), GridDims::new(2, 2));
     assert_eq!(gdal_fd.dims(), GridDims::new(2, 2));
@@ -75,6 +111,108 @@ fn signed_tiff_samples_match_local_and_gdal_normalization() {
     assert!(local_acc.inner().nodata().is_nan());
     assert!(gdal_acc.inner().nodata().is_nan());
     assert_eq!(local_acc.geo(), gdal_acc.geo());
+}
+
+#[test]
+fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
+    let fixture_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(PROJECTED_GRASS_ROOT);
+    let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(PROJECTED_GRASS_GOLDEN);
+    let golden: ProjectedGrassGolden = serde_json::from_str(
+        &std::fs::read_to_string(golden_path).expect("projected GRASS golden should be readable"),
+    )
+    .expect("projected GRASS golden should match the proof schema");
+    let input_outlet = GeoCoord::new(golden.input_outlet.lon, golden.input_outlet.lat);
+    let options = DelineationOptions::default()
+        .with_resolver_config(
+            ResolverConfig::new().with_search_radius(
+                SearchRadiusMetres::new(1_000.0)
+                    .expect("projected fixture search radius should be valid"),
+            ),
+        )
+        .with_snap_threshold(SnapThreshold::new(500));
+
+    let engine_session =
+        DatasetSession::open_path(&fixture_root).expect("projected GRASS fixture should open");
+    let engine = Engine::builder(engine_session)
+        .with_raster_source(GdalRasterSource::new())
+        .build();
+    let engine_result = engine
+        .delineate(input_outlet, &options)
+        .expect("declared-GRASS GDAL delineation should succeed");
+    let engine_wkb = canonical_wkb_multi_polygon(engine_result.geometry())
+        .expect("declared-GRASS engine geometry should canonicalize");
+
+    assert_eq!(
+        engine_wkb,
+        decode_hex(&golden.canonical_wkb_hex),
+        "Engine with a zero-argument GDAL source must reproduce the immutable declared-GRASS golden bytes"
+    );
+
+    let direct_session =
+        DatasetSession::open_path(&fixture_root).expect("projected GRASS fixture should reopen");
+    let geographic_terminal = terminal_polygon(&direct_session, golden.terminal_id);
+    let (handle, native_terminal) = direct_session
+        .select_d8_raster_for_terminal(&geographic_terminal)
+        .expect("projected GRASS declaration should cover the terminal");
+    let native_bbox = native_terminal
+        .bounding_rect()
+        .expect("projected terminal should have native bounds");
+    let flow_dir = direct_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowDir, native_bbox)
+        .expect("projected flow direction should localize");
+    let flow_acc = direct_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowAcc, native_bbox)
+        .expect("projected flow accumulation should localize");
+    let native_outlet = forward(
+        Crs::Epsg8857,
+        GeoCoord::new(golden.resolved_outlet.lon, golden.resolved_outlet.lat),
+    );
+    let source = GdalRasterSource::new();
+    let grass = refine_terminal_from_source(
+        &source,
+        &flow_dir.path().to_string_lossy(),
+        &flow_acc.path().to_string_lossy(),
+        &native_terminal,
+        native_outlet,
+        SnapThreshold::new(500),
+        FlowAccumulationUnits::Km2,
+        8857_u32,
+        FlowDirEncoding::Grass,
+    )
+    .expect("GRASS counterfactual carve should succeed");
+    let esri = refine_terminal_from_source(
+        &source,
+        &flow_dir.path().to_string_lossy(),
+        &flow_acc.path().to_string_lossy(),
+        &native_terminal,
+        native_outlet,
+        SnapThreshold::new(500),
+        FlowAccumulationUnits::Km2,
+        8857_u32,
+        FlowDirEncoding::Esri,
+    )
+    .expect("ESRI counterfactual carve should succeed");
+    let grass_wkb = canonical_wkb_multi_polygon(grass.polygon())
+        .expect("native GRASS carve should canonicalize");
+    let esri_wkb =
+        canonical_wkb_multi_polygon(esri.polygon()).expect("native ESRI carve should canonicalize");
+    let grass_cells = (grass.polygon().unsigned_area() / 1_000_000.0).round();
+    let esri_cells = (esri.polygon().unsigned_area() / 1_000_000.0).round();
+
+    // Observed on the committed masked fixture: GRASS = 374 cells, ESRI = 1 cell.
+    // Keep behavioral margins rather than pinning either observation as equality.
+    assert_ne!(
+        grass_wkb, esri_wkb,
+        "identical native inputs decoded under GRASS and ESRI must produce different canonical geometry"
+    );
+    assert!(
+        esri_cells >= 1.0,
+        "the ESRI counterfactual must polygonize at least its snapped seed cell; got {esri_cells}"
+    );
+    assert!(
+        grass_cells >= esri_cells * 100.0,
+        "the declared GRASS carve must be at least two orders of magnitude larger: grass={grass_cells}, esri={esri_cells}"
+    );
 }
 
 fn write_signed_flow_direction(path: &std::path::Path) {
@@ -128,10 +266,18 @@ fn synthetic_b_tiff_matches_gdal() {
     let gdal = GdalRasterSource::new();
 
     let local_fd = local
-        .load_flow_direction(&flow_dir_path.to_string_lossy(), &bbox)
+        .load_flow_direction(
+            &flow_dir_path.to_string_lossy(),
+            &bbox,
+            FlowDirEncoding::Esri,
+        )
         .expect("local TIFF source should decode flow_dir");
     let gdal_fd = gdal
-        .load_flow_direction(&flow_dir_path.to_string_lossy(), &bbox)
+        .load_flow_direction(
+            &flow_dir_path.to_string_lossy(),
+            &bbox,
+            FlowDirEncoding::Esri,
+        )
         .expect("GDAL source should decode flow_dir");
     assert_eq!(local_fd.inner().data(), gdal_fd.inner().data());
     assert_eq!(local_fd.inner().nodata(), gdal_fd.inner().nodata());
@@ -197,10 +343,18 @@ fn assert_raster_pair_matches(
         geo::coord! { x: 180.0, y: 60.0 },
     );
     let local_fd = local
-        .load_flow_direction(&pair.flow_dir.to_string_lossy(), &bbox)
+        .load_flow_direction(
+            &pair.flow_dir.to_string_lossy(),
+            &bbox,
+            FlowDirEncoding::Esri,
+        )
         .expect("local TIFF source should decode MERIT flow_dir window");
     let gdal_fd = gdal
-        .load_flow_direction(&pair.flow_dir.to_string_lossy(), &bbox)
+        .load_flow_direction(
+            &pair.flow_dir.to_string_lossy(),
+            &bbox,
+            FlowDirEncoding::Esri,
+        )
         .expect("GDAL source should decode MERIT flow_dir window");
     assert_eq!(local_fd.inner().data(), gdal_fd.inner().data());
     assert_eq!(local_fd.inner().nodata(), gdal_fd.inner().nodata());
@@ -236,6 +390,7 @@ fn assert_direct_terminal_carve_matches_gdal(
             SnapThreshold::DEFAULT,
             FlowAccumulationUnits::Cells,
             4326_u32,
+            FlowDirEncoding::Esri,
         );
         let gdal_result = refine_terminal_from_source(
             gdal,
@@ -246,6 +401,7 @@ fn assert_direct_terminal_carve_matches_gdal(
             SnapThreshold::DEFAULT,
             FlowAccumulationUnits::Cells,
             4326_u32,
+            FlowDirEncoding::Esri,
         );
         match (local_result, gdal_result) {
             (Ok(local_result), Ok(gdal_result)) => {

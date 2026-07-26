@@ -139,6 +139,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         );
         let flow_dir_uri = flow_dir.path().to_string_lossy();
         let flow_acc_uri = flow_acc.path().to_string_lossy();
+        let flow_dir_encoding = handle.flow_dir_encoding();
         let selected_crs = handle.projection_crs();
         let epsg = handle.epsg();
         let flow_accumulation_units = handle.flow_accumulation_units();
@@ -155,6 +156,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
                 input.snap_threshold,
                 flow_accumulation_units,
                 epsg,
+                flow_dir_encoding,
             )
             .map_err(|source| TerminalRefinementError::Algorithm {
                 unit_id: input.terminal_unit.get(),

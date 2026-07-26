@@ -179,11 +179,12 @@ bytes, or re-run the proof if the reader implementation changes.
 | `aux/d8/projected/flow_acc.tif` | 1895 | `1d3334214e9ae575fe4e56e468302fa59d515d183dfa3c1568979210a2d6a917` |
 
 The runtime test opens that literal fixture path and constructs every engine
-with
-`LocalTiffRasterSource::with_encoding(hfx::FlowDirEncoding::Grass) ->
-EncodedLocalTiffRasterSource`. Bare `LocalTiffRasterSource` is incorrect here:
-its flow-direction loader hard-codes ESRI decoding, while `RasterSource` does
-not carry or select the manifest's `flow_dir_encoding: "grass"` declaration.
+with bare `LocalTiffRasterSource`. This is correct because
+`D8RasterHandle::flow_dir_encoding()` is threaded through
+`RasterSource::load_flow_direction`, making the selected HFX declaration the
+decoding authority.
+
+The immutable `projected_grass_refined.json` provenance text still names `LocalTiffRasterSource::with_encoding(hfx::FlowDirEncoding::Grass) -> EncodedLocalTiffRasterSource`, although that type and constructor were removed when declaration authority landed. The golden bytes are intentionally unchanged; this README records the provenance drift.
 
 The capture searched the committed literal EPSG:4326 candidate axes through the
 real engine with threshold `500` and resolver search radius `1000.0` metres.
