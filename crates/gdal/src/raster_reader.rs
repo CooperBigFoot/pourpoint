@@ -87,8 +87,10 @@ impl RasterSource for GdalRasterSource {
                 path: path_str.clone(),
                 reason: e.to_string(),
             })?;
+        let band_type = band.band_type();
+        let no_data_value = band.no_data_value();
 
-        let data = match band.band_type() {
+        let data = match band_type {
             GdalDataType::UInt8 => band
                 .read_as::<u8>((x_off, y_off), (x_size, y_size), (x_size, y_size), None)
                 .map(|buffer| buffer.data().to_vec()),
@@ -122,13 +124,14 @@ impl RasterSource for GdalRasterSource {
 
         debug!(x_off, y_off, x_size, y_size, "read windowed u8 band");
 
-        let tile = RasterTile::from_vec(data, dims, 255u8, window_gt).map_err(|e| {
+        let nodata = flow_direction_nodata(band_type, no_data_value);
+        let tile = RasterTile::from_vec(data, dims, nodata, window_gt).map_err(|e| {
             RasterSourceError::TileConstruction {
                 reason: e.to_string(),
             }
         })?;
 
-        Ok(FlowDirectionTile::from_raw(tile, encoding))
+        FlowDirectionTile::from_raw(tile, encoding).map_err(RasterSourceError::from)
     }
 
     #[instrument(skip(self, uri, bbox), fields(uri = %uri))]
@@ -309,6 +312,28 @@ fn replace_nodata_with_nan(mut data: Vec<f32>, gdal_nodata: Option<f64>) -> Vec<
         }
     }
     data
+}
+
+fn flow_direction_nodata(data_type: GdalDataType, no_data_value: Option<f64>) -> u8 {
+    match (data_type, no_data_value) {
+        (GdalDataType::Int8, Some(value))
+            if value.is_finite()
+                && value.fract() == 0.0
+                && value >= i8::MIN as f64
+                && value <= i8::MAX as f64 =>
+        {
+            value as i8 as u8
+        }
+        (GdalDataType::UInt8, Some(value))
+            if value.is_finite()
+                && value.fract() == 0.0
+                && value >= u8::MIN as f64
+                && value <= u8::MAX as f64 =>
+        {
+            value as u8
+        }
+        _ => 255,
+    }
 }
 
 fn normalize_i32_accumulation(data: &[i32], gdal_nodata: Option<f64>) -> Vec<f32> {
@@ -520,6 +545,24 @@ mod tests {
         let data = vec![1.0_f32, 2.0, 3.0];
         let result = replace_nodata_with_nan(data.clone(), Some(99.0));
         assert_eq!(result, data);
+    }
+
+    #[test]
+    fn flow_direction_nodata_normalizes_supported_byte_types() {
+        assert_eq!(flow_direction_nodata(GdalDataType::Int8, Some(-1.0)), 255);
+        assert_eq!(flow_direction_nodata(GdalDataType::Int8, Some(-128.0)), 128);
+        assert_eq!(flow_direction_nodata(GdalDataType::Int8, Some(-129.0)), 255);
+        assert_eq!(flow_direction_nodata(GdalDataType::Int8, Some(128.0)), 255);
+        assert_eq!(flow_direction_nodata(GdalDataType::UInt8, Some(0.0)), 0);
+        assert_eq!(flow_direction_nodata(GdalDataType::UInt8, Some(255.0)), 255);
+        assert_eq!(flow_direction_nodata(GdalDataType::UInt8, Some(-1.0)), 255);
+        assert_eq!(flow_direction_nodata(GdalDataType::UInt8, Some(256.0)), 255);
+        assert_eq!(flow_direction_nodata(GdalDataType::UInt8, Some(1.5)), 255);
+        assert_eq!(
+            flow_direction_nodata(GdalDataType::UInt8, Some(f64::NAN)),
+            255
+        );
+        assert_eq!(flow_direction_nodata(GdalDataType::UInt8, None), 255);
     }
 
     // ── GDAL open behavior ──────────────────────────────────────────────────

@@ -55,7 +55,7 @@ fn load_flow_direction(
             reason: source.to_string(),
         }
     })?;
-    Ok(FlowDirectionTile::from_raw(raw, encoding))
+    FlowDirectionTile::from_raw(raw, encoding).map_err(RasterSourceError::from)
 }
 
 fn load_accumulation(

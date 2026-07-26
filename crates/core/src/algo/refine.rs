@@ -1304,6 +1304,56 @@ mod tests {
     }
 
     #[test]
+    fn loader_preserves_directional_nodata_source_error() {
+        struct DirectionalNodataRasterSource;
+
+        impl RasterSource for DirectionalNodataRasterSource {
+            fn load_flow_direction(
+                &self,
+                _uri: &str,
+                _bbox: &Rect<f64>,
+                _encoding: FlowDirEncoding,
+            ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+                Err(RasterSourceError::InvalidFlowDirectionNodata {
+                    nodata: 1,
+                    encoding: FlowDirEncoding::Esri,
+                })
+            }
+
+            fn load_accumulation(
+                &self,
+                _uri: &str,
+                _bbox: &Rect<f64>,
+            ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+                unreachable!("flow-direction rejection must stop loading first")
+            }
+        }
+
+        let err = refine_terminal_from_source(
+            &DirectionalNodataRasterSource,
+            "flow.tif",
+            "acc.tif",
+            &rect_polygon(0.0, 0.0, 3.0, -3.0),
+            NativeCoord::new(1.5, -1.5),
+            SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326_u32,
+            FlowDirEncoding::Esri,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            RefinementError::RasterLoad {
+                source: RasterSourceError::InvalidFlowDirectionNodata {
+                    nodata: 1,
+                    encoding: FlowDirEncoding::Esri,
+                },
+            }
+        ));
+    }
+
+    #[test]
     fn loader_computes_correct_bbox() {
         use std::sync::Mutex;
 

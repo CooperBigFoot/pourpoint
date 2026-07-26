@@ -57,7 +57,7 @@ pub use tile_state::{Masked, Raw};
 // ── Re-exports: raster infrastructure ────────────────────────────────────────
 pub use accumulation_tile::AccumulationTile;
 pub use catchment_mask::CatchmentMask;
-pub use flow_direction_tile::FlowDirectionTile;
+pub use flow_direction_tile::{FlowDirectionTile, FlowDirectionTileError};
 pub use raster_tile::{RasterTile, RasterTileError};
 
 // ── Re-exports: raster algorithms ────────────────────────────────────────────

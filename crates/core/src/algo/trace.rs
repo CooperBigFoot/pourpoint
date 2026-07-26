@@ -70,6 +70,7 @@ mod tests {
 
     use super::*;
     use crate::algo::coord::{GridCoord, GridDims};
+    use crate::algo::flow_direction_tile::FlowDirectionTileError;
     use crate::algo::geo_transform::GeoTransform;
     use crate::algo::polygonize::polygonize;
     use crate::algo::projection::NativeCoord;
@@ -303,6 +304,35 @@ mod tests {
 
         assert_eq!(mask.cell_count(), 1);
         assert!(mask.contains(GridCoord::new(0, 0)));
+    }
+
+    #[test]
+    fn checked_construction_rejects_directional_nodata_before_trace() {
+        #[rustfmt::skip]
+        let raw = RasterTile::from_vec(
+            vec![
+                0_u8, 0, 8,
+                0,    0, 0,
+                0,    0, 0,
+            ],
+            GridDims::new(3, 3),
+            16_u8,
+            simple_geo(),
+        )
+        .unwrap();
+        assert_eq!(
+            FlowDirectionTile::from_raw(raw.clone(), FlowDirEncoding::Esri).unwrap_err(),
+            FlowDirectionTileError::DirectionalNodata {
+                nodata: 16,
+                encoding: FlowDirEncoding::Esri,
+            }
+        );
+
+        let tile = FlowDirectionTile::from_raw_unchecked(raw, FlowDirEncoding::Esri);
+        let mask = trace_upstream(GridCoord::new(1, 1), &tile);
+        let polygon = polygonize(&mask, tile.geo()).expect("non-empty trace must polygonize");
+        assert_eq!(mask.cell_count(), 2);
+        assert_eq!(polygon.unsigned_area(), 2.0);
     }
 
     #[test]
