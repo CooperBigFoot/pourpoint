@@ -733,7 +733,7 @@ impl RasterSource for DonutRasterSource {
         ];
         let tile = RasterTile::from_vec(values, GridDims::new(3, 3), 255_u8, donut_geo())
             .expect("donut flow-direction tile should construct");
-        Ok(FlowDirectionTile::from_raw(tile, encoding))
+        FlowDirectionTile::from_raw(tile, encoding).map_err(RasterSourceError::from)
     }
 
     fn load_accumulation(
@@ -763,7 +763,7 @@ impl RasterSource for InverseFailureRasterSource {
             inverse_failure_geo(),
         )
         .expect("inverse-failure flow-direction tile should construct");
-        Ok(FlowDirectionTile::from_raw(tile, encoding))
+        FlowDirectionTile::from_raw(tile, encoding).map_err(RasterSourceError::from)
     }
 
     fn load_accumulation(
@@ -796,7 +796,7 @@ impl RasterSource for ProjectedRasterSource {
         let tile =
             RasterTile::from_vec(vec![0_u8; 25], GridDims::new(5, 5), 255_u8, projected_geo())
                 .expect("projected flow-direction tile should construct");
-        Ok(FlowDirectionTile::from_raw(tile, encoding))
+        FlowDirectionTile::from_raw(tile, encoding).map_err(RasterSourceError::from)
     }
 
     fn load_accumulation(

@@ -7,7 +7,7 @@ use hfx::FlowDirEncoding;
 
 use crate::algo::accumulation_tile::AccumulationTile;
 use crate::algo::clean_epsilon::CleanEpsilon;
-use crate::algo::flow_direction_tile::FlowDirectionTile;
+use crate::algo::flow_direction_tile::{FlowDirectionTile, FlowDirectionTileError};
 use crate::algo::tile_state::Raw;
 
 /// Errors from raster source operations.
@@ -51,6 +51,27 @@ pub enum RasterSourceError {
         /// Reason why tile construction failed.
         reason: String,
     },
+
+    /// A flow-direction header declares a nodata byte that is a legal direction.
+    #[error(
+        "flow-direction nodata byte {nodata} decodes as a legal direction under {encoding:?} encoding"
+    )]
+    InvalidFlowDirectionNodata {
+        /// Header-derived nodata byte that collides with a legal direction.
+        nodata: u8,
+        /// Authoritative declared encoding used to interpret the byte.
+        encoding: FlowDirEncoding,
+    },
+}
+
+impl From<FlowDirectionTileError> for RasterSourceError {
+    fn from(source: FlowDirectionTileError) -> Self {
+        match source {
+            FlowDirectionTileError::DirectionalNodata { nodata, encoding } => {
+                Self::InvalidFlowDirectionNodata { nodata, encoding }
+            }
+        }
+    }
 }
 
 /// Errors from geometry repair operations.
@@ -91,6 +112,7 @@ pub trait RasterSource {
     /// | [`RasterSourceError::ReadFailed`] | Backend cannot read the window or rejects its sample type |
     /// | [`RasterSourceError::EmptyWindow`] | Bbox maps to zero pixels |
     /// | [`RasterSourceError::TileConstruction`] | Tile construction fails after read |
+    /// | [`RasterSourceError::InvalidFlowDirectionNodata`] | Header nodata decodes as a legal direction under the declared encoding |
     fn load_flow_direction(
         &self,
         uri: &str,
@@ -134,4 +156,26 @@ pub trait GeometryRepair {
         geometry: MultiPolygon<f64>,
         epsilon: CleanEpsilon,
     ) -> Result<MultiPolygon<f64>, GeometryRepairError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use hfx::FlowDirEncoding;
+
+    use super::RasterSourceError;
+    use crate::algo::flow_direction_tile::FlowDirectionTileError;
+
+    #[test]
+    fn directional_nodata_construction_error_maps_without_erasure() {
+        assert!(matches!(
+            RasterSourceError::from(FlowDirectionTileError::DirectionalNodata {
+                nodata: 1,
+                encoding: FlowDirEncoding::Esri,
+            }),
+            RasterSourceError::InvalidFlowDirectionNodata {
+                nodata: 1,
+                encoding: FlowDirEncoding::Esri,
+            }
+        ));
+    }
 }

@@ -18,6 +18,21 @@ use crate::algo::tile_state::{Masked, Raw};
 /// pattern also represents GRASS `-1`, whose terminal behavior is identical.
 const NODATA: u8 = 255;
 
+/// Errors from checked flow-direction tile construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum FlowDirectionTileError {
+    /// The raw tile's declared nodata byte decodes as a legal direction.
+    #[error(
+        "flow-direction nodata byte {nodata} decodes as a legal direction under {encoding:?} encoding"
+    )]
+    DirectionalNodata {
+        /// Header-derived nodata byte that collides with a legal direction.
+        nodata: u8,
+        /// Authoritative declared encoding used to interpret the byte.
+        encoding: FlowDirEncoding,
+    },
+}
+
 /// Typed wrapper around a [`RasterTile<u8>`] holding D8 flow direction bytes.
 ///
 /// Raw bytes are decoded on read via [`FlowDir::from_encoded`], dispatching to
@@ -55,8 +70,9 @@ impl<S> FlowDirectionTile<S> {
     /// Returns the decoded [`FlowDir`] at a signed `(row, col)`, or `None`
     /// for out-of-bounds positions or nodata / invalid bytes.
     pub fn get_checked(&self, row: isize, col: isize) -> Option<FlowDir> {
-        let raw = self.inner.get_checked(row, col);
-        decode(raw, self.encoding)
+        self.inner
+            .get_checked(row, col)
+            .and_then(|raw| decode(raw, self.encoding))
     }
 
     /// Returns the raw byte at `cell` without decoding.
@@ -128,7 +144,29 @@ impl FlowDirectionTile<Raw> {
     }
 
     /// Wraps an existing [`RasterTile<u8>`] with a known encoding without copying.
-    pub fn from_raw(tile: RasterTile<u8>, encoding: FlowDirEncoding) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FlowDirectionTileError::DirectionalNodata`] when the raw tile's
+    /// header-derived nodata byte decodes as a legal direction under `encoding`.
+    pub fn from_raw(
+        tile: RasterTile<u8>,
+        encoding: FlowDirEncoding,
+    ) -> Result<Self, FlowDirectionTileError> {
+        let nodata = tile.nodata();
+        if matches!(FlowDir::from_encoded(nodata, encoding), Ok(Some(_))) {
+            return Err(FlowDirectionTileError::DirectionalNodata { nodata, encoding });
+        }
+        Ok(Self {
+            inner: tile,
+            encoding,
+            _state: PhantomData,
+        })
+    }
+
+    /// Wraps a raw tile without validating its nodata sentinel for regression tests.
+    #[cfg(test)]
+    pub(crate) fn from_raw_unchecked(tile: RasterTile<u8>, encoding: FlowDirEncoding) -> Self {
         Self {
             inner: tile,
             encoding,
@@ -283,8 +321,52 @@ mod tests {
         let mut raw = RasterTile::new(GridDims::new(2, 2), 255u8, simple_geo()).unwrap();
         // ESRI code 1 = East
         raw.set(GridCoord::new(0, 1), 1);
-        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Esri);
+        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Esri)
+            .expect("non-direction nodata should be accepted");
         assert_eq!(tile.get(GridCoord::new(0, 1)), Some(FlowDir::East));
+        assert_eq!(tile.get(GridCoord::new(0, 0)), None);
+    }
+
+    #[test]
+    fn from_raw_rejects_directional_nodata_for_every_encoding() {
+        for (nodata, encoding) in [
+            (1_u8, FlowDirEncoding::Esri),
+            (1_u8, FlowDirEncoding::Taudem),
+            (1_u8, FlowDirEncoding::Grass),
+        ] {
+            let raw = RasterTile::from_vec(vec![0_u8], GridDims::new(1, 1), nodata, simple_geo())
+                .unwrap();
+
+            assert_eq!(
+                FlowDirectionTile::from_raw(raw, encoding).unwrap_err(),
+                FlowDirectionTileError::DirectionalNodata { nodata, encoding }
+            );
+        }
+    }
+
+    #[test]
+    fn from_raw_accepts_non_direction_nodata_for_every_encoding() {
+        for (nodata, encoding) in [
+            (3_u8, FlowDirEncoding::Esri),
+            (9_u8, FlowDirEncoding::Taudem),
+            (128_u8, FlowDirEncoding::Grass),
+            (255_u8, FlowDirEncoding::Grass),
+        ] {
+            let raw = RasterTile::from_vec(vec![0_u8], GridDims::new(1, 1), nodata, simple_geo())
+                .unwrap();
+            let tile = FlowDirectionTile::from_raw(raw, encoding)
+                .expect("non-direction nodata should be accepted");
+            assert_eq!(tile.inner().nodata(), nodata);
+        }
+    }
+
+    #[test]
+    fn invalid_in_window_byte_remains_absent() {
+        let raw =
+            RasterTile::from_vec(vec![3_u8], GridDims::new(1, 1), 255_u8, simple_geo()).unwrap();
+        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Esri)
+            .expect("non-direction nodata should be accepted");
+
         assert_eq!(tile.get(GridCoord::new(0, 0)), None);
     }
 
@@ -523,7 +605,8 @@ mod tests {
             simple_geo(),
         )
         .unwrap();
-        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Grass);
+        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Grass)
+            .expect("non-direction nodata should be accepted");
 
         assert_eq!(tile.get(GridCoord::new(0, 0)), None);
         assert_eq!(tile.get(GridCoord::new(0, 1)), None);

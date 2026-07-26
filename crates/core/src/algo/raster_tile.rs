@@ -116,12 +116,12 @@ impl<T: Copy + PartialEq + Debug> RasterTile<T> {
         self.data[cell.row * self.cols + cell.col]
     }
 
-    /// Returns the value at `(row, col)`, or `nodata` for any out-of-bounds index.
-    pub fn get_checked(&self, row: isize, col: isize) -> T {
+    /// Returns `Some(value)` at `(row, col)`, or `None` for an out-of-bounds index.
+    pub fn get_checked(&self, row: isize, col: isize) -> Option<T> {
         if row < 0 || col < 0 || row as usize >= self.rows || col as usize >= self.cols {
-            self.nodata
+            None
         } else {
-            self.data[row as usize * self.cols + col as usize]
+            Some(self.data[row as usize * self.cols + col as usize])
         }
     }
 
@@ -252,24 +252,24 @@ mod tests {
     fn get_checked_in_bounds() {
         let data: Vec<f32> = (0..9).map(|v| v as f32).collect();
         let tile = RasterTile::from_vec(data, GridDims::new(3, 3), -1.0f32, simple_geo()).unwrap();
-        assert_eq!(tile.get_checked(1, 1), 4.0f32);
-        assert_eq!(tile.get_checked(2, 2), 8.0f32);
+        assert_eq!(tile.get_checked(1, 1), Some(4.0f32));
+        assert_eq!(tile.get_checked(2, 2), Some(8.0f32));
     }
 
     #[test]
     fn get_checked_oob_negative() {
         let tile = RasterTile::new(GridDims::new(3, 3), -999.0f32, simple_geo()).unwrap();
-        assert_eq!(tile.get_checked(-1, 0), -999.0f32);
-        assert_eq!(tile.get_checked(0, -1), -999.0f32);
-        assert_eq!(tile.get_checked(-5, -5), -999.0f32);
+        assert_eq!(tile.get_checked(-1, 0), None);
+        assert_eq!(tile.get_checked(0, -1), None);
+        assert_eq!(tile.get_checked(-5, -5), None);
     }
 
     #[test]
     fn get_checked_oob_positive() {
         let tile = RasterTile::new(GridDims::new(3, 3), -999.0f32, simple_geo()).unwrap();
-        assert_eq!(tile.get_checked(3, 0), -999.0f32);
-        assert_eq!(tile.get_checked(0, 3), -999.0f32);
-        assert_eq!(tile.get_checked(100, 100), -999.0f32);
+        assert_eq!(tile.get_checked(3, 0), None);
+        assert_eq!(tile.get_checked(0, 3), None);
+        assert_eq!(tile.get_checked(100, 100), None);
     }
 
     #[test]
@@ -315,7 +315,7 @@ mod tests {
     fn one_by_one_tile() {
         let tile = RasterTile::from_vec(vec![42u32], GridDims::new(1, 1), 0, simple_geo()).unwrap();
         assert_eq!(tile.get(GridCoord::new(0, 0)), 42);
-        assert_eq!(tile.get_checked(0, 0), 42);
+        assert_eq!(tile.get_checked(0, 0), Some(42));
         assert_eq!(tile[(0isize, 0isize)], 42);
         assert_eq!(tile.rows(), 1);
         assert_eq!(tile.cols(), 1);

@@ -45,8 +45,9 @@ impl<S> AccumulationTile<S> {
     /// Returns the accumulation value at a signed `(row, col)`, or `None` for
     /// out-of-bounds positions and NaN cells.
     pub fn get_checked(&self, row: isize, col: isize) -> Option<f32> {
-        let value = self.inner.get_checked(row, col);
-        if value.is_nan() { None } else { Some(value) }
+        self.inner
+            .get_checked(row, col)
+            .filter(|value| !value.is_nan())
     }
 
     /// Returns the raw `f32` value at `cell` without NaN filtering.
@@ -228,12 +229,13 @@ mod tests {
         let mut tile = AccumulationTile::new(GridDims::new(2, 2), simple_geo()).unwrap();
         tile.set_raw(GridCoord::new(1, 0), f32::NAN);
         assert_eq!(tile.get(GridCoord::new(1, 0)), None);
+        assert_eq!(tile.get_checked(1, 0), None);
     }
 
     #[test]
     fn get_checked_oob_returns_none() {
         let tile = AccumulationTile::new(GridDims::new(2, 2), simple_geo()).unwrap();
-        // OOB returns the nodata sentinel (NaN), which our wrapper converts to None.
+        // Explicit out-of-bounds absence remains None through the typed wrapper.
         assert_eq!(tile.get_checked(-1, 0), None);
         assert_eq!(tile.get_checked(0, -1), None);
         assert_eq!(tile.get_checked(10, 0), None);
