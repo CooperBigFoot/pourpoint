@@ -7,6 +7,41 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-26
+
+Pourpoint 0.2.0 shipped on 2026-07-24 under tag `pourpoint-v0.2.0` and was
+live-fired in production. Version 0.2.1 is now prepared and awaits its
+human-cut tag and GitHub Release.
+
+### Changed
+
+- Remote classic-TIFF and BigTIFF metadata reads no longer scale with the
+  raster's total tile count. Extent selection reads only the required
+  georeferencing tags, and planned-window reads resolve only the tile-index
+  entries needed by the requested window.
+
+### Fixed
+
+- Bounded owned DEFLATE chunk decoding now handles predictor 1 without
+  horizontal differencing and enforces the planned compressed, covered,
+  decoded, and output-allocation limits.
+- Projected-CRS and canonical-GRIT documentation now describes the shipped
+  EPSG:4326 and EPSG:8857 behavior and the available D8 raster auxiliaries.
+
+### Rust source compatibility
+
+The release-preparation commit contains no Rust source changes. Relative to
+`pourpoint-v0.2.0`, the public-enum diff through base commit
+`b7e4dc3daf86aee7fff6e09ebd197ddd9bd0066c` contains no added variants and
+exactly one removed variant:
+
+| Public enum | Status | Added variants | Removed variants |
+|---|---|---|---|
+| `SessionError` | existing | None | `SessionError::CogExtentHeaderTooLarge` (REMOVED) |
+
+No enum under `crates/` is marked `#[non_exhaustive]`. Downstream Rust code
+with exhaustive matches may therefore require source changes.
+
 ## [0.2.0] - 2026-07-23
 
 ### Changed

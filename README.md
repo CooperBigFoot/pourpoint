@@ -45,19 +45,29 @@ See [`crates/python/README.md`](crates/python/README.md) for the Python
 quickstart and [`crates/python/API.md`](crates/python/API.md) for the full
 developer API reference.
 
-### Pending 0.2.0 raster-refinement contract
+### Pending 0.2.1 combined release contract
 
-The prepared, not-yet-published pourpoint 0.2.0 release consumes only
+The prepared pourpoint 0.2.1 release consumes only
 `hfx.aux.d8_raster.v2` D8 auxiliaries. It supports EPSG:4326 and EPSG:8857 D8
 rasters, performs declaration selection, carving, and snapping in the raster's
 native CRS, and converts only the refined result back to EPSG:4326. Snap
 thresholds expressed as `cells` remain cell counts; projected `km2` thresholds
-are compared using projected pixel area. Version 0.2.0 rejects v1 auxiliaries
+are compared using projected pixel area. Version 0.2.1 rejects v1 auxiliaries
 and rejects `km2` accumulation on EPSG:4326 rather than approximating angular
 pixel area. For identical inputs, returned carve geometry is deterministic.
 
-The curated notes, local evidence, and still-unfired human gates are in the
-[0.2.0 release runbook](docs/releases/projected-crs-terminal-refinement.md).
+Version 0.2.1 also makes remote classic-TIFF and BigTIFF metadata and planned
+tile-index reads independent of the raster's total tile count, and decodes
+bounded owned DEFLATE chunks with predictor 1.
+
+Pourpoint 0.2.0 shipped on 2026-07-24 under tag `pourpoint-v0.2.0` and was
+live-fired in production. Version 0.2.1 is now prepared and awaits its
+human-cut tag and GitHub Release.
+
+The carried projected-CRS evidence is in the
+[projected-CRS terminal-refinement runbook](docs/releases/projected-crs-terminal-refinement.md).
+The current release-register entry point is the
+[tile-count-independent planetary COG-read evidence register](docs/releases/tile-count-independent-planetary-cog-reads.md).
 
 ## Dataset locations
 

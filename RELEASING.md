@@ -90,10 +90,20 @@ Until both Trusted Publishers and the `pypi` / `testpypi` environments exist, a
 published `pourpoint-v*` Release will build the wheel but the publish step will fail
 the OIDC handshake.
 
-## pourpoint 0.2.0 stream status
+## pourpoint 0.2.1 stream status
 
-**PREPARED — UNFIRED.** The release artifacts and human runbook are prepared,
-but both the `pourpoint-v0.2.0` GitHub release and the resulting real-PyPI
-publication remain human-gated and unfired. Review the
-[tracked 0.2.0 release runbook](docs/releases/projected-crs-terminal-refinement.md)
-before either action.
+**PREPARED — AWAITING HUMAN RELEASE.** Pourpoint 0.2.0 shipped on 2026-07-24
+under tag `pourpoint-v0.2.0` and was live-fired in production. Version 0.2.1
+is now prepared and awaits its human-cut tag and GitHub Release. It includes
+the projected-CRS behavior shipped in 0.2.0 and the tile-count-independent
+COG-read work prepared for 0.2.1.
+
+Before creating or pushing the `pourpoint-v0.2.1` tag or publishing its GitHub
+Release, the human releaser must review the
+[carried projected-CRS evidence](docs/releases/projected-crs-terminal-refinement.md).
+That packet is the pre-fire 0.2.0 record; its `Release status: PREPARED — UNFIRED`
+and `Status: UNFIRED` lines predate the 2026-07-24 fire and are superseded by
+this block. The human releaser must also review the current
+[0.2.1 release-register entry point](docs/releases/tile-count-independent-planetary-cog-reads.md).
+Tag creation, tag pushing, and GitHub Release publication remain human-only
+actions.
