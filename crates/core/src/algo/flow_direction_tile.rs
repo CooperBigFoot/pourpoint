@@ -55,8 +55,9 @@ impl<S> FlowDirectionTile<S> {
     /// Returns the decoded [`FlowDir`] at a signed `(row, col)`, or `None`
     /// for out-of-bounds positions or nodata / invalid bytes.
     pub fn get_checked(&self, row: isize, col: isize) -> Option<FlowDir> {
-        let raw = self.inner.get_checked(row, col);
-        decode(raw, self.encoding)
+        self.inner
+            .get_checked(row, col)
+            .and_then(|raw| decode(raw, self.encoding))
     }
 
     /// Returns the raw byte at `cell` without decoding.
@@ -129,6 +130,16 @@ impl FlowDirectionTile<Raw> {
 
     /// Wraps an existing [`RasterTile<u8>`] with a known encoding without copying.
     pub fn from_raw(tile: RasterTile<u8>, encoding: FlowDirEncoding) -> Self {
+        Self {
+            inner: tile,
+            encoding,
+            _state: PhantomData,
+        }
+    }
+
+    /// Wraps a raw tile without validating its nodata sentinel for regression tests.
+    #[cfg(test)]
+    pub(crate) fn from_raw_unchecked(tile: RasterTile<u8>, encoding: FlowDirEncoding) -> Self {
         Self {
             inner: tile,
             encoding,

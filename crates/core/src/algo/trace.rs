@@ -65,12 +65,15 @@ pub fn trace_upstream<S>(pour_point: GridCoord, flow_dir: &FlowDirectionTile<S>)
 
 #[cfg(test)]
 mod tests {
+    use geo::Area;
     use hfx::FlowDirEncoding;
 
     use super::*;
     use crate::algo::coord::{GridCoord, GridDims};
     use crate::algo::geo_transform::GeoTransform;
+    use crate::algo::polygonize::polygonize;
     use crate::algo::projection::NativeCoord;
+    use crate::algo::raster_tile::RasterTile;
 
     fn simple_geo() -> GeoTransform {
         GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
@@ -288,5 +291,40 @@ mod tests {
         // Disconnected cells not in mask
         assert!(!mask.contains(GridCoord::new(2, 0)));
         assert!(!mask.contains(GridCoord::new(2, 4)));
+    }
+
+    #[test]
+    fn directional_nodata_at_column_zero_does_not_enter_trace() {
+        let raw =
+            RasterTile::from_vec(vec![0_u8], GridDims::new(1, 1), 1_u8, simple_geo()).unwrap();
+        let tile = FlowDirectionTile::from_raw_unchecked(raw, FlowDirEncoding::Esri);
+
+        let mask = trace_upstream(GridCoord::new(0, 0), &tile);
+
+        assert_eq!(mask.cell_count(), 1);
+        assert!(mask.contains(GridCoord::new(0, 0)));
+    }
+
+    #[test]
+    fn out_of_bounds_directional_nodata_does_not_change_geometry() {
+        #[rustfmt::skip]
+        let raw = RasterTile::from_vec(
+            vec![
+                0_u8, 0, 8,
+                0,    0, 0,
+                0,    0, 0,
+            ],
+            GridDims::new(3, 3),
+            16_u8,
+            simple_geo(),
+        )
+        .unwrap();
+        let tile = FlowDirectionTile::from_raw_unchecked(raw, FlowDirEncoding::Esri);
+
+        let mask = trace_upstream(GridCoord::new(1, 1), &tile);
+        let polygon = polygonize(&mask, tile.geo()).expect("non-empty trace must polygonize");
+
+        assert_eq!(mask.cell_count(), 2);
+        assert_eq!(polygon.unsigned_area(), 2.0);
     }
 }
