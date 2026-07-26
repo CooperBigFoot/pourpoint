@@ -25,28 +25,16 @@ use crate::error::RasterReadError;
 
 /// GDAL-backed implementation of [`RasterSource`].
 ///
-/// Reads windowed GeoTIFF tiles using the GDAL raster I/O API. The encoding
-/// used to decode D8 flow direction bytes is configurable at construction time;
-/// it defaults to [`FlowDirEncoding::Esri`].
+/// Reads windowed GeoTIFF tiles using the GDAL raster I/O API.
 #[derive(Debug, Clone)]
 pub struct GdalRasterSource {
-    encoding: FlowDirEncoding,
     config: GdalConfig,
 }
 
 impl GdalRasterSource {
-    /// Create a new `GdalRasterSource` with the default ESRI flow direction encoding.
+    /// Create a new `GdalRasterSource`.
     pub fn new() -> Self {
         Self {
-            encoding: FlowDirEncoding::Esri,
-            config: GdalConfig::new(),
-        }
-    }
-
-    /// Set the flow direction encoding for this source (builder method).
-    pub fn with_encoding(encoding: FlowDirEncoding) -> Self {
-        Self {
-            encoding,
             config: GdalConfig::new(),
         }
     }
@@ -70,6 +58,7 @@ impl RasterSource for GdalRasterSource {
         &self,
         uri: &str,
         bbox: &Rect<f64>,
+        encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
         let path_str = uri.to_string();
 
@@ -139,7 +128,7 @@ impl RasterSource for GdalRasterSource {
             }
         })?;
 
-        Ok(FlowDirectionTile::from_raw(tile, self.encoding))
+        Ok(FlowDirectionTile::from_raw(tile, encoding))
     }
 
     #[instrument(skip(self, uri, bbox), fields(uri = %uri))]
@@ -558,7 +547,7 @@ mod tests {
         let bbox = Rect::new(coord! { x: 0.0, y: 0.0 }, coord! { x: 2.0, y: 2.0 });
         let uri = path.display().to_string();
         let tile = src
-            .load_flow_direction(&uri, &bbox)
+            .load_flow_direction(&uri, &bbox, FlowDirEncoding::Esri)
             .expect("local raster should load by string URI");
 
         assert_eq!(tile.dims(), GridDims::new(2, 2));
@@ -583,7 +572,11 @@ mod tests {
         let src = GdalRasterSource::new();
         let bbox = Rect::new(coord! { x: 0.0, y: 0.0 }, coord! { x: 1.0, y: 1.0 });
         let err = src
-            .load_flow_direction("/nonexistent/path/that/will/never/exist.tif", &bbox)
+            .load_flow_direction(
+                "/nonexistent/path/that/will/never/exist.tif",
+                &bbox,
+                FlowDirEncoding::Esri,
+            )
             .expect_err("expected open error");
         assert!(
             matches!(err, RasterSourceError::OpenFailed { .. }),

@@ -1115,9 +1115,9 @@ mod tests {
         GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
     }
 
-    fn make_flow_tile(values: &[u8]) -> FlowDirectionTile<Raw> {
+    fn make_flow_tile(values: &[u8], encoding: FlowDirEncoding) -> FlowDirectionTile<Raw> {
         let dims = GridDims::new(5, 5);
-        let mut tile = FlowDirectionTile::new(dims, test_raster_geo(), FlowDirEncoding::Esri)
+        let mut tile = FlowDirectionTile::new(dims, test_raster_geo(), encoding)
             .expect("flow direction tile should build");
         for row in 0..5 {
             for col in 0..5 {
@@ -1141,6 +1141,7 @@ mod tests {
             &self,
             _uri: &str,
             _bbox: &Rect<f64>,
+            encoding: FlowDirEncoding,
         ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
             #[rustfmt::skip]
             let values = [
@@ -1150,7 +1151,7 @@ mod tests {
                 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0,
             ];
-            Ok(make_flow_tile(&values))
+            Ok(make_flow_tile(&values, encoding))
         }
 
         fn load_accumulation(

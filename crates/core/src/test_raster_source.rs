@@ -16,44 +16,14 @@ use crate::session::RasterKind;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LocalTiffRasterSource;
 
-impl LocalTiffRasterSource {
-    /// Return a local TIFF source that decodes flow directions with `encoding`.
-    pub fn with_encoding(encoding: FlowDirEncoding) -> EncodedLocalTiffRasterSource {
-        EncodedLocalTiffRasterSource { encoding }
-    }
-}
-
-/// Local TIFF source with an explicitly selected flow-direction encoding.
-#[derive(Debug, Clone, Copy)]
-pub struct EncodedLocalTiffRasterSource {
-    encoding: FlowDirEncoding,
-}
-
 impl RasterSource for LocalTiffRasterSource {
     fn load_flow_direction(
         &self,
         uri: &str,
         bbox: &Rect<f64>,
+        encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
-        load_flow_direction(uri, bbox, FlowDirEncoding::Esri)
-    }
-
-    fn load_accumulation(
-        &self,
-        uri: &str,
-        bbox: &Rect<f64>,
-    ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
-        load_accumulation(uri, bbox)
-    }
-}
-
-impl RasterSource for EncodedLocalTiffRasterSource {
-    fn load_flow_direction(
-        &self,
-        uri: &str,
-        bbox: &Rect<f64>,
-    ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
-        load_flow_direction(uri, bbox, self.encoding)
+        load_flow_direction(uri, bbox, encoding)
     }
 
     fn load_accumulation(

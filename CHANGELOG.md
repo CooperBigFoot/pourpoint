@@ -13,6 +13,13 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
   URLs, manifest/graph cache behavior, `HFX_CACHE_DIR`, and parquet range
   reads.
 
+### Changed
+
+- Made the HFX D8 declaration's `flow_dir_encoding` the sole decoding
+  authority by passing it through `RasterSource::load_flow_direction`.
+  Removed reader-configured ESRI defaults and encoding constructors. This is
+  a breaking change for external `RasterSource` implementors.
+
 ## 0.1.56 — 2026-04-20
 
 ### Changed

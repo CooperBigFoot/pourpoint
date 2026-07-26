@@ -21,7 +21,7 @@
 //! refinement can only shrink, never correct outward.
 
 use geo::{BoundingRect, MultiPolygon};
-use hfx::FlowAccumulationUnits;
+use hfx::{FlowAccumulationUnits, FlowDirEncoding};
 use tracing::{debug, info, instrument};
 
 use crate::algo::accumulation_tile::AccumulationTile;
@@ -300,7 +300,8 @@ pub fn refine_terminal(
 /// Load raster tiles from a [`RasterSource`] and refine a terminal polygon.
 ///
 /// Computes the bounding box of `terminal_polygon`, loads windowed tiles from
-/// `source`, then delegates to [`refine_terminal`].
+/// `source`, decodes flow directions with the declared `flow_dir_encoding`,
+/// then delegates to [`refine_terminal`].
 ///
 /// # Errors
 ///
@@ -320,12 +321,13 @@ pub fn refine_terminal_from_source(
     threshold: SnapThreshold,
     flow_accumulation_units: FlowAccumulationUnits,
     epsg: u32,
+    flow_dir_encoding: FlowDirEncoding,
 ) -> Result<RefinementResult, RefinementError> {
     let bbox = terminal_polygon
         .bounding_rect()
         .ok_or(RefinementError::DegenerateTerminalPolygon)?;
 
-    let flow_dir = source.load_flow_direction(flow_dir_uri, &bbox)?;
+    let flow_dir = source.load_flow_direction(flow_dir_uri, &bbox, flow_dir_encoding)?;
     let accumulation = source.load_accumulation(flow_acc_uri, &bbox)?;
 
     refine_terminal(
@@ -1195,6 +1197,7 @@ mod tests {
                 &self,
                 _uri: &str,
                 _bbox: &Rect<f64>,
+                _encoding: FlowDirEncoding,
             ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
                 Ok(self.flow_dir.clone())
             }
@@ -1222,6 +1225,7 @@ mod tests {
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
+            FlowDirEncoding::Esri,
         )
         .unwrap();
 
@@ -1258,6 +1262,7 @@ mod tests {
                 &self,
                 _uri: &str,
                 _bbox: &Rect<f64>,
+                _encoding: FlowDirEncoding,
             ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
                 Err(RasterSourceError::FileNotFound {
                     path: "flow.tif".into(),
@@ -1288,6 +1293,7 @@ mod tests {
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
+            FlowDirEncoding::Esri,
         )
         .unwrap_err();
 
@@ -1322,6 +1328,7 @@ mod tests {
                 &self,
                 _uri: &str,
                 bbox: &Rect<f64>,
+                _encoding: FlowDirEncoding,
             ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
                 *self.captured_bbox.lock().unwrap() = Some(*bbox);
                 Ok(self.flow_dir.clone())
@@ -1358,6 +1365,7 @@ mod tests {
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
+            FlowDirEncoding::Esri,
         );
 
         let captured = source.captured_bbox.lock().unwrap().unwrap();
@@ -1398,6 +1406,7 @@ mod tests {
                 &self,
                 _uri: &str,
                 bbox: &Rect<f64>,
+                encoding: FlowDirEncoding,
             ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
                 self.requests.lock().unwrap().push(*bbox);
                 Ok(make_flow_tile_with(
@@ -1405,7 +1414,7 @@ mod tests {
                     1,
                     &[0],
                     GeoTransform::new(NativeCoord::new(0.0, 0.0), 30.0, -30.0),
-                    FlowDirEncoding::Esri,
+                    encoding,
                 ))
             }
 
@@ -1446,6 +1455,7 @@ mod tests {
             SnapThreshold::new(1_000),
             FlowAccumulationUnits::Km2,
             8857_u32,
+            FlowDirEncoding::Esri,
         )
         .expect_err("sample below the forwarded km2 threshold should fail");
 

@@ -3,6 +3,7 @@
 //! These traits are defined in `pourpoint-core` and implemented by `pourpoint-gdal`.
 
 use geo::{MultiPolygon, Rect};
+use hfx::FlowDirEncoding;
 
 use crate::algo::accumulation_tile::AccumulationTile;
 use crate::algo::clean_epsilon::CleanEpsilon;
@@ -78,7 +79,8 @@ pub enum GeometryRepairError {
 ///
 /// The canonical implementation uses GDAL and lives in `pourpoint-gdal`.
 pub trait RasterSource {
-    /// Load flow direction values within raster-native `bbox` coordinates from `uri`.
+    /// Load `uri` within raster-native `bbox` coordinates and decode direction bytes
+    /// using the caller-supplied HFX declaration `encoding`.
     ///
     /// # Errors
     ///
@@ -93,6 +95,7 @@ pub trait RasterSource {
         &self,
         uri: &str,
         bbox: &Rect<f64>,
+        encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError>;
 
     /// Load flow accumulation values within raster-native `bbox` coordinates from `uri`.
