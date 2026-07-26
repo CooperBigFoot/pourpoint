@@ -7,8 +7,9 @@ use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use hfx::{FlowAccumulationUnits, FlowDirEncoding, UnitId};
 use pourpoint_core::algo::{
-    Crs, GeoCoord, GridCoord, GridDims, NativeCoord, RasterSource, SnapThreshold,
-    canonical_wkb_multi_polygon, forward, refine_terminal_from_source,
+    Crs, GeoCoord, GridCoord, GridDims, NativeCoord, RasterSource, RasterSourceError,
+    RefinementError, SnapThreshold, canonical_wkb_multi_polygon, forward,
+    refine_terminal_from_source,
 };
 use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
@@ -82,6 +83,8 @@ fn signed_tiff_samples_match_local_and_gdal_normalization() {
     assert_eq!(gdal_fd.dims(), GridDims::new(2, 2));
     assert_eq!(local_fd.inner().data(), &[1_u8, 254, 8, 0]);
     assert_eq!(local_fd.inner().data(), gdal_fd.inner().data());
+    assert_eq!(local_fd.inner().nodata(), gdal_fd.inner().nodata());
+    assert_eq!(local_fd.inner().nodata(), 255);
     assert_eq!(local_fd.geo(), gdal_fd.geo());
     assert_eq!(local_fd.geo().origin_x(), 0.0);
     assert_eq!(local_fd.geo().origin_y(), 2.0);
@@ -111,6 +114,56 @@ fn signed_tiff_samples_match_local_and_gdal_normalization() {
     assert!(local_acc.inner().nodata().is_nan());
     assert!(gdal_acc.inner().nodata().is_nan());
     assert_eq!(local_acc.geo(), gdal_acc.geo());
+}
+
+#[test]
+fn directional_uint8_nodata_is_rejected_by_local_and_gdal_sources() {
+    let directory = tempfile::tempdir().expect("UInt8 TIFF temp directory should be created");
+    let path = directory.path().join("flow_dir_uint8_nodata_one.tif");
+    let driver = DriverManager::get_driver_by_name("GTiff").expect("GTiff driver should exist");
+    let mut dataset = driver
+        .create_with_band_type::<u8, _>(&path, 2, 2, 1)
+        .expect("UInt8 flow-direction TIFF should be created");
+    dataset
+        .set_geo_transform(&[0.0, 1.0, 0.0, 2.0, 0.0, -1.0])
+        .expect("flow-direction geotransform should be written");
+    {
+        let mut band = dataset
+            .rasterband(1)
+            .expect("flow-direction band should exist");
+        band.set_no_data_value(Some(1.0))
+            .expect("flow-direction nodata should be written");
+        let mut buffer = Buffer::new((2, 2), vec![1_u8, 2, 4, 8]);
+        band.write((0, 0), (2, 2), &mut buffer)
+            .expect("flow-direction samples should be written");
+    }
+    drop(dataset);
+
+    let bbox = Rect::new(
+        geo::coord! { x: 0.0, y: 0.0 },
+        geo::coord! { x: 2.0, y: 2.0 },
+    );
+    let local_err = LocalTiffRasterSource
+        .load_flow_direction(&path.to_string_lossy(), &bbox, FlowDirEncoding::Esri)
+        .expect_err("local reader must reject directional header nodata");
+    let gdal_err = GdalRasterSource::new()
+        .load_flow_direction(&path.to_string_lossy(), &bbox, FlowDirEncoding::Esri)
+        .expect_err("GDAL reader must reject directional header nodata");
+
+    assert!(matches!(
+        local_err,
+        RasterSourceError::InvalidFlowDirectionNodata {
+            nodata: 1,
+            encoding: FlowDirEncoding::Esri,
+        }
+    ));
+    assert!(matches!(
+        gdal_err,
+        RasterSourceError::InvalidFlowDirectionNodata {
+            nodata: 1,
+            encoding: FlowDirEncoding::Esri,
+        }
+    ));
 }
 
 #[test]
@@ -180,7 +233,7 @@ fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
         FlowDirEncoding::Grass,
     )
     .expect("GRASS counterfactual carve should succeed");
-    let esri = refine_terminal_from_source(
+    let esri_err = refine_terminal_from_source(
         &source,
         &flow_dir.path().to_string_lossy(),
         &flow_acc.path().to_string_lossy(),
@@ -191,27 +244,73 @@ fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
         8857_u32,
         FlowDirEncoding::Esri,
     )
-    .expect("ESRI counterfactual carve should succeed");
+    .expect_err("an ESRI declaration over a byte-128 header nodata must be rejected");
+    assert!(matches!(
+        esri_err,
+        RefinementError::RasterLoad {
+            source: RasterSourceError::InvalidFlowDirectionNodata {
+                nodata: 128,
+                encoding: FlowDirEncoding::Esri,
+            },
+        }
+    ));
     let grass_wkb = canonical_wkb_multi_polygon(grass.polygon())
         .expect("native GRASS carve should canonicalize");
-    let esri_wkb =
-        canonical_wkb_multi_polygon(esri.polygon()).expect("native ESRI carve should canonicalize");
     let grass_cells = (grass.polygon().unsigned_area() / 1_000_000.0).round();
-    let esri_cells = (esri.polygon().unsigned_area() / 1_000_000.0).round();
+    assert!(
+        grass_cells >= 100.0,
+        "the declared GRASS carve must remain substantial; got {grass_cells}"
+    );
 
-    // Observed on the committed masked fixture: GRASS = 374 cells, ESRI = 1 cell.
-    // Keep behavioral margins rather than pinning either observation as equality.
+    let differential_flow_dir = fixture_root.join("aux/d8/projected/flow_dir_nodata_minus_one.tif");
+    let differential_grass = refine_terminal_from_source(
+        &source,
+        &differential_flow_dir.to_string_lossy(),
+        &flow_acc.path().to_string_lossy(),
+        &native_terminal,
+        native_outlet,
+        SnapThreshold::new(500),
+        FlowAccumulationUnits::Km2,
+        8857_u32,
+        FlowDirEncoding::Grass,
+    )
+    .expect("the nodata-minus-one GRASS differential carve should succeed");
+    let differential_esri = refine_terminal_from_source(
+        &source,
+        &differential_flow_dir.to_string_lossy(),
+        &flow_acc.path().to_string_lossy(),
+        &native_terminal,
+        native_outlet,
+        SnapThreshold::new(500),
+        FlowAccumulationUnits::Km2,
+        8857_u32,
+        FlowDirEncoding::Esri,
+    )
+    .expect("the nodata-minus-one ESRI differential carve should succeed");
+    let differential_grass_wkb = canonical_wkb_multi_polygon(differential_grass.polygon())
+        .expect("differential GRASS carve should canonicalize");
+    let differential_esri_wkb = canonical_wkb_multi_polygon(differential_esri.polygon())
+        .expect("differential ESRI carve should canonicalize");
+    let differential_grass_cells =
+        (differential_grass.polygon().unsigned_area() / 1_000_000.0).round();
+    let differential_esri_cells =
+        (differential_esri.polygon().unsigned_area() / 1_000_000.0).round();
+
+    assert_eq!(
+        differential_grass_wkb, grass_wkb,
+        "changing only non-directional nodata metadata must preserve the GRASS geometry"
+    );
     assert_ne!(
-        grass_wkb, esri_wkb,
-        "identical native inputs decoded under GRASS and ESRI must produce different canonical geometry"
+        differential_grass_wkb, differential_esri_wkb,
+        "identical accepted bytes decoded under GRASS and ESRI must produce different canonical geometry"
     );
     assert!(
-        esri_cells >= 1.0,
-        "the ESRI counterfactual must polygonize at least its snapped seed cell; got {esri_cells}"
+        differential_esri_cells >= 1.0,
+        "the ESRI differential must polygonize at least its snapped seed cell; got {differential_esri_cells}"
     );
     assert!(
-        grass_cells >= esri_cells * 100.0,
-        "the declared GRASS carve must be at least two orders of magnitude larger: grass={grass_cells}, esri={esri_cells}"
+        differential_grass_cells >= differential_esri_cells * 100.0,
+        "the GRASS differential must be at least two orders of magnitude larger: grass={differential_grass_cells}, esri={differential_esri_cells}"
     );
 }
 

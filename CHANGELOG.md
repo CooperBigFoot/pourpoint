@@ -15,6 +15,9 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Rejected flow-direction rasters before refinement when their header nodata
+  byte decodes as a legal direction under the declared encoding, with a typed
+  diagnostic carrying the byte and encoding.
 - Made checked raster probes return explicit absence outside tile bounds, so
   directional nodata sentinels cannot turn nonexistent neighbors into upstream
   cells during D8 tracing.

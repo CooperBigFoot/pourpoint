@@ -1472,5 +1472,27 @@ mod tests {
                 ..
             }
         ));
+
+        let directional_nodata = EngineError::from(TerminalRefinementError::Algorithm {
+            unit_id: 42,
+            source: RefinementError::RasterLoad {
+                source: RasterSourceError::InvalidFlowDirectionNodata {
+                    nodata: 1,
+                    encoding: FlowDirEncoding::Esri,
+                },
+            },
+        });
+        assert!(matches!(
+            directional_nodata,
+            EngineError::Refinement {
+                unit_id: 42,
+                source: RefinementError::RasterLoad {
+                    source: RasterSourceError::InvalidFlowDirectionNodata {
+                        nodata: 1,
+                        encoding: FlowDirEncoding::Esri,
+                    },
+                },
+            }
+        ));
     }
 }
