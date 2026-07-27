@@ -168,6 +168,114 @@ fn missing_d8_selection_hard_errors() {
 }
 
 #[test]
+fn degenerate_terminal_precedes_missing_d8_declaration() {
+    let (_tmp, root) = copied_fixture();
+    remove_d8_aux(&root);
+    let session = DatasetSession::open_path(&root).expect("temp fixture without D8 should open");
+    let terminal = MultiPolygon::new(vec![]);
+
+    let err = D8RasterRefinementStrategy
+        .refine_terminal(
+            TerminalRefinementInput {
+                terminal_unit: UnitId::new(42).expect("valid unit id"),
+                terminal_geometry: &terminal,
+                resolved_outlet: GeoCoord::new(2.5, -2.5),
+                snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
+            },
+            &D8RefinementPantry {
+                session: &session,
+                raster_source: None,
+            },
+        )
+        .expect_err("empty terminal should precede a missing D8 declaration");
+
+    assert!(
+        matches!(
+            &err,
+            TerminalRefinementError::Algorithm {
+                unit_id: 42,
+                source: RefinementError::DegenerateTerminalPolygon,
+            }
+        ),
+        "expected degenerate terminal before missing D8 declaration; got {err}"
+    );
+}
+
+#[test]
+fn degenerate_terminal_precedes_unsupported_d8_crs() {
+    let (_tmp, root) = copied_fixture();
+    write_projected_manifest(&root);
+    let mut projected = manifest(&root);
+    projected["auxiliary"][0]["metadata"]["crs"] = json!("EPSG:3857");
+    write_manifest(&root, projected);
+    let session = DatasetSession::open_path(&root).expect("temp fixture should open");
+    let terminal = MultiPolygon::new(vec![]);
+
+    let err = D8RasterRefinementStrategy
+        .refine_terminal(
+            TerminalRefinementInput {
+                terminal_unit: UnitId::new(42).expect("valid unit id"),
+                terminal_geometry: &terminal,
+                resolved_outlet: GeoCoord::new(10.0, 10.0),
+                snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
+            },
+            &D8RefinementPantry {
+                session: &session,
+                raster_source: None,
+            },
+        )
+        .expect_err("empty terminal should precede unsupported D8 CRS selection");
+
+    assert!(
+        matches!(
+            &err,
+            TerminalRefinementError::Algorithm {
+                unit_id: 42,
+                source: RefinementError::DegenerateTerminalPolygon,
+            }
+        ),
+        "expected degenerate terminal before EPSG:3857 D8 selection; got {err}"
+    );
+}
+
+#[test]
+fn degenerate_terminal_precedes_out_of_range_d8_crs() {
+    let (_tmp, root) = copied_fixture();
+    write_projected_manifest(&root);
+    let mut projected = manifest(&root);
+    projected["auxiliary"][0]["metadata"]["crs"] = json!("EPSG:99999999999");
+    write_manifest(&root, projected);
+    let session = DatasetSession::open_path(&root).expect("temp fixture should open");
+    let terminal = MultiPolygon::new(vec![]);
+
+    let err = D8RasterRefinementStrategy
+        .refine_terminal(
+            TerminalRefinementInput {
+                terminal_unit: UnitId::new(42).expect("valid unit id"),
+                terminal_geometry: &terminal,
+                resolved_outlet: GeoCoord::new(10.0, 10.0),
+                snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
+            },
+            &D8RefinementPantry {
+                session: &session,
+                raster_source: None,
+            },
+        )
+        .expect_err("empty terminal should precede out-of-range D8 CRS selection");
+
+    assert!(
+        matches!(
+            &err,
+            TerminalRefinementError::Algorithm {
+                unit_id: 42,
+                source: RefinementError::DegenerateTerminalPolygon,
+            }
+        ),
+        "expected degenerate terminal before EPSG:99999999999 D8 selection; got {err}"
+    );
+}
+
+#[test]
 fn unsupported_projected_crs_routes_through_d8_selection() {
     let (_tmp, root) = copied_fixture();
     write_projected_manifest(&root);

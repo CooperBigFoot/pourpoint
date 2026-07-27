@@ -15,6 +15,13 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- The built-in D8 refinement strategy
+  (`D8RasterRefinementStrategy::refine_terminal`) now rejects degenerate input
+  terminal geometry with `RefinementError::DegenerateTerminalPolygon` before
+  attempting D8 declaration selection, so an unsupported or out-of-range
+  declared CRS no longer masks it. A dataset that declares no D8 auxiliary
+  still reports `SessionError::MissingRequiredD8Aux` through
+  `Engine::delineate`, which short-circuits before refinement.
 - Every built-in D8-path failure is now a diagnosable typed skip under
   `BestEffort`, while `RequireD8` remains fatal. CLI and Python debug-formatted
   provenance now includes the complete source diagnostic.
