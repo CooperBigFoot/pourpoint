@@ -95,19 +95,60 @@ manifest and metadata inspection found no workspace dependency on
 
 ## Known issues
 
-1. `trace_upstream` has a reachable panic when a flow-direction tile's nodata
+1. ~~`trace_upstream` has a reachable panic when a flow-direction tile's nodata
    byte decodes as a valid direction; out-of-bounds neighbor arithmetic can
-   overflow.
-2. `RasterSource` does not carry the manifest-declared flow-direction encoding.
+   overflow.~~
+
+   **Retired.** Commit `594089f` (PR #90) preserved raster bounds in checked
+   probes, and commit `55a41c8` (PR #91) rejected directional nodata before a
+   trace can run. The regressions
+   `directional_nodata_at_column_zero_does_not_enter_trace`,
+   `out_of_bounds_directional_nodata_does_not_change_geometry`, and
+   `checked_construction_rejects_directional_nodata_before_trace` lock both
+   sides of that repair.
+2. ~~`RasterSource` does not carry the manifest-declared flow-direction encoding.
    Test-side sources therefore cannot be selected from manifest metadata, and
-   the bare `LocalTiffRasterSource` hard-codes ESRI decoding.
-3. In the degenerate-terminal route, declaration artifact path resolution
+   the bare `LocalTiffRasterSource` hard-codes ESRI decoding.~~
+
+   **Retired.** Commit `cd5aec9` (PR #88) made the selected HFX declaration the
+   decoding authority: `RasterSource::load_flow_direction` now receives the
+   declared encoding, and `EncodedLocalTiffRasterSource` was deleted. The
+   `projected_grass_declaration_drives_gdal_and_changes_geometry` regression
+   proves that the declared GRASS encoding reaches the production GDAL source
+   and changes the observed geometry.
+3. ~~In the degenerate-terminal route, declaration artifact path resolution
    occurs before degeneracy is reported. An empty terminal with unresolvable
    paths therefore surfaces a path error instead of
-   `DegenerateTerminalPolygon`.
+   `DegenerateTerminalPolygon`.~~
 
-These remain current issues; this release-prep step does not change production
-code.
+   **Retired as never-occurring.** The stated path-resolution defect never
+   existed and was not fixed by this work. At the pre-vision ref `9ec267cb`,
+   `empty_terminal_routes_through_degenerate_refinement_error` already proved
+   `DegenerateTerminalPolygon`: the session short-circuited an empty terminal
+   and returned `Ok` before any artifact path or COG-header read, and
+   `d8_handle` performed no I/O.
+
+   Separately, commit `8f4e71e` (PR #95) and commit `9303a91` (PR #96)
+   established precedence over the conditions that genuinely masked
+   degeneracy. Direct `D8RasterRefinementStrategy::refine_terminal` calls in
+   `degenerate_terminal_precedes_missing_d8_declaration`,
+   `degenerate_terminal_precedes_unsupported_d8_crs`, and
+   `degenerate_terminal_precedes_out_of_range_d8_crs` prove the three strategy
+   legs. The missing-declaration leg is strategy-scoped only:
+   `Engine::delineate` intentionally short-circuits on `!session.has_d8_aux()`
+   before constructing the strategy and therefore still reports
+   `NoD8AuxDeclared` in `BestEffort` or
+   `D8Selection{MissingRequiredD8Aux}` in `RequireD8`, by design. For the two
+   declared-CRS legs, the engine's mode-total dispatch composes the strategy
+   result into the mode-specific outcome.
+   `defensive_algorithm_rows_have_exact_best_effort_classifications` locks the
+   `DegenerateTerminalPolygon` classifier row, and
+   `empty_terminal_routes_through_degenerate_refinement_error` locks
+   `EngineError::from`.
+
+The 0.2.0 release-prep step does not change production code. Entries 1 and 2
+were resolved subsequently by the commits cited above; entry 3 is retired
+because the described scenario never occurred.
 
 ## Local wheel and sdist dry run
 

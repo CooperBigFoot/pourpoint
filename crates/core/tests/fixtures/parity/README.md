@@ -230,15 +230,33 @@ The golden proves only:
    this claim.
 6. Fully offline canonical-WKB stability.
 
-It does not prove km2 threshold conversion. These unresolved production risks
-are owned by milestone M5:
+It does not prove km2 threshold conversion. These production risks remain
+unresolved:
 
 - `risk-degenerate-path-corner`
 - `risk-dead-integrity-arm`
-- `RasterSource` does not carry the declared flow-direction encoding, so a
-  test-side source cannot be selected from the manifest.
-- `trace_upstream` has a reachable out-of-bounds panic when a flow-direction
-  tile's nodata byte decodes as a valid direction.
+
+Milestone M5 retires these two resolved production risks from this register:
+
+- ~~`RasterSource` does not carry the declared flow-direction encoding, so a
+  test-side source cannot be selected from the manifest.~~
+
+  **Retired.** Commit `cd5aec9` (PR #88) made the selected HFX declaration the
+  decoding authority: `RasterSource::load_flow_direction` now receives the
+  declared encoding, and `EncodedLocalTiffRasterSource` was deleted. The
+  `projected_grass_declaration_drives_gdal_and_changes_geometry` regression
+  proves that the declared GRASS encoding reaches the production GDAL source
+  and changes the observed geometry.
+- ~~`trace_upstream` has a reachable out-of-bounds panic when a flow-direction
+  tile's nodata byte decodes as a valid direction.~~
+
+  **Retired.** Commit `594089f` (PR #90) preserved raster bounds in checked
+  probes, and commit `55a41c8` (PR #91) rejected directional nodata before a
+  trace can run. The regressions
+  `directional_nodata_at_column_zero_does_not_enter_trace`,
+  `out_of_bounds_directional_nodata_does_not_change_geometry`, and
+  `checked_construction_rejects_directional_nodata_before_trace` lock both
+  sides of that repair.
 
 The fixture and golden are exercised fully offline:
 
