@@ -6,7 +6,9 @@ use object_store::path::Path as ObjectPath;
 
 use crate::algo::coord::GeoCoord;
 use crate::algo::projection::{Crs, NativeCoord, ProjectionError, forward, inverse};
-use crate::algo::{RasterSource, RefinementError, SnapThreshold, refine_terminal_from_source};
+use crate::algo::{
+    RasterSource, RasterSourceError, RefinementError, SnapThreshold, refine_terminal_from_source,
+};
 use crate::error::SessionError;
 use crate::session::{DatasetSession, RasterKind};
 use crate::telemetry::{
@@ -415,6 +417,34 @@ pub enum AppliedRefinementReason {
     },
 }
 
+/// Operator-facing category for a best-effort D8 refinement skip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BestEffortSkipCategory {
+    /// A required D8 declaration, artifact, cache object, or reader capability was unavailable.
+    Availability,
+    /// The D8 declaration or raster metadata contradicts the supported contract.
+    MisDeclaration,
+    /// Raster data, geometry, numerical projection, or an internal invariant rejected refinement.
+    DataGeometryIntegrity,
+}
+
+/// Typed source family for a best-effort D8 refinement skip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BestEffortSkipSource {
+    /// Selecting a covering D8 declaration failed.
+    D8Selection,
+    /// Localizing a selected raster window failed.
+    RasterLocalization,
+    /// Opening, reading, or constructing a raster tile failed.
+    RasterLoad,
+    /// The raster refinement algorithm rejected its inputs or output.
+    RefinementAlgorithm,
+    /// A strategy returned an empty contained-terminal geometry.
+    ContainedTerminalGeometry,
+    /// A strategy required an attached raster source.
+    RasterSource,
+}
+
 /// Reasons best-effort refinement skipped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BestEffortSkipReason {
@@ -422,6 +452,40 @@ pub enum BestEffortSkipReason {
     NoD8AuxDeclared,
     /// The engine has no raster source attached.
     NoRasterSourceProvided,
+    /// A required declaration, artifact, cache object, or reader capability was unavailable.
+    Availability {
+        /// Typed family in which the unavailable input was encountered.
+        source: BestEffortSkipSource,
+        /// Complete rendering of the underlying source error.
+        diagnostic: String,
+    },
+    /// A declaration or raster metadata contradicted the supported D8 contract.
+    MisDeclaration {
+        /// Typed family in which the contract contradiction was encountered.
+        source: BestEffortSkipSource,
+        /// Complete rendering of the underlying source error.
+        diagnostic: String,
+    },
+    /// Raster data, geometry, numerical projection, or an internal invariant rejected refinement.
+    DataGeometryIntegrity {
+        /// Typed family in which the data, geometry, or integrity failure was encountered.
+        source: BestEffortSkipSource,
+        /// Complete rendering of the underlying source error.
+        diagnostic: String,
+    },
+}
+
+impl BestEffortSkipReason {
+    /// Return the operator-facing category of this skip.
+    pub fn category(&self) -> BestEffortSkipCategory {
+        match self {
+            Self::NoD8AuxDeclared | Self::NoRasterSourceProvided | Self::Availability { .. } => {
+                BestEffortSkipCategory::Availability
+            }
+            Self::MisDeclaration { .. } => BestEffortSkipCategory::MisDeclaration,
+            Self::DataGeometryIntegrity { .. } => BestEffortSkipCategory::DataGeometryIntegrity,
+        }
+    }
 }
 
 /// Errors from the terminal-refinement strategy seam.
@@ -472,4 +536,97 @@ pub enum TerminalRefinementError {
         /// Underlying algorithm error.
         source: RefinementError,
     },
+}
+
+pub(crate) fn best_effort_skip_reason(error: &TerminalRefinementError) -> BestEffortSkipReason {
+    match error {
+        TerminalRefinementError::EmptyContainedTerminalGeometry => {
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::ContainedTerminalGeometry,
+                diagnostic: error.to_string(),
+            }
+        }
+        TerminalRefinementError::RasterSource { .. } => BestEffortSkipReason::Availability {
+            source: BestEffortSkipSource::RasterSource,
+            diagnostic: error.to_string(),
+        },
+        TerminalRefinementError::D8Selection { source, .. } => {
+            best_effort_session_skip(source, BestEffortSkipSource::D8Selection)
+        }
+        TerminalRefinementError::RasterLocalize { source, .. } => {
+            best_effort_session_skip(source, BestEffortSkipSource::RasterLocalization)
+        }
+        TerminalRefinementError::Algorithm { source, .. } => best_effort_refinement_skip(source),
+    }
+}
+
+fn best_effort_session_skip(
+    error: &SessionError,
+    source: BestEffortSkipSource,
+) -> BestEffortSkipReason {
+    let diagnostic = error.to_string();
+    match error {
+        SessionError::MissingRequiredD8Aux
+        | SessionError::NoCoveringD8Tile { .. }
+        | SessionError::AmbiguousD8Coverage { .. }
+        | SessionError::TerminalSpansD8Tiles { .. }
+        | SessionError::CogExtentHeaderRead { .. }
+        | SessionError::Cache(_) => BestEffortSkipReason::Availability { source, diagnostic },
+        SessionError::D8CrsIdentifierOutOfRange { .. } | SessionError::UnsupportedD8Crs { .. } => {
+            BestEffortSkipReason::MisDeclaration { source, diagnostic }
+        }
+        SessionError::IntegrityViolation { .. } => {
+            BestEffortSkipReason::DataGeometryIntegrity { source, diagnostic }
+        }
+        _ => BestEffortSkipReason::DataGeometryIntegrity { source, diagnostic },
+    }
+}
+
+fn best_effort_refinement_skip(error: &RefinementError) -> BestEffortSkipReason {
+    let diagnostic = error.to_string();
+    match error {
+        RefinementError::DimensionMismatch { .. }
+        | RefinementError::GeoTransformMismatch { .. }
+        | RefinementError::GeographicKm2Unsupported { .. } => {
+            BestEffortSkipReason::MisDeclaration {
+                source: BestEffortSkipSource::RefinementAlgorithm,
+                diagnostic,
+            }
+        }
+        RefinementError::DegenerateTerminalPolygon
+        | RefinementError::EmptyRasterMask { .. }
+        | RefinementError::MaskFailed { .. }
+        | RefinementError::SnapFailed { .. }
+        | RefinementError::EmptyPolygonization
+        | RefinementError::InverseProjection { .. } => {
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::RefinementAlgorithm,
+                diagnostic,
+            }
+        }
+        RefinementError::RasterLoad { source } => {
+            let diagnostic = source.to_string();
+            match source {
+                RasterSourceError::FileNotFound { .. }
+                | RasterSourceError::OpenFailed { .. }
+                | RasterSourceError::ReadFailed { .. }
+                | RasterSourceError::EmptyWindow { .. } => BestEffortSkipReason::Availability {
+                    source: BestEffortSkipSource::RasterLoad,
+                    diagnostic,
+                },
+                RasterSourceError::InvalidFlowDirectionNodata { .. } => {
+                    BestEffortSkipReason::MisDeclaration {
+                        source: BestEffortSkipSource::RasterLoad,
+                        diagnostic,
+                    }
+                }
+                RasterSourceError::TileConstruction { .. } => {
+                    BestEffortSkipReason::DataGeometryIntegrity {
+                        source: BestEffortSkipSource::RasterLoad,
+                        diagnostic,
+                    }
+                }
+            }
+        }
+    }
 }

@@ -2,10 +2,13 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use geo::{BoundingRect, LineString, MultiPolygon, Polygon};
-use hfx::{AreaKm2, Level, OutletCoord, UnitId};
-use pourpoint_core::algo::canonical_wkb_multi_polygon;
+use geo::{BoundingRect, LineString, MultiPolygon, Polygon, Rect};
+use hfx::{AreaKm2, FlowDirEncoding, Level, OutletCoord, UnitId};
 use pourpoint_core::algo::coord::GeoCoord;
+use pourpoint_core::algo::{
+    AccumulationTile, FlowDirectionTile, RasterSource, RasterSourceError, Raw,
+    canonical_wkb_multi_polygon,
+};
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::DatasetBuilder;
 use pourpoint_core::{
@@ -128,6 +131,47 @@ fn delineate_equals_explicit_staged_composition_best_effort_no_rasters() {
         .expect("explicit staged composition should succeed");
 
     assert_visible_no_d8_aux_skip(direct.refinement());
+    assert_delineation_results_equal(&direct, &staged);
+}
+
+#[test]
+fn delineate_equals_staged_composition_for_classified_best_effort_skip() {
+    let fixture = parity_fixture_path(V021_SYNTHETIC_REFINED_DIR);
+    let session = DatasetSession::open_path(&fixture).expect("D8 parity fixture should open");
+    let engine = Engine::builder(session)
+        .with_raster_source(MissingRasterSource)
+        .build();
+    let outlet = GeoCoord::new(2.5, -2.5);
+    let options = DelineationOptions::default();
+    let direct = engine
+        .delineate(outlet, &options)
+        .expect("direct BestEffort delineation should skip the missing raster");
+    let staged = explicit_staged_composition(&engine, outlet, &options)
+        .expect("staged BestEffort delineation should skip the missing raster");
+    let expected_reason = BestEffortSkipReason::Availability {
+        source: pourpoint_core::refinement::BestEffortSkipSource::RasterLoad,
+        diagnostic: RasterSourceError::FileNotFound {
+            path: fixture.join("flow_dir.tif").to_string_lossy().into_owned(),
+        }
+        .to_string(),
+    };
+
+    assert_eq!(
+        direct.refinement(),
+        &RefinementOutcome::BestEffortSkipped {
+            provenance: RefinementProvenance::BestEffortSkipped {
+                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+                why: expected_reason,
+            },
+        }
+    );
+    assert_eq!(direct.refinement(), staged.refinement());
+    assert_eq!(
+        canonical_wkb_multi_polygon(direct.geometry())
+            .expect("direct geometry should canonicalize"),
+        canonical_wkb_multi_polygon(staged.geometry())
+            .expect("staged geometry should canonicalize")
+    );
     assert_delineation_results_equal(&direct, &staged);
 }
 
@@ -453,6 +497,31 @@ fn assert_visible_no_d8_aux_skip(refinement: &RefinementOutcome) {
             },
         }
     );
+}
+
+struct MissingRasterSource;
+
+impl RasterSource for MissingRasterSource {
+    fn load_flow_direction(
+        &self,
+        uri: &str,
+        _bbox: &Rect<f64>,
+        _encoding: FlowDirEncoding,
+    ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+        Err(RasterSourceError::FileNotFound {
+            path: uri.to_string(),
+        })
+    }
+
+    fn load_accumulation(
+        &self,
+        uri: &str,
+        _bbox: &Rect<f64>,
+    ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+        Err(RasterSourceError::FileNotFound {
+            path: uri.to_string(),
+        })
+    }
 }
 
 fn contained(geometry: MultiPolygon<f64>) -> ContainedTerminalPolygon {

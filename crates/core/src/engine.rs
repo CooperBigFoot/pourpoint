@@ -20,7 +20,7 @@ use crate::reader::catchment_store::CatchmentGeometryQueryError;
 use crate::refinement::{
     D8RasterRefinementStrategy, D8RefinementPantry, RefinementProvenance,
     TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
-    TerminalRefinementStrategy,
+    TerminalRefinementStrategy, best_effort_skip_reason,
 };
 use crate::resolver::{
     OutletResolutionError, ResolutionMethod, ResolverConfig,
@@ -772,10 +772,18 @@ impl Engine {
             raster_source: self.raster_source.as_deref(),
         };
 
-        let decision = self
-            .refinement_strategy
-            .refine_terminal(input, &pantry)
-            .map_err(EngineError::from)?;
+        let decision = match self.refinement_strategy.refine_terminal(input, &pantry) {
+            Ok(decision) => decision,
+            Err(error) => match options.refinement_mode {
+                RefinementMode::BestEffort => {
+                    return Ok(TerminalRefinement::best_effort_skipped(
+                        best_effort_skip_reason(&error),
+                    ));
+                }
+                RefinementMode::RequireD8 => return Err(EngineError::from(error)),
+                RefinementMode::Disabled => return Ok(TerminalRefinement::Disabled),
+            },
+        };
         terminal_refinement_from_decision(decision, options.refinement_mode, terminal)
     }
 
@@ -1077,12 +1085,14 @@ mod tests {
     use super::*;
     use crate::algo::{
         AccumulationTile, FlowDirectionTile, GeoTransform, GridCoord, GridDims, NativeCoord,
-        ProjectionError, RasterSourceError, RasterTile, Raw,
+        ProjectionError, RasterSourceError, RasterTile, RasterTileError, Raw, SnapError,
     };
     use crate::reader::catchment_store::{
         READER_SESSION_INSTRUMENTATION_TEST_LOCK, reset_geometry_decode_counts_for_test,
     };
-    use crate::refinement::RefinementStrategyName;
+    use crate::refinement::{
+        BestEffortSkipCategory, BestEffortSkipReason, BestEffortSkipSource, RefinementStrategyName,
+    };
     use crate::session::DatasetSession;
     use crate::testutil::{DatasetBuilder, TestCatchment};
 
@@ -1494,5 +1504,158 @@ mod tests {
                 },
             }
         ));
+    }
+
+    #[test]
+    fn defensive_terminal_error_rows_have_exact_best_effort_classifications() {
+        let empty = TerminalRefinementError::EmptyContainedTerminalGeometry;
+        assert_eq!(
+            best_effort_skip_reason(&empty),
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::ContainedTerminalGeometry,
+                diagnostic: empty.to_string(),
+            }
+        );
+        let missing_source = TerminalRefinementError::RasterSource {
+            unit_id: 42,
+            strategy: RefinementStrategyName::BuiltInD8,
+        };
+        assert_eq!(
+            best_effort_skip_reason(&missing_source),
+            BestEffortSkipReason::Availability {
+                source: BestEffortSkipSource::RasterSource,
+                diagnostic: missing_source.to_string(),
+            }
+        );
+        let integrity = SessionError::IntegrityViolation {
+            detail: "selected D8 handle lost its declaration".to_string(),
+        };
+        let error = TerminalRefinementError::D8Selection {
+            unit_id: 42,
+            source: integrity,
+        };
+        assert_eq!(
+            best_effort_skip_reason(&error),
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::D8Selection,
+                diagnostic: "integrity violation: selected D8 handle lost its declaration"
+                    .to_string(),
+            }
+        );
+        assert_eq!(
+            best_effort_skip_reason(&error).category(),
+            BestEffortSkipCategory::DataGeometryIntegrity
+        );
+        let ambiguous = SessionError::AmbiguousD8Coverage {
+            min_x: 0.0,
+            min_y: -1.0,
+            max_x: 1.0,
+            max_y: 0.0,
+            declaration_indices: vec![0, 1],
+        };
+        let diagnostic = ambiguous.to_string();
+        let error = TerminalRefinementError::D8Selection {
+            unit_id: 42,
+            source: ambiguous,
+        };
+        assert_eq!(
+            best_effort_skip_reason(&error),
+            BestEffortSkipReason::Availability {
+                source: BestEffortSkipSource::D8Selection,
+                diagnostic,
+            }
+        );
+    }
+
+    #[test]
+    fn defensive_raster_load_and_remaining_algorithm_rows_are_exact() {
+        let tile_source = RasterSourceError::TileConstruction {
+            reason: "wrong-length buffer after successful read".to_string(),
+        };
+        let tile_error = TerminalRefinementError::Algorithm {
+            unit_id: 42,
+            source: RefinementError::RasterLoad {
+                source: RasterSourceError::TileConstruction {
+                    reason: "wrong-length buffer after successful read".to_string(),
+                },
+            },
+        };
+        assert_eq!(
+            best_effort_skip_reason(&tile_error),
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::RasterLoad,
+                diagnostic: tile_source.to_string(),
+            }
+        );
+        assert_eq!(
+            best_effort_skip_reason(&tile_error).category(),
+            BestEffortSkipCategory::DataGeometryIntegrity
+        );
+
+        let cases = [
+            RefinementError::DegenerateTerminalPolygon,
+            RefinementError::EmptyRasterMask { rows: 1, cols: 1 },
+            RefinementError::MaskFailed {
+                source: RasterTileError::DimensionMismatch {
+                    expected: 1,
+                    rows: 1,
+                    cols: 1,
+                    actual: 0,
+                },
+            },
+            RefinementError::SnapFailed {
+                source: SnapError::OutletOutOfBounds {
+                    epsg: 4326,
+                    outlet_x: 2.5,
+                    outlet_y: -2.5,
+                    rows: 1,
+                    cols: 1,
+                },
+            },
+            RefinementError::EmptyPolygonization,
+        ];
+        for source_error in cases {
+            let diagnostic = source_error.to_string();
+            let error = TerminalRefinementError::Algorithm {
+                unit_id: 42,
+                source: source_error,
+            };
+            assert_eq!(
+                best_effort_skip_reason(&error),
+                BestEffortSkipReason::DataGeometryIntegrity {
+                    source: BestEffortSkipSource::RefinementAlgorithm,
+                    diagnostic,
+                }
+            );
+        }
+
+        for raster_source in [
+            RasterSourceError::OpenFailed {
+                path: "flow.tif".to_string(),
+                reason: "reader unavailable".to_string(),
+            },
+            RasterSourceError::ReadFailed {
+                path: "flow.tif".to_string(),
+                reason: "truncated window".to_string(),
+            },
+            RasterSourceError::EmptyWindow {
+                path: "flow.tif".to_string(),
+            },
+        ] {
+            let diagnostic = raster_source.to_string();
+            let error = TerminalRefinementError::Algorithm {
+                unit_id: 42,
+                source: RefinementError::RasterLoad {
+                    source: raster_source,
+                },
+            };
+            assert_eq!(
+                best_effort_skip_reason(&error),
+                BestEffortSkipReason::Availability {
+                    source: BestEffortSkipSource::RasterLoad,
+                    diagnostic,
+                }
+            );
+        }
     }
 }
