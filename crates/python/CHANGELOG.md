@@ -7,6 +7,24 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+### Changed
+
+- Every built-in D8-path failure now produces a typed, diagnosable skip under
+  `BestEffort`, while `RequireD8` remains fatal. Debug-formatted provenance
+  includes the complete source diagnostic.
+
+### Rust source compatibility
+
+| Public enum | Status | Added variants |
+|---|---|---|
+| `BestEffortSkipCategory` | new | `Availability`, `MisDeclaration`, `DataGeometryIntegrity` |
+| `BestEffortSkipSource` | new | `D8Selection`, `RasterLocalization`, `RasterLoad`, `RefinementAlgorithm`, `ContainedTerminalGeometry`, `RasterSource` |
+| `BestEffortSkipReason` | existing | `Availability`, `MisDeclaration`, `DataGeometryIntegrity` |
+
+No enum under `crates/` is `#[non_exhaustive]`, so exhaustive downstream Rust
+matches may require source changes. These diagnoses are Rust-only; Python has
+no exhaustive match to update.
+
 ## [0.2.1] - 2026-07-26
 
 Pourpoint 0.2.0 shipped on 2026-07-24 under tag `pourpoint-v0.2.0` and was

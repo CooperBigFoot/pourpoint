@@ -15,6 +15,9 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Every built-in D8-path failure is now a diagnosable typed skip under
+  `BestEffort`, while `RequireD8` remains fatal. CLI and Python debug-formatted
+  provenance now includes the complete source diagnostic.
 - Rejected flow-direction rasters before refinement when their header nodata
   byte decodes as a legal direction under the declared encoding, with a typed
   diagnostic carrying the byte and encoding.

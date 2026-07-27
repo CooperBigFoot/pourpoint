@@ -355,6 +355,16 @@ pub enum TerminalRefinement {
 }
 
 impl TerminalRefinement {
+    /// Construct a visible best-effort skip for a classified D8-path failure.
+    pub fn best_effort_skipped(why: BestEffortSkipReason) -> Self {
+        Self::BestEffortSkipped {
+            provenance: RefinementProvenance::BestEffortSkipped {
+                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+                why,
+            },
+        }
+    }
+
     /// Construct a visible best-effort skip for missing D8 declarations.
     pub fn best_effort_no_d8_aux_declared() -> Self {
         Self::BestEffortSkipped {
