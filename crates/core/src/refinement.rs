@@ -69,6 +69,14 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         input: TerminalRefinementInput<'_>,
         pantry: &D8RefinementPantry<'_>,
     ) -> Result<TerminalRefinementDecision, TerminalRefinementError> {
+        input
+            .terminal_geometry
+            .bounding_rect()
+            .ok_or(TerminalRefinementError::Algorithm {
+                unit_id: input.terminal_unit.get(),
+                source: RefinementError::DegenerateTerminalPolygon,
+            })?;
+
         let (handle, native_terminal) = pantry
             .session
             .select_d8_raster_for_terminal(input.terminal_geometry)
