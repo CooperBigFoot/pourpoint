@@ -1081,19 +1081,19 @@ impl From<TerminalRefinementError> for EngineError {
 mod tests {
     use geo::Rect;
     use hfx::{FlowAccumulationUnits, FlowDirEncoding};
+    use object_store::path::Path as ObjectPath;
 
     use super::*;
     use crate::algo::{
         AccumulationTile, FlowDirectionTile, GeoTransform, GridCoord, GridDims, NativeCoord,
         ProjectionError, RasterSourceError, RasterTile, RasterTileError, Raw, SnapError,
     };
+    use crate::error::CacheError;
     use crate::reader::catchment_store::{
         READER_SESSION_INSTRUMENTATION_TEST_LOCK, reset_geometry_decode_counts_for_test,
     };
-    use crate::refinement::{
-        BestEffortSkipCategory, BestEffortSkipReason, BestEffortSkipSource, RefinementStrategyName,
-    };
-    use crate::session::DatasetSession;
+    use crate::refinement::{BestEffortSkipReason, BestEffortSkipSource, RefinementStrategyName};
+    use crate::session::{DatasetSession, RasterKind};
     use crate::testutil::{DatasetBuilder, TestCatchment};
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -1508,91 +1508,92 @@ mod tests {
 
     #[test]
     fn defensive_terminal_error_rows_have_exact_best_effort_classifications() {
-        let empty = TerminalRefinementError::EmptyContainedTerminalGeometry;
-        assert_eq!(
-            best_effort_skip_reason(&empty),
-            BestEffortSkipReason::DataGeometryIntegrity {
-                source: BestEffortSkipSource::ContainedTerminalGeometry,
-                diagnostic: empty.to_string(),
-            }
-        );
-        let missing_source = TerminalRefinementError::RasterSource {
-            unit_id: 42,
-            strategy: RefinementStrategyName::BuiltInD8,
-        };
-        assert_eq!(
-            best_effort_skip_reason(&missing_source),
-            BestEffortSkipReason::Availability {
-                source: BestEffortSkipSource::RasterSource,
-                diagnostic: missing_source.to_string(),
-            }
-        );
-        let integrity = SessionError::IntegrityViolation {
-            detail: "selected D8 handle lost its declaration".to_string(),
-        };
-        let error = TerminalRefinementError::D8Selection {
-            unit_id: 42,
-            source: integrity,
-        };
-        assert_eq!(
-            best_effort_skip_reason(&error),
-            BestEffortSkipReason::DataGeometryIntegrity {
-                source: BestEffortSkipSource::D8Selection,
-                diagnostic: "integrity violation: selected D8 handle lost its declaration"
-                    .to_string(),
-            }
-        );
-        assert_eq!(
-            best_effort_skip_reason(&error).category(),
-            BestEffortSkipCategory::DataGeometryIntegrity
-        );
-        let ambiguous = SessionError::AmbiguousD8Coverage {
+        fn assert_classification(error: &TerminalRefinementError, expected: BestEffortSkipReason) {
+            let actual = best_effort_skip_reason(error);
+            assert_eq!(actual.category(), expected.category());
+            assert_eq!(actual, expected);
+        }
+
+        let ambiguous_source = SessionError::AmbiguousD8Coverage {
             min_x: 0.0,
             min_y: -1.0,
             max_x: 1.0,
             max_y: 0.0,
             declaration_indices: vec![0, 1],
         };
-        let diagnostic = ambiguous.to_string();
-        let error = TerminalRefinementError::D8Selection {
+        let ambiguous_diagnostic = ambiguous_source.to_string();
+        let ambiguous_error = TerminalRefinementError::D8Selection {
             unit_id: 42,
-            source: ambiguous,
+            source: ambiguous_source,
         };
-        assert_eq!(
-            best_effort_skip_reason(&error),
+
+        let cache_source = SessionError::Cache(CacheError::UnsupportedCog {
+            path: ObjectPath::from("flow_dir.tif"),
+            reason: "strip layout is unsupported".to_string(),
+        });
+        let cache_diagnostic = cache_source.to_string();
+        let cache_error = TerminalRefinementError::RasterLocalize {
+            unit_id: 42,
+            kind: RasterKind::FlowDir,
+            source: cache_source,
+        };
+
+        let integrity_source = SessionError::IntegrityViolation {
+            detail: "selected D8 handle lost its declaration".to_string(),
+        };
+        let integrity_error = TerminalRefinementError::D8Selection {
+            unit_id: 42,
+            source: integrity_source,
+        };
+
+        let empty_contained_error = TerminalRefinementError::EmptyContainedTerminalGeometry;
+
+        let missing_source_error = TerminalRefinementError::RasterSource {
+            unit_id: 42,
+            strategy: RefinementStrategyName::BuiltInD8,
+        };
+
+        assert_classification(
+            &ambiguous_error,
             BestEffortSkipReason::Availability {
                 source: BestEffortSkipSource::D8Selection,
-                diagnostic,
-            }
+                diagnostic: ambiguous_diagnostic,
+            },
+        );
+        assert_classification(
+            &cache_error,
+            BestEffortSkipReason::Availability {
+                source: BestEffortSkipSource::RasterLocalization,
+                diagnostic: cache_diagnostic,
+            },
+        );
+        assert_classification(
+            &integrity_error,
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::D8Selection,
+                diagnostic: "integrity violation: selected D8 handle lost its declaration"
+                    .to_string(),
+            },
+        );
+        assert_classification(
+            &empty_contained_error,
+            BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::ContainedTerminalGeometry,
+                diagnostic: empty_contained_error.to_string(),
+            },
+        );
+        assert_classification(
+            &missing_source_error,
+            BestEffortSkipReason::Availability {
+                source: BestEffortSkipSource::RasterSource,
+                diagnostic: missing_source_error.to_string(),
+            },
         );
     }
 
     #[test]
-    fn defensive_raster_load_and_remaining_algorithm_rows_are_exact() {
-        let tile_source = RasterSourceError::TileConstruction {
-            reason: "wrong-length buffer after successful read".to_string(),
-        };
-        let tile_error = TerminalRefinementError::Algorithm {
-            unit_id: 42,
-            source: RefinementError::RasterLoad {
-                source: RasterSourceError::TileConstruction {
-                    reason: "wrong-length buffer after successful read".to_string(),
-                },
-            },
-        };
-        assert_eq!(
-            best_effort_skip_reason(&tile_error),
-            BestEffortSkipReason::DataGeometryIntegrity {
-                source: BestEffortSkipSource::RasterLoad,
-                diagnostic: tile_source.to_string(),
-            }
-        );
-        assert_eq!(
-            best_effort_skip_reason(&tile_error).category(),
-            BestEffortSkipCategory::DataGeometryIntegrity
-        );
-
-        let cases = [
+    fn defensive_algorithm_rows_have_exact_best_effort_classifications() {
+        let algorithm_sources = [
             RefinementError::DegenerateTerminalPolygon,
             RefinementError::EmptyRasterMask { rows: 1, cols: 1 },
             RefinementError::MaskFailed {
@@ -1614,48 +1615,19 @@ mod tests {
             },
             RefinementError::EmptyPolygonization,
         ];
-        for source_error in cases {
+        for source_error in algorithm_sources {
             let diagnostic = source_error.to_string();
             let error = TerminalRefinementError::Algorithm {
                 unit_id: 42,
                 source: source_error,
             };
-            assert_eq!(
-                best_effort_skip_reason(&error),
-                BestEffortSkipReason::DataGeometryIntegrity {
-                    source: BestEffortSkipSource::RefinementAlgorithm,
-                    diagnostic,
-                }
-            );
-        }
-
-        for raster_source in [
-            RasterSourceError::OpenFailed {
-                path: "flow.tif".to_string(),
-                reason: "reader unavailable".to_string(),
-            },
-            RasterSourceError::ReadFailed {
-                path: "flow.tif".to_string(),
-                reason: "truncated window".to_string(),
-            },
-            RasterSourceError::EmptyWindow {
-                path: "flow.tif".to_string(),
-            },
-        ] {
-            let diagnostic = raster_source.to_string();
-            let error = TerminalRefinementError::Algorithm {
-                unit_id: 42,
-                source: RefinementError::RasterLoad {
-                    source: raster_source,
-                },
+            let actual = best_effort_skip_reason(&error);
+            let expected = BestEffortSkipReason::DataGeometryIntegrity {
+                source: BestEffortSkipSource::RefinementAlgorithm,
+                diagnostic,
             };
-            assert_eq!(
-                best_effort_skip_reason(&error),
-                BestEffortSkipReason::Availability {
-                    source: BestEffortSkipSource::RasterLoad,
-                    diagnostic,
-                }
-            );
+            assert_eq!(actual.category(), expected.category());
+            assert_eq!(actual, expected);
         }
     }
 }
