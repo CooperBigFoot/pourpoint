@@ -15,12 +15,15 @@ use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStoreExt, PutPayload};
 use parquet::arrow::ArrowWriter;
-use pourpoint_core::Engine;
-use pourpoint_core::algo::GeoCoord;
+use pourpoint_core::algo::{GeoCoord, canonical_wkb_multi_polygon};
 use pourpoint_core::engine::{DelineationOptions, RefinementOutcome};
+use pourpoint_core::refinement::{BestEffortSkipCategory, BestEffortSkipSource};
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
-use pourpoint_core::{BestEffortSkipReason, RefinementProvenance, RefinementStrategyName};
+use pourpoint_core::{
+    BestEffortSkipReason, Engine, EngineError, RefinementMode, RefinementProvenance,
+    RefinementStrategyName, SessionError,
+};
 use tempfile::TempDir;
 use url::Url;
 
@@ -122,6 +125,59 @@ fn phase_3a7_delineate_remote_inmemory_end_to_end_and_reuses_manifest_graph_cach
     assert_remote_delineation_succeeds(cached_session);
 }
 
+#[test]
+fn remote_d8_localization_failure_skips_best_effort_and_stays_fatal_when_required() {
+    let cache_dir = TempDir::new().unwrap();
+    let _cache_env = CacheEnv::set(cache_dir.path());
+    let root = ObjectPath::from("m3-s1/missing-d8");
+    let url = Url::parse("s3://pourpoint-test/m3-s1/missing-d8").unwrap();
+    let store = Arc::new(InMemory::new());
+    put_remote_fixture(&store, &root, RemoteFixture::D8Missing);
+    let delineate = |mode| {
+        let session = DatasetSession::open_remote_with_store(store.clone(), &root, &url)
+            .expect("remote session should open");
+        Engine::builder(session).build().delineate(
+            GeoCoord::new(1.70, 0.20),
+            &DelineationOptions::default().with_refinement_mode(mode),
+        )
+    };
+    let best_effort = delineate(RefinementMode::BestEffort)
+        .expect("BestEffort should skip the missing remote D8 object");
+    let disabled = delineate(RefinementMode::Disabled).expect("Disabled should succeed");
+    let required_error =
+        delineate(RefinementMode::RequireD8).expect_err("RequireD8 should retain selection error");
+    let expected_reason = BestEffortSkipReason::Availability {
+        source: BestEffortSkipSource::D8Selection,
+        diagnostic: "failed to read D8 COG extent header for declaration 0 FlowDir at missing-flow-dir.tif: failed to fetch remote cache object m3-s1/missing-d8/missing-flow-dir.tif: Object at location m3-s1/missing-d8/missing-flow-dir.tif not found: No data in memory found. Location: m3-s1/missing-d8/missing-flow-dir.tif".to_string(),
+    };
+    assert_eq!(
+        expected_reason.category(),
+        BestEffortSkipCategory::Availability
+    );
+    assert_eq!(
+        best_effort.refinement(),
+        &RefinementOutcome::BestEffortSkipped {
+            provenance: RefinementProvenance::BestEffortSkipped {
+                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+                why: expected_reason,
+            },
+        }
+    );
+    assert_eq!(
+        canonical_wkb_multi_polygon(best_effort.geometry())
+            .expect("BestEffort geometry should canonicalize"),
+        canonical_wkb_multi_polygon(disabled.geometry())
+            .expect("Disabled geometry should canonicalize")
+    );
+    assert!(matches!(
+        required_error,
+        EngineError::D8Selection {
+            source: SessionError::CogExtentHeaderRead { .. },
+            ..
+        }
+    ));
+}
+
 fn assert_remote_delineation_succeeds(session: DatasetSession) {
     let engine = Engine::builder(session).build();
     let result = engine
@@ -147,20 +203,26 @@ fn assert_remote_delineation_succeeds(session: DatasetSession) {
     );
 }
 
+#[derive(Clone, Copy)]
 enum RemoteFixture {
     Full,
     CatchmentsOnly,
+    D8Missing,
 }
 
 fn put_remote_fixture(store: &Arc<InMemory>, root: &ObjectPath, fixture: RemoteFixture) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
-        if matches!(fixture, RemoteFixture::Full) {
+        if matches!(fixture, RemoteFixture::Full | RemoteFixture::D8Missing) {
             put_object(
                 store,
                 root,
                 "manifest.json",
-                PutPayload::from(manifest_bytes()),
+                PutPayload::from(if matches!(fixture, RemoteFixture::D8Missing) {
+                    manifest_with_missing_d8_bytes()
+                } else {
+                    manifest_bytes()
+                }),
             )
             .await;
             put_object(
@@ -199,6 +261,32 @@ fn manifest_bytes() -> String {
         "created_at": "2026-01-01T00:00:00Z",
         "adapter_version": "test-v1",
         "auxiliary": []
+    })
+    .to_string()
+}
+
+fn manifest_with_missing_d8_bytes() -> String {
+    serde_json::json!({
+        "format_version": "0.3.0",
+        "fabric_name": "testfabric",
+        "crs": "EPSG:4326",
+        "topology": "tree",
+        "bbox": [-180.0, -90.0, 180.0, 90.0],
+        "unit_count": 3,
+        "created_at": "2026-01-01T00:00:00Z",
+        "adapter_version": "test-v1",
+        "auxiliary": [{
+            "schema": "hfx.aux.d8_raster.v2",
+            "artifacts": {
+                "flow_dir": "missing-flow-dir.tif",
+                "flow_acc": "missing-flow-acc.tif"
+            },
+            "metadata": {
+                "crs": "EPSG:4326",
+                "flow_dir_encoding": "esri",
+                "flow_acc_units": "cells"
+            }
+        }]
     })
     .to_string()
 }
