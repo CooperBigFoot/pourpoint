@@ -10,6 +10,7 @@ use pourpoint_core::algo::{
     ProjectionError, RasterSource, RasterSourceError, RasterTile, Raw, RefinementError, SnapError,
     canonical_wkb_multi_polygon, forward, inverse,
 };
+use pourpoint_core::error::{CacheError, D8NativeCoverageCandidate};
 use pourpoint_core::refinement::{
     BestEffortSkipCategory, BestEffortSkipSource, D8RasterRefinementStrategy, D8RefinementPantry,
     TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
@@ -591,104 +592,41 @@ fn refine_off_still_dissolves_whole_terminal_with_legacy_engine_behavior() {
 }
 
 #[test]
-fn require_d8_without_declared_aux_hard_errors_with_schema_name() {
+fn missing_declaration_has_exact_three_mode_contract() {
     let (_tmp, root) = copied_fixture();
     remove_d8_aux(&root);
-    let session = DatasetSession::open_path(&root).expect("temp fixture without D8 should open");
-    let engine = Engine::builder(session).build();
-    let options = DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8);
-
-    let err = engine
-        .delineate(GeoCoord::new(2.5, -2.5), &options)
-        .expect_err("RequireD8 should fail when no D8 aux is declared");
-
-    assert!(matches!(err, EngineError::D8Selection { .. }));
-    assert!(err.to_string().contains("hfx.aux.d8_raster.v2"));
-}
-
-#[test]
-fn best_effort_without_declared_aux_visibly_skips_and_dissolves_whole_terminal() {
-    let (_tmp, root) = copied_fixture();
-    remove_d8_aux(&root);
-    let best_effort = {
-        let session = DatasetSession::open_path(&root).expect("temp fixture should open");
-        Engine::builder(session)
-            .build()
-            .delineate(GeoCoord::new(2.5, -2.5), &DelineationOptions::default())
-            .expect("BestEffort with no D8 aux should succeed")
-    };
-    let disabled = {
-        let session = DatasetSession::open_path(&root).expect("temp fixture should reopen");
-        Engine::builder(session)
-            .build()
-            .delineate(
-                GeoCoord::new(2.5, -2.5),
-                &DelineationOptions::default().with_refinement_mode(RefinementMode::Disabled),
+    assert_three_mode_skip(
+        &root,
+        Some(SyntheticRasterFailure::FileNotFound),
+        BestEffortSkipReason::NoD8AuxDeclared,
+        BestEffortSkipCategory::Availability,
+        |error| {
+            matches!(
+                error,
+                EngineError::D8Selection {
+                    unit_id: 1,
+                    source: SessionError::MissingRequiredD8Aux,
+                }
             )
-            .expect("Disabled should succeed")
-    };
-
-    assert_eq!(
-        best_effort.refinement(),
-        &RefinementOutcome::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
-            },
-        }
-    );
-    assert_eq!(
-        canonical_wkb_multi_polygon(best_effort.geometry())
-            .expect("BestEffort geometry should canonicalize"),
-        canonical_wkb_multi_polygon(disabled.geometry())
-            .expect("Disabled geometry should canonicalize")
+        },
     );
 }
 
 #[test]
-fn selected_d8_read_failure_skips_best_effort_and_stays_fatal_when_required() {
-    let best_effort = delineate_with_source(
-        &fixture_path(),
-        RefinementMode::BestEffort,
-        FailingRasterSource,
-    )
-    .expect("BestEffort should skip an unavailable selected raster");
-    let disabled = delineate_with_source(
-        &fixture_path(),
-        RefinementMode::Disabled,
-        FailingRasterSource,
-    )
-    .expect("Disabled should succeed");
-    let required_error = delineate_with_source(
-        &fixture_path(),
-        RefinementMode::RequireD8,
-        FailingRasterSource,
-    )
-    .expect_err("RequireD8 should retain the raster-load failure");
-    let expected_raster_error = RasterSourceError::FileNotFound {
-        path: fixture_path()
-            .join("flow_dir.tif")
-            .to_string_lossy()
-            .into_owned(),
-    };
-    let expected_reason = BestEffortSkipReason::Availability {
-        source: BestEffortSkipSource::RasterLoad,
-        diagnostic: expected_raster_error.to_string(),
-    };
-    assert_eq!(
-        expected_reason.category(),
-        BestEffortSkipCategory::Availability
+fn missing_attached_raster_source_has_exact_three_mode_contract() {
+    let (_tmp, root) = copied_fixture();
+    assert_three_mode_skip(
+        &root,
+        None::<SyntheticRasterFailure>,
+        BestEffortSkipReason::NoRasterSourceProvided,
+        BestEffortSkipCategory::Availability,
+        |error| {
+            matches!(
+                error,
+                EngineError::RequiredD8RasterSourceMissing { unit_id: 1 }
+            )
+        },
     );
-    assert_best_effort_skip_and_disabled_geometry(&best_effort, &disabled, expected_reason);
-    assert!(matches!(
-        required_error,
-        EngineError::Refinement {
-            source: RefinementError::RasterLoad {
-                source: RasterSourceError::FileNotFound { .. },
-            },
-            ..
-        }
-    ));
 }
 
 #[test]
@@ -696,22 +634,257 @@ fn no_covering_d8_skips_best_effort_and_stays_fatal_when_required() {
     let (_tmp, root) = copied_fixture();
     write_far_away_tiff(&root.join("flow_dir.tif"), FarRasterKind::FlowDir);
     write_far_away_tiff(&root.join("flow_acc.tif"), FarRasterKind::FlowAcc);
+    let expected_selection_error = SessionError::NoCoveringD8Tile {
+        candidates: vec![D8NativeCoverageCandidate {
+            declaration_index: 0,
+            epsg: 4326,
+            min_x: 0.0,
+            min_y: -5.0,
+            max_x: 5.0,
+            max_y: 0.0,
+        }],
+    };
     assert_three_mode_skip(
         &root,
-        FailingRasterSource,
+        Some(SyntheticRasterFailure::FileNotFound),
         BestEffortSkipReason::Availability {
             source: BestEffortSkipSource::D8Selection,
-            diagnostic: "no D8 raster declaration covers its candidate-specific native terminal bbox; candidates: [D8NativeCoverageCandidate { declaration_index: 0, epsg: 4326, min_x: 0.0, min_y: -5.0, max_x: 5.0, max_y: 0.0 }]".to_string(),
+            diagnostic: expected_selection_error.to_string(),
         },
         BestEffortSkipCategory::Availability,
-        |error| matches!(
-            error,
-            EngineError::D8Selection {
-                source: SessionError::NoCoveringD8Tile { .. },
-                ..
-            }
-        ),
+        |error| {
+            let EngineError::D8Selection {
+                unit_id: 1,
+                source: SessionError::NoCoveringD8Tile { candidates },
+            } = error
+            else {
+                return false;
+            };
+            candidates
+                == &[D8NativeCoverageCandidate {
+                    declaration_index: 0,
+                    epsg: 4326,
+                    min_x: 0.0,
+                    min_y: -5.0,
+                    max_x: 5.0,
+                    max_y: 0.0,
+                }]
+        },
     );
+}
+
+#[test]
+fn terminal_spanning_two_declarations_has_exact_three_mode_contract() {
+    let (_tmp, root) = copied_fixture();
+    let mut split_manifest = manifest(&root);
+    split_manifest["auxiliary"] = json!([
+        {
+            "schema": "hfx.aux.d8_raster.v2",
+            "artifacts": {
+                "flow_dir": "left_flow_dir.tif",
+                "flow_acc": "left_flow_acc.tif"
+            },
+            "metadata": {
+                "crs": "EPSG:4326",
+                "flow_dir_encoding": "esri",
+                "flow_acc_units": "cells"
+            }
+        },
+        {
+            "schema": "hfx.aux.d8_raster.v2",
+            "artifacts": {
+                "flow_dir": "right_flow_dir.tif",
+                "flow_acc": "right_flow_acc.tif"
+            },
+            "metadata": {
+                "crs": "EPSG:4326",
+                "flow_dir_encoding": "esri",
+                "flow_acc_units": "cells"
+            }
+        }
+    ]);
+    write_manifest(&root, split_manifest);
+    write_extent_tiff(
+        &root.join("left_flow_dir.tif"),
+        FarRasterKind::FlowDir,
+        0.0,
+        0.0,
+        0.5,
+        1.0,
+    );
+    write_extent_tiff(
+        &root.join("left_flow_acc.tif"),
+        FarRasterKind::FlowAcc,
+        0.0,
+        0.0,
+        0.5,
+        1.0,
+    );
+    write_extent_tiff(
+        &root.join("right_flow_dir.tif"),
+        FarRasterKind::FlowDir,
+        2.5,
+        0.0,
+        0.5,
+        1.0,
+    );
+    write_extent_tiff(
+        &root.join("right_flow_acc.tif"),
+        FarRasterKind::FlowAcc,
+        2.5,
+        0.0,
+        0.5,
+        1.0,
+    );
+    let expected_candidates = vec![
+        D8NativeCoverageCandidate {
+            declaration_index: 0,
+            epsg: 4326,
+            min_x: 0.0,
+            min_y: -5.0,
+            max_x: 5.0,
+            max_y: 0.0,
+        },
+        D8NativeCoverageCandidate {
+            declaration_index: 1,
+            epsg: 4326,
+            min_x: 0.0,
+            min_y: -5.0,
+            max_x: 5.0,
+            max_y: 0.0,
+        },
+    ];
+    let expected_selection_error = SessionError::TerminalSpansD8Tiles {
+        declaration_indices: vec![0, 1],
+        candidates: expected_candidates.clone(),
+    };
+    assert_three_mode_skip(
+        &root,
+        Some(SyntheticRasterFailure::FileNotFound),
+        BestEffortSkipReason::Availability {
+            source: BestEffortSkipSource::D8Selection,
+            diagnostic: expected_selection_error.to_string(),
+        },
+        BestEffortSkipCategory::Availability,
+        |error| {
+            let EngineError::D8Selection {
+                unit_id: 1,
+                source:
+                    SessionError::TerminalSpansD8Tiles {
+                        declaration_indices,
+                        candidates,
+                    },
+            } = error
+            else {
+                return false;
+            };
+            declaration_indices == &[0, 1] && candidates == &expected_candidates
+        },
+    );
+}
+
+#[test]
+fn truncated_tiff_header_has_exact_three_mode_contract() {
+    let (_tmp, root) = copied_fixture();
+    fs::write(root.join("flow_dir.tif"), b"II*\0")
+        .expect("truncated flow-dir TIFF header should write");
+    let selection_error = DatasetSession::open_path(&root)
+        .expect("fixture should open")
+        .select_d8_raster_for_terminal(&rect_terminal(synthetic_full_extent()))
+        .expect_err("truncated header should fail selection");
+    let diagnostic = selection_error.to_string();
+    assert_three_mode_skip(
+        &root,
+        Some(SyntheticRasterFailure::FileNotFound),
+        BestEffortSkipReason::Availability {
+            source: BestEffortSkipSource::D8Selection,
+            diagnostic,
+        },
+        BestEffortSkipCategory::Availability,
+        |error| {
+            matches!(
+                error,
+                EngineError::D8Selection {
+                    unit_id: 1,
+                    source: SessionError::CogExtentHeaderRead {
+                        declaration_index: 0,
+                        kind: RasterKind::FlowDir,
+                        path,
+                        source: CacheError::Tiff { .. },
+                    },
+                } if path.ends_with("flow_dir.tif")
+            )
+        },
+    );
+}
+
+#[test]
+fn raster_source_failures_have_exact_three_mode_contracts() {
+    let root = fixture_path();
+    let expected_uri = root.join("flow_dir.tif").to_string_lossy().into_owned();
+    for failure in [
+        SyntheticRasterFailure::FileNotFound,
+        SyntheticRasterFailure::OpenFailed,
+        SyntheticRasterFailure::ReadFailed,
+        SyntheticRasterFailure::EmptyWindow,
+        SyntheticRasterFailure::TileConstruction,
+    ] {
+        let expected_raster_error = failure.error(&expected_uri);
+        let (expected_reason, expected_category) = match failure {
+            SyntheticRasterFailure::TileConstruction => (
+                BestEffortSkipReason::DataGeometryIntegrity {
+                    source: BestEffortSkipSource::RasterLoad,
+                    diagnostic: expected_raster_error.to_string(),
+                },
+                BestEffortSkipCategory::DataGeometryIntegrity,
+            ),
+            _ => (
+                BestEffortSkipReason::Availability {
+                    source: BestEffortSkipSource::RasterLoad,
+                    diagnostic: expected_raster_error.to_string(),
+                },
+                BestEffortSkipCategory::Availability,
+            ),
+        };
+        assert_three_mode_skip(
+            &root,
+            Some(failure),
+            expected_reason,
+            expected_category,
+            |error| {
+                let EngineError::Refinement {
+                    unit_id: 1,
+                    source: RefinementError::RasterLoad { source },
+                } = error
+                else {
+                    return false;
+                };
+                match (failure, source) {
+                    (
+                        SyntheticRasterFailure::FileNotFound,
+                        RasterSourceError::FileNotFound { path },
+                    ) => path == &expected_uri,
+                    (
+                        SyntheticRasterFailure::OpenFailed,
+                        RasterSourceError::OpenFailed { path, reason },
+                    ) => path == &expected_uri && reason == "reader unavailable",
+                    (
+                        SyntheticRasterFailure::ReadFailed,
+                        RasterSourceError::ReadFailed { path, reason },
+                    ) => path == &expected_uri && reason == "truncated window",
+                    (
+                        SyntheticRasterFailure::EmptyWindow,
+                        RasterSourceError::EmptyWindow { path },
+                    ) => path == &expected_uri,
+                    (
+                        SyntheticRasterFailure::TileConstruction,
+                        RasterSourceError::TileConstruction { reason },
+                    ) => reason == "wrong-length buffer after successful read",
+                    _ => false,
+                }
+            },
+        );
+    }
 }
 
 #[test]
@@ -726,7 +899,7 @@ fn unsupported_d8_crs_skips_best_effort_and_stays_fatal_when_required() {
     };
     assert_three_mode_skip(
         &root,
-        FailingRasterSource,
+        Some(SyntheticRasterFailure::FileNotFound),
         BestEffortSkipReason::MisDeclaration {
             source: BestEffortSkipSource::D8Selection,
             diagnostic: expected_selection_error.to_string(),
@@ -736,12 +909,52 @@ fn unsupported_d8_crs_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::D8Selection {
+                    unit_id: 1,
                     source: SessionError::UnsupportedD8Crs {
+                        declared_crs,
                         source: ProjectionError::UnsupportedCrs { epsg: 3857 },
-                        ..
                     },
-                    ..
-                }
+                } if declared_crs == "EPSG:3857"
+            )
+        },
+    );
+}
+
+#[test]
+fn out_of_range_d8_crs_has_exact_three_mode_contract() {
+    let (_tmp, root) = copied_fixture();
+    let mut fixture_manifest = manifest(&root);
+    fixture_manifest["auxiliary"][0]["metadata"]["crs"] = json!("EPSG:99999999999");
+    write_manifest(&root, fixture_manifest);
+    let selection_error = DatasetSession::open_path(&root)
+        .expect("fixture should open")
+        .select_d8_raster_for_terminal(&rect_terminal(synthetic_full_extent()))
+        .expect_err("out-of-range CRS should fail selection");
+    assert!(matches!(
+        &selection_error,
+        SessionError::D8CrsIdentifierOutOfRange {
+            declared_crs,
+            source: _,
+        } if declared_crs == "EPSG:99999999999"
+    ));
+    assert_three_mode_skip(
+        &root,
+        Some(SyntheticRasterFailure::FileNotFound),
+        BestEffortSkipReason::MisDeclaration {
+            source: BestEffortSkipSource::D8Selection,
+            diagnostic: selection_error.to_string(),
+        },
+        BestEffortSkipCategory::MisDeclaration,
+        |error| {
+            matches!(
+                error,
+                EngineError::D8Selection {
+                    unit_id: 1,
+                    source: SessionError::D8CrsIdentifierOutOfRange {
+                        declared_crs,
+                        source: _,
+                    },
+                } if declared_crs == "EPSG:99999999999"
             )
         },
     );
@@ -751,6 +964,7 @@ fn unsupported_d8_crs_skips_best_effort_and_stays_fatal_when_required() {
 fn geographic_km2_skips_best_effort_and_stays_fatal_when_required() {
     let (_tmp, root) = copied_fixture();
     let mut fixture_manifest = manifest(&root);
+    fixture_manifest["auxiliary"][0]["metadata"]["crs"] = json!("EPSG:4326");
     fixture_manifest["auxiliary"][0]["metadata"]["flow_acc_units"] = json!("km2");
     write_manifest(&root, fixture_manifest);
     let expected_refinement_error = RefinementError::GeographicKm2Unsupported {
@@ -759,7 +973,7 @@ fn geographic_km2_skips_best_effort_and_stays_fatal_when_required() {
     };
     assert_three_mode_skip(
         &root,
-        LocalTiffRasterSource,
+        Some(LocalTiffRasterSource),
         BestEffortSkipReason::MisDeclaration {
             source: BestEffortSkipSource::RefinementAlgorithm,
             diagnostic: expected_refinement_error.to_string(),
@@ -769,11 +983,11 @@ fn geographic_km2_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::Refinement {
+                    unit_id: 1,
                     source: RefinementError::GeographicKm2Unsupported {
                         epsg: 4326,
                         units: FlowAccumulationUnits::Km2,
                     },
-                    ..
                 }
             )
         },
@@ -790,7 +1004,7 @@ fn dimension_mismatch_skips_best_effort_and_stays_fatal_when_required() {
     };
     assert_three_mode_skip(
         &fixture_path(),
-        DimensionMismatchRasterSource,
+        Some(DimensionMismatchRasterSource),
         BestEffortSkipReason::MisDeclaration {
             source: BestEffortSkipSource::RefinementAlgorithm,
             diagnostic: expected_refinement_error.to_string(),
@@ -800,8 +1014,13 @@ fn dimension_mismatch_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::Refinement {
-                    source: RefinementError::DimensionMismatch { .. },
-                    ..
+                    unit_id: 1,
+                    source: RefinementError::DimensionMismatch {
+                        fd_rows: 5,
+                        fd_cols: 5,
+                        acc_rows: 5,
+                        acc_cols: 4,
+                    },
                 }
             )
         },
@@ -813,7 +1032,7 @@ fn geo_transform_mismatch_skips_best_effort_and_stays_fatal_when_required() {
     let expected_refinement_error = RefinementError::GeoTransformMismatch { rows: 5, cols: 5 };
     assert_three_mode_skip(
         &fixture_path(),
-        GeoTransformMismatchRasterSource,
+        Some(GeoTransformMismatchRasterSource),
         BestEffortSkipReason::MisDeclaration {
             source: BestEffortSkipSource::RefinementAlgorithm,
             diagnostic: expected_refinement_error.to_string(),
@@ -823,8 +1042,8 @@ fn geo_transform_mismatch_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::Refinement {
-                    source: RefinementError::GeoTransformMismatch { .. },
-                    ..
+                    unit_id: 1,
+                    source: RefinementError::GeoTransformMismatch { rows: 5, cols: 5 },
                 }
             )
         },
@@ -839,7 +1058,7 @@ fn directional_nodata_skips_best_effort_and_stays_fatal_when_required() {
     };
     assert_three_mode_skip(
         &fixture_path(),
-        DirectionalNodataRasterSource,
+        Some(DirectionalNodataRasterSource),
         BestEffortSkipReason::MisDeclaration {
             source: BestEffortSkipSource::RasterLoad,
             diagnostic: expected_raster_error.to_string(),
@@ -849,13 +1068,13 @@ fn directional_nodata_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::Refinement {
+                    unit_id: 1,
                     source: RefinementError::RasterLoad {
                         source: RasterSourceError::InvalidFlowDirectionNodata {
                             nodata: 1,
                             encoding: FlowDirEncoding::Esri,
                         },
                     },
-                    ..
                 }
             )
         },
@@ -875,7 +1094,7 @@ fn snap_failure_skips_best_effort_and_stays_fatal_when_required() {
     };
     assert_three_mode_skip(
         &fixture_path(),
-        SnapFailureRasterSource,
+        Some(SnapFailureRasterSource),
         BestEffortSkipReason::DataGeometryIntegrity {
             source: BestEffortSkipSource::RefinementAlgorithm,
             diagnostic: expected_refinement_error.to_string(),
@@ -885,8 +1104,16 @@ fn snap_failure_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::Refinement {
-                    source: RefinementError::SnapFailed { .. },
-                    ..
+                    unit_id: 1,
+                    source: RefinementError::SnapFailed {
+                        source: SnapError::NoCellAboveThreshold {
+                            threshold: 1_000.0,
+                            units: FlowAccumulationUnits::Cells,
+                            epsg: 4326,
+                            outlet_x: 2.5,
+                            outlet_y: -2.5,
+                        },
+                    },
                 }
             )
         },
@@ -911,7 +1138,7 @@ fn inverse_projection_skips_best_effort_and_stays_fatal_when_required() {
     };
     assert_three_mode_skip(
         &root,
-        FixtureOutletInverseFailureRasterSource,
+        Some(FixtureOutletInverseFailureRasterSource),
         BestEffortSkipReason::DataGeometryIntegrity {
             source: BestEffortSkipSource::RefinementAlgorithm,
             diagnostic: expected_refinement_error.to_string(),
@@ -921,35 +1148,40 @@ fn inverse_projection_skips_best_effort_and_stays_fatal_when_required() {
             matches!(
                 error,
                 EngineError::Refinement {
+                    unit_id: 1,
                     source: RefinementError::InverseProjection {
                         epsg: 8857,
-                        source: ProjectionError::OutOfDomain { .. },
+                        source: ProjectionError::OutOfDomain { x, y },
                     },
-                    ..
-                }
+                } if *x == -99_760_608.494_401_19 && *y == 99_678_832.232_664_75
             )
         },
     );
 }
 
-fn delineate_with_source(
+fn delineate_with_optional_source<R>(
     root: &Path,
     mode: RefinementMode,
-    raster_source: impl RasterSource + Send + Sync + 'static,
-) -> Result<pourpoint_core::DelineationResult, EngineError> {
+    raster_source: Option<R>,
+) -> Result<pourpoint_core::DelineationResult, EngineError>
+where
+    R: RasterSource + Send + Sync + 'static,
+{
     let session = DatasetSession::open_path(root).expect("fixture should open");
-    Engine::builder(session)
-        .with_raster_source(raster_source)
-        .build()
-        .delineate(
-            GeoCoord::new(2.5, -2.5),
-            &DelineationOptions::default().with_refinement_mode(mode),
-        )
+    let builder = Engine::builder(session);
+    let engine = match raster_source {
+        Some(source) => builder.with_raster_source(source).build(),
+        None => builder.build(),
+    };
+    engine.delineate(
+        GeoCoord::new(2.5, -2.5),
+        &DelineationOptions::default().with_refinement_mode(mode),
+    )
 }
 
 fn assert_three_mode_skip<R>(
     root: &Path,
-    raster_source: R,
+    raster_source: Option<R>,
     expected_reason: BestEffortSkipReason,
     expected_category: BestEffortSkipCategory,
     required_matches: impl FnOnce(&EngineError) -> bool,
@@ -958,12 +1190,14 @@ fn assert_three_mode_skip<R>(
 {
     assert_eq!(expected_reason.category(), expected_category);
     let best_effort =
-        delineate_with_source(root, RefinementMode::BestEffort, raster_source.clone())
+        delineate_with_optional_source(root, RefinementMode::BestEffort, raster_source.clone())
             .expect("BestEffort should return a typed skip");
-    let disabled = delineate_with_source(root, RefinementMode::Disabled, raster_source.clone())
-        .expect("Disabled should succeed");
-    let required_error = delineate_with_source(root, RefinementMode::RequireD8, raster_source)
-        .expect_err("RequireD8 should retain the original error");
+    let disabled =
+        delineate_with_optional_source(root, RefinementMode::Disabled, raster_source.clone())
+            .expect("Disabled should succeed");
+    let required_error =
+        delineate_with_optional_source(root, RefinementMode::RequireD8, raster_source)
+            .expect_err("RequireD8 should retain the original error");
     assert_best_effort_skip_and_disabled_geometry(&best_effort, &disabled, expected_reason);
     assert!(
         required_matches(&required_error),
@@ -1149,7 +1383,57 @@ enum FarRasterKind {
 }
 
 #[derive(Clone, Copy)]
-struct FailingRasterSource;
+enum SyntheticRasterFailure {
+    FileNotFound,
+    OpenFailed,
+    ReadFailed,
+    EmptyWindow,
+    TileConstruction,
+}
+
+impl SyntheticRasterFailure {
+    fn error(self, uri: &str) -> RasterSourceError {
+        match self {
+            Self::FileNotFound => RasterSourceError::FileNotFound {
+                path: uri.to_string(),
+            },
+            Self::OpenFailed => RasterSourceError::OpenFailed {
+                path: uri.to_string(),
+                reason: "reader unavailable".to_string(),
+            },
+            Self::ReadFailed => RasterSourceError::ReadFailed {
+                path: uri.to_string(),
+                reason: "truncated window".to_string(),
+            },
+            Self::EmptyWindow => RasterSourceError::EmptyWindow {
+                path: uri.to_string(),
+            },
+            Self::TileConstruction => RasterSourceError::TileConstruction {
+                reason: "wrong-length buffer after successful read".to_string(),
+            },
+        }
+    }
+}
+
+impl RasterSource for SyntheticRasterFailure {
+    fn load_flow_direction(
+        &self,
+        uri: &str,
+        _bbox: &Rect<f64>,
+        _encoding: FlowDirEncoding,
+    ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+        Err(self.error(uri))
+    }
+
+    fn load_accumulation(
+        &self,
+        uri: &str,
+        _bbox: &Rect<f64>,
+    ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+        Err(self.error(uri))
+    }
+}
+
 #[derive(Clone, Copy)]
 struct DimensionMismatchRasterSource;
 #[derive(Clone, Copy)]
@@ -1474,29 +1758,6 @@ fn donut_geo() -> GeoTransform {
     )
 }
 
-impl RasterSource for FailingRasterSource {
-    fn load_flow_direction(
-        &self,
-        uri: &str,
-        _bbox: &Rect<f64>,
-        _encoding: FlowDirEncoding,
-    ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
-        Err(RasterSourceError::FileNotFound {
-            path: uri.to_string(),
-        })
-    }
-
-    fn load_accumulation(
-        &self,
-        uri: &str,
-        _bbox: &Rect<f64>,
-    ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
-        Err(RasterSourceError::FileNotFound {
-            path: uri.to_string(),
-        })
-    }
-}
-
 fn write_far_away_tiff(path: &Path, kind: FarRasterKind) {
     let file = fs::File::create(path).expect("far TIFF should create");
     let mut encoder = TiffEncoder::new(file).expect("TIFF encoder should create");
@@ -1520,6 +1781,60 @@ fn write_far_away_tiff(path: &Path, kind: FarRasterKind) {
                 .expect("flow-acc image should write");
         }
     }
+}
+
+fn write_extent_tiff(
+    path: &Path,
+    kind: FarRasterKind,
+    origin_x: f64,
+    origin_y: f64,
+    pixel_width: f64,
+    pixel_height: f64,
+) {
+    let file = fs::File::create(path).expect("extent TIFF should create");
+    let mut encoder = TiffEncoder::new(file).expect("TIFF encoder should create");
+    match kind {
+        FarRasterKind::FlowDir => {
+            let mut image = encoder
+                .new_image::<colortype::Gray8>(5, 5)
+                .expect("flow-dir image should create");
+            write_extent_geotiff_tags(&mut image, origin_x, origin_y, pixel_width, pixel_height);
+            image
+                .write_data(&[0_u8; 25])
+                .expect("flow-dir image should write");
+        }
+        FarRasterKind::FlowAcc => {
+            let mut image = encoder
+                .new_image::<colortype::Gray32Float>(5, 5)
+                .expect("flow-acc image should create");
+            write_extent_geotiff_tags(&mut image, origin_x, origin_y, pixel_width, pixel_height);
+            image
+                .write_data(&[1_000.0_f32; 25])
+                .expect("flow-acc image should write");
+        }
+    }
+}
+
+fn write_extent_geotiff_tags<C, K>(
+    image: &mut tiff::encoder::ImageEncoder<'_, fs::File, C, K>,
+    origin_x: f64,
+    origin_y: f64,
+    pixel_width: f64,
+    pixel_height: f64,
+) where
+    C: colortype::ColorType,
+    K: tiff::encoder::TiffKind,
+{
+    let pixel_scale = [pixel_width, pixel_height, 0.0_f64];
+    let tiepoint = [0.0_f64, 0.0_f64, 0.0_f64, origin_x, origin_y, 0.0_f64];
+    image
+        .encoder()
+        .write_tag(Tag::ModelPixelScaleTag, &pixel_scale[..])
+        .expect("pixel scale tag should write");
+    image
+        .encoder()
+        .write_tag(Tag::ModelTiepointTag, &tiepoint[..])
+        .expect("tiepoint tag should write");
 }
 
 fn write_projected_tiff(path: &Path, kind: FarRasterKind) {
