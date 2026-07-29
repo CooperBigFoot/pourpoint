@@ -2156,8 +2156,109 @@ mod tests {
     const PLANETARY_FILE_LEN: u64 = 24_507_159;
     const PLANETARY_PREFIX_BYTES: usize = 838;
     const PLANETARY_TILE_COUNT: u64 = 2_041_930;
+    const PLANETARY_TILE_INDICES: [u32; 4] = [2_039_838, 2_039_839, 2_041_928, 2_041_929];
+    const PLANETARY_TILE_OFFSETS: [u64; 4] = [668, 1_102, 1_536, 1_970];
+    const PLANETARY_TILE_BYTE_COUNTS: [u32; 4] = [434; 4];
+    const FLOW_ACC_TILE_OFFSETS: [u64; 4] = [716, 3_955, 7_204, 10_440];
+    const FLOW_ACC_TILE_BYTE_COUNTS: [u32; 4] = [3_239, 3_249, 3_236, 3_236];
+    const FLOW_ACC_FILE_LEN: u64 = 13_676;
+    const CROSS_TILE_LIVE_DIMENSIONS: [(u32, u32); 4] =
+        [(512, 512), (432, 512), (512, 288), (432, 288)];
     const REGIONAL_FILE_LEN: u64 = 16_287;
     const REGIONAL_TILE_COUNT: u64 = 1_024;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct CrossTileFixtureOracle {
+        flow_dir_bbox: Rect<f64>,
+        flow_dir_window: RasterPixelWindow,
+        flow_dir_tile_indices: [u32; 4],
+        flow_acc_bbox: Rect<f64>,
+        flow_acc_window: RasterPixelWindow,
+        flow_acc_tile_indices: [u32; 4],
+        live_tile_dimensions: [(u32, u32); 4],
+    }
+
+    impl CrossTileFixtureOracle {
+        fn new() -> Self {
+            Self {
+                flow_dir_bbox: Rect::new(
+                    coord! { x: 1_069_057.0, y: -499_999.0 },
+                    coord! { x: 1_069_999.0, y: -499_201.0 },
+                ),
+                flow_dir_window: RasterPixelWindow {
+                    col_off: 1_069_056,
+                    row_off: 499_200,
+                    width: 944,
+                    height: 800,
+                },
+                flow_dir_tile_indices: PLANETARY_TILE_INDICES,
+                flow_acc_bbox: Rect::new(
+                    coord! { x: 1.0, y: -799.0 },
+                    coord! { x: 943.0, y: -1.0 },
+                ),
+                flow_acc_window: RasterPixelWindow {
+                    col_off: 0,
+                    row_off: 0,
+                    width: 944,
+                    height: 800,
+                },
+                flow_acc_tile_indices: [0, 1, 2, 3],
+                live_tile_dimensions: CROSS_TILE_LIVE_DIMENSIONS,
+            }
+        }
+
+        fn flow_dir_bbox(&self) -> Rect<f64> {
+            self.flow_dir_bbox
+        }
+
+        fn flow_dir_window(&self) -> RasterPixelWindow {
+            self.flow_dir_window
+        }
+
+        fn flow_dir_tile_indices(&self) -> [u32; 4] {
+            self.flow_dir_tile_indices
+        }
+
+        fn flow_acc_bbox(&self) -> Rect<f64> {
+            self.flow_acc_bbox
+        }
+
+        fn flow_acc_window(&self) -> RasterPixelWindow {
+            self.flow_acc_window
+        }
+
+        fn flow_acc_tile_indices(&self) -> [u32; 4] {
+            self.flow_acc_tile_indices
+        }
+
+        fn live_tile_dimensions(&self) -> [(u32, u32); 4] {
+            self.live_tile_dimensions
+        }
+
+        fn one_tile_planetary_bbox(&self) -> Rect<f64> {
+            Rect::new(
+                coord! { x: 1_069_057.0, y: -499_202.0 },
+                coord! { x: 1_069_058.0, y: -499_201.0 },
+            )
+        }
+
+        fn output_coordinates(row: u32, col: u32) -> (u32, u32, u32) {
+            let tile_row = row / 512;
+            let tile_col = col / 512;
+            let slot = 2 * tile_row + tile_col;
+            (slot, row % 512, col % 512)
+        }
+
+        fn expected_u8(&self, row: u32, col: u32) -> u8 {
+            let (slot, local_row, local_col) = Self::output_coordinates(row, col);
+            1 + ((2 * slot + local_col + local_row / 64) % 8) as u8
+        }
+
+        fn expected_f32(&self, row: u32, col: u32) -> f32 {
+            let (slot, local_row, local_col) = Self::output_coordinates(row, col);
+            (1_000 * (slot + 1) + 10 * (local_row / 64) + local_col % 16) as f32
+        }
+    }
 
     struct CogFixtures {
         temp_dir: tempfile::TempDir,
@@ -2213,6 +2314,50 @@ mod tests {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(tile)?;
         encoder.finish()
+    }
+
+    fn compress_cross_tile_u8_fixture(tile: &[u8]) -> io::Result<Vec<u8>> {
+        // The workspace selects zlib-rs through Parquet. Pin levels that reproduce
+        // the standard-zlib default fixture sizes required by these byte layouts.
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(7));
+        encoder.write_all(tile)?;
+        encoder.finish()
+    }
+
+    fn compress_cross_tile_f32_fixture(tile: &[u8]) -> io::Result<Vec<u8>> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(tile)?;
+        encoder.finish()
+    }
+
+    fn fixture_u8_sample(slot: u32, local_row: u32, local_col: u32) -> u8 {
+        1 + ((2 * slot + local_col + local_row / 64) % 8) as u8
+    }
+
+    fn fixture_f32_sample(slot: u32, local_row: u32, local_col: u32) -> f32 {
+        (1_000 * (slot + 1) + 10 * (local_row / 64) + local_col % 16) as f32
+    }
+
+    fn make_u8_fixture_tile(slot: u32) -> Vec<u8> {
+        let mut tile = Vec::with_capacity(512 * 512);
+        for local_row in 0..512 {
+            for local_col in 0..512 {
+                tile.push(fixture_u8_sample(slot, local_row, local_col));
+            }
+        }
+        tile
+    }
+
+    fn make_f32_fixture_tile(slot: u32) -> Vec<u8> {
+        let mut tile = Vec::with_capacity(512 * 512 * 4);
+        for local_row in 0..512 {
+            for local_col in 0..512 {
+                tile.extend_from_slice(
+                    &fixture_f32_sample(slot, local_row, local_col).to_le_bytes(),
+                );
+            }
+        }
+        tile
     }
 
     // Gross-regression alarms only; these ceilings do not define or prove boundedness.
@@ -2271,19 +2416,14 @@ mod tests {
     }
 
     fn write_planetary_fixture(path: &Path) -> io::Result<()> {
-        let mut tile_0 = vec![0_u8; 512 * 512];
-        tile_0[..8].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
-        let mut tile_1 = vec![0_u8; 512 * 512];
-        tile_1[..8].copy_from_slice(&[8, 7, 6, 5, 4, 3, 2, 1]);
-        let tile_0_zlib = compress_tile(&tile_0)?;
-        let tile_1_zlib = compress_tile(&tile_1)?;
-        assert!(tile_0_zlib.len() + tile_1_zlib.len() <= 3_330);
-        let tile_0_offset = 668_u64;
-        let tile_1_offset = tile_0_offset
-            .checked_add(u64::try_from(tile_0_zlib.len()).map_err(io::Error::other)?)
-            .ok_or_else(|| io::Error::other("planetary tile offset overflow"))?;
-        let tile_0_zlib_len = u32::try_from(tile_0_zlib.len()).map_err(io::Error::other)?;
-        let tile_1_zlib_len = u32::try_from(tile_1_zlib.len()).map_err(io::Error::other)?;
+        let compressed_tiles = (0..4)
+            .map(|slot| compress_cross_tile_u8_fixture(&make_u8_fixture_tile(slot)))
+            .collect::<io::Result<Vec<_>>>()?;
+        let compressed_lengths = compressed_tiles
+            .iter()
+            .map(|tile| u32::try_from(tile.len()).map_err(io::Error::other))
+            .collect::<io::Result<Vec<_>>>()?;
+        assert_eq!(compressed_lengths, PLANETARY_TILE_BYTE_COUNTS);
 
         let mut file = File::create(path)?;
         file.set_len(PLANETARY_FILE_LEN)?;
@@ -2330,15 +2470,20 @@ mod tests {
             write_f64(&mut file, value)?;
         }
 
-        file.seek(SeekFrom::Start(tile_0_offset))?;
-        file.write_all(&tile_0_zlib)?;
-        file.write_all(&tile_1_zlib)?;
-        file.seek(SeekFrom::Start(3_998))?;
-        write_u64(&mut file, tile_0_offset)?;
-        write_u64(&mut file, tile_1_offset)?;
-        file.seek(SeekFrom::Start(16_339_438))?;
-        write_u32(&mut file, tile_0_zlib_len)?;
-        write_u32(&mut file, tile_1_zlib_len)?;
+        file.seek(SeekFrom::Start(PLANETARY_TILE_OFFSETS[0]))?;
+        for tile in &compressed_tiles {
+            file.write_all(tile)?;
+        }
+        for ((index, offset), count) in PLANETARY_TILE_INDICES
+            .into_iter()
+            .zip(PLANETARY_TILE_OFFSETS)
+            .zip(PLANETARY_TILE_BYTE_COUNTS)
+        {
+            file.seek(SeekFrom::Start(3_998 + 8 * u64::from(index)))?;
+            write_u64(&mut file, offset)?;
+            file.seek(SeekFrom::Start(16_339_438 + 4 * u64::from(index)))?;
+            write_u32(&mut file, count)?;
+        }
         file.seek(SeekFrom::Start(PLANETARY_INDEX_END))?;
         file.write_all(&[0])
     }
@@ -2417,36 +2562,17 @@ mod tests {
     }
 
     fn write_flow_acc_fixture(path: &Path) -> io::Result<()> {
-        let make_tile = |values: [f32; 3]| {
-            let mut tile = vec![0_u8; 512 * 512 * 4];
-            values.into_iter().enumerate().for_each(|(index, value)| {
-                tile[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
-            });
-            tile
-        };
-        let tile_0_zlib = compress_tile(&make_tile([1.0, 2.0, 3.0]))?;
-        let tile_1_zlib = compress_tile(&make_tile([4.0, 5.0, 6.0]))?;
-        let tile_2_zlib = compress_tile(&make_tile([7.0, 8.0, 9.0]))?;
-        let tile_0_len = u64::try_from(tile_0_zlib.len()).map_err(io::Error::other)?;
-        let tile_1_len = u64::try_from(tile_1_zlib.len()).map_err(io::Error::other)?;
-        let tile_2_len = u64::try_from(tile_2_zlib.len()).map_err(io::Error::other)?;
-        let tile_0_offset = 704_u64;
-        let tile_1_offset = tile_0_offset
-            .checked_add(tile_0_len)
-            .ok_or_else(|| io::Error::other("FlowAcc tile 1 offset overflow"))?;
-        let tile_2_offset = tile_1_offset
-            .checked_add(tile_1_len)
-            .ok_or_else(|| io::Error::other("FlowAcc tile 2 offset overflow"))?;
-        let file_len = tile_2_offset
-            .checked_add(tile_2_len)
-            .ok_or_else(|| io::Error::other("FlowAcc fixture length overflow"))?;
-        let tile_counts = [tile_0_len, tile_1_len, tile_2_len]
-            .map(|len| u32::try_from(len).map_err(io::Error::other))
-            .into_iter()
+        let compressed_tiles = (0..4)
+            .map(|slot| compress_cross_tile_f32_fixture(&make_f32_fixture_tile(slot)))
             .collect::<io::Result<Vec<_>>>()?;
+        let compressed_lengths = compressed_tiles
+            .iter()
+            .map(|tile| u32::try_from(tile.len()).map_err(io::Error::other))
+            .collect::<io::Result<Vec<_>>>()?;
+        assert_eq!(compressed_lengths, FLOW_ACC_TILE_BYTE_COUNTS);
 
         let mut file = File::create(path)?;
-        file.set_len(file_len)?;
+        file.set_len(FLOW_ACC_FILE_LEN)?;
         file.write_all(b"II")?;
         write_u16(&mut file, 43)?;
         write_u16(&mut file, 8)?;
@@ -2455,8 +2581,8 @@ mod tests {
 
         file.seek(SeekFrom::Start(200))?;
         write_u64(&mut file, 19)?;
-        write_bigtiff_entry(&mut file, 256, 4, 1, 1536)?;
-        write_bigtiff_entry(&mut file, 257, 4, 1, 512)?;
+        write_bigtiff_entry(&mut file, 256, 4, 1, 944)?;
+        write_bigtiff_entry(&mut file, 257, 4, 1, 800)?;
         write_bigtiff_entry(&mut file, 258, 3, 1, 32)?;
         write_bigtiff_entry(&mut file, 259, 3, 1, 8)?;
         write_bigtiff_entry(&mut file, 262, 3, 1, 1)?;
@@ -2468,8 +2594,8 @@ mod tests {
         write_bigtiff_entry(&mut file, 317, 3, 1, 1)?;
         write_bigtiff_entry(&mut file, 322, 4, 1, 512)?;
         write_bigtiff_entry(&mut file, 323, 4, 1, 512)?;
-        write_bigtiff_entry(&mut file, 324, 16, 3, 668)?;
-        write_bigtiff_entry(&mut file, 325, 4, 3, 692)?;
+        write_bigtiff_entry(&mut file, 324, 16, 4, 668)?;
+        write_bigtiff_entry(&mut file, 325, 4, 4, 700)?;
         write_bigtiff_entry(&mut file, 339, 3, 1, 3)?;
         write_bigtiff_entry(&mut file, 33_550, 12, 3, 596)?;
         write_bigtiff_entry(&mut file, 33_922, 12, 6, 620)?;
@@ -2489,15 +2615,16 @@ mod tests {
         for value in [0.0; 6] {
             write_f64(&mut file, value)?;
         }
-        for offset in [tile_0_offset, tile_1_offset, tile_2_offset] {
+        for offset in FLOW_ACC_TILE_OFFSETS {
             write_u64(&mut file, offset)?;
         }
-        for count in tile_counts {
+        for count in FLOW_ACC_TILE_BYTE_COUNTS {
             write_u32(&mut file, count)?;
         }
-        file.write_all(&tile_0_zlib)?;
-        file.write_all(&tile_1_zlib)?;
-        file.write_all(&tile_2_zlib)
+        for tile in compressed_tiles {
+            file.write_all(&tile)?;
+        }
+        Ok(())
     }
 
     fn write_classic_fixture(path: &Path) -> io::Result<()> {
@@ -3230,24 +3357,24 @@ mod tests {
     #[tokio::test]
     async fn covered_index_resolution_rejects_short_response() {
         let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
         let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path()).unwrap();
         let store = CogFixtureCountingStore::with_short_response(Arc::new(local_store), 8);
-        let request = RasterWindowRequest::new(
-            RasterKind::FlowDir,
-            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
-        );
+        let request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
         let path = fixtures.planetary_object_path.clone();
 
         assert_unsupported_reason(
             prepare_window(&store, &path, &request).await,
             &path,
-            "TIFF tile-index tag 324 entry 0 returned 7 bytes, expected 8",
+            "TIFF tile-index tag 324 entry 2039838 returned 7 bytes, expected 8",
         );
     }
 
     #[tokio::test]
     async fn compressed_chunk_fetch_rejects_short_response() {
         let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
         let temp_dir = tempfile::TempDir::new().unwrap();
         let path = ObjectPath::from("short-compressed.tif");
         let local_path = temp_dir.path().join(path.as_ref());
@@ -3260,22 +3387,20 @@ mod tests {
         )
         .unwrap();
         let mut file = File::options().write(true).open(&local_path).unwrap();
-        file.seek(SeekFrom::Start(16_339_438)).unwrap();
+        file.seek(SeekFrom::Start(24_498_790)).unwrap();
         write_u32(&mut file, 16).unwrap();
         drop(file);
         let local_store = LocalFileSystem::new_with_prefix(temp_dir.path()).unwrap();
         let store = CogFixtureCountingStore::with_short_response(Arc::new(local_store), 16);
-        let request = RasterWindowRequest::new(
-            RasterKind::FlowDir,
-            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
-        );
+        let request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
         let prepared = prepare_window(&store, &path, &request).await.unwrap();
         let output = temp_dir.path().join("short-window.tif");
 
         assert_unsupported_reason(
             fetch_window_to_path(&store, &path, prepared, &output).await,
             &path,
-            "TIFF compressed chunk 0 returned 15 bytes, expected 16",
+            "TIFF compressed chunk 2039838 returned 15 bytes, expected 16",
         );
     }
 
@@ -3286,7 +3411,10 @@ mod tests {
             .expect("fixture object store should be rooted");
         let request = RasterWindowRequest::new(
             RasterKind::FlowDir,
-            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 8.0, y: 0.0 }),
+            Rect::new(
+                coord! { x: 1_069_057.0, y: -499_202.0 },
+                coord! { x: 1_069_063.0, y: -499_201.0 },
+            ),
         );
         let prepared = prepare_window(&local_store, &fixtures.planetary_object_path, &request)
             .await
@@ -3336,15 +3464,15 @@ mod tests {
         };
 
         // Parsed nodata is -1, so the remote F32 arm copies these samples verbatim.
-        assert_eq!(&decoded[..3], [1.0, 2.0, 3.0]);
+        assert_eq!(&decoded[..3], [1_000.0, 1_001.0, 1_002.0]);
         let stored_bits = [
             decoded[0].to_bits(),
             decoded[1].to_bits(),
             decoded[2].to_bits(),
         ];
-        assert_eq!(stored_bits, [0x3f800000, 0x40000000, 0x40400000]);
-        assert_ne!(stored_bits, [0x3f800000, 0x7f800000, 0xbfc00000]);
-        assert_ne!(stored_bits, [0x007f7f7f, 0x007f7f7f, 0x807f7f7f]);
+        assert_eq!(stored_bits, [0x447a0000, 0x447a4000, 0x447a8000]);
+        assert_ne!(stored_bits, [0x447a0000, 0x88f44000, 0xcd6ec000]);
+        assert_ne!(stored_bits, [0x00c08040, 0x00c08040, 0x7a3afaba]);
     }
 
     #[test]
@@ -3392,6 +3520,7 @@ mod tests {
     #[tokio::test]
     async fn owned_decode_rejects_wrong_decoded_length() {
         let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
         let temp_dir = tempfile::TempDir::new().unwrap();
         let path = ObjectPath::from("wrong-length.tif");
         let local_path = temp_dir.path().join(path.as_ref());
@@ -3407,20 +3536,18 @@ mod tests {
         let mut file = File::options().write(true).open(&local_path).unwrap();
         file.seek(SeekFrom::Start(668)).unwrap();
         file.write_all(&compressed).unwrap();
-        file.seek(SeekFrom::Start(16_339_438)).unwrap();
+        file.seek(SeekFrom::Start(24_498_790)).unwrap();
         write_u32(&mut file, u32::try_from(compressed.len()).unwrap()).unwrap();
         drop(file);
         let store = LocalFileSystem::new_with_prefix(temp_dir.path()).unwrap();
-        let request = RasterWindowRequest::new(
-            RasterKind::FlowDir,
-            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
-        );
+        let request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
         let prepared = prepare_window(&store, &path, &request).await.unwrap();
         let output = temp_dir.path().join("wrong-length-window.tif");
         assert_unsupported_reason(
             fetch_window_to_path(&store, &path, prepared, &output).await,
             &path,
-            "TIFF tile 0 decoded 262143 bytes, expected 262144",
+            "TIFF tile 2039838 decoded 262143 bytes, expected 262144",
         );
     }
 
@@ -3493,45 +3620,80 @@ mod tests {
         );
     }
 
-    #[test]
-    fn owned_decode_clips_padded_edge_tile() {
-        let path = ObjectPath::from("padded-edge.tif");
-        let mut meta = metadata();
-        meta.width = 5;
-        meta.height = 3;
-        meta.tile_width = 3;
-        meta.tile_height = 2;
-        meta.sample_type = CogSampleType::U8;
-        meta.predictor = 2;
-        let tile_1 = compress_tile(&[4, 1, 250, 6, 1, 248]).unwrap();
-        let tile_3 = compress_tile(&[8, 1, 246, 201, 1, 53]).unwrap();
+    #[tokio::test]
+    async fn cache_route_places_four_tiles_and_clips_raster_edges() {
+        let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
+        let store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let cache_temp = tempfile::TempDir::new().expect("cache temp directory should be created");
+        let cache = crate::raster_cache::RemoteRasterCache::new(cache_temp.path().to_path_buf());
 
-        let OwnedTileData::U8(tile_1) = decode_owned_chunk(&tile_1, &meta, 1, &path).unwrap()
-        else {
-            panic!("tile 1 should be U8");
+        let flow_dir_request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.flow_dir_bbox());
+        let localized = cache
+            .get_or_fetch_window(
+                &store,
+                &fixtures.planetary_object_path,
+                &flow_dir_request,
+                "test-fabric",
+                "0.1.0",
+            )
+            .await
+            .expect("FlowDir cache route should localize the four-tile window");
+        assert!(localized.path().exists());
+        assert_eq!(localized.tile_count(), 4);
+        assert_eq!(localized.window_pixels(), 755_200);
+        let mut decoder = Decoder::new(File::open(localized.path()).unwrap()).unwrap();
+        assert_eq!(decoder.dimensions().unwrap(), (944, 800));
+        let DecodingResult::U8(decoded) = decoder.read_image().unwrap() else {
+            panic!("FlowDir localized window should decode as U8");
         };
-        let OwnedTileData::U8(tile_3) = decode_owned_chunk(&tile_3, &meta, 3, &path).unwrap()
-        else {
-            panic!("tile 3 should be U8");
-        };
-        assert_eq!(tile_1, [4, 5, 6, 7]);
-        assert_eq!(tile_1.len(), 4);
-        assert_eq!(tile_3, [8, 9]);
-        assert_eq!(tile_3.len(), 2);
+        assert_eq!(decoded.len(), 755_200);
+        let flow_dir_window = oracle.flow_dir_window();
+        for row in 0..flow_dir_window.height {
+            for col in 0..flow_dir_window.width {
+                let index = usize::try_from(row * 944 + col).unwrap();
+                assert_eq!(
+                    decoded[index],
+                    oracle.expected_u8(row, col),
+                    "FlowDir sample mismatch at output row {row}, column {col}"
+                );
+            }
+        }
 
-        let window = RasterPixelWindow {
-            col_off: 3,
-            row_off: 0,
-            width: 2,
-            height: 3,
+        let flow_acc_request =
+            RasterWindowRequest::new(RasterKind::FlowAcc, oracle.flow_acc_bbox());
+        let localized = cache
+            .get_or_fetch_window(
+                &store,
+                &fixtures.flow_acc_object_path,
+                &flow_acc_request,
+                "test-fabric",
+                "0.1.0",
+            )
+            .await
+            .expect("FlowAcc cache route should localize the four-tile window");
+        assert!(localized.path().exists());
+        assert_eq!(localized.tile_count(), 4);
+        assert_eq!(localized.window_pixels(), 755_200);
+        let mut decoder = Decoder::new(File::open(localized.path()).unwrap()).unwrap();
+        assert_eq!(decoder.dimensions().unwrap(), (944, 800));
+        let DecodingResult::F32(decoded) = decoder.read_image().unwrap() else {
+            panic!("FlowAcc localized window should decode as F32");
         };
-        let mut output = vec![0_u8; 6];
-        copy_tile_u8(&tile_1, &mut output, &meta, window, 1);
-        copy_tile_u8(&tile_3, &mut output, &meta, window, 3);
-        assert_eq!(output, [4, 5, 6, 7, 8, 9]);
-        assert!(!output.contains(&255));
-        assert!(!output.contains(&201));
-        assert!(!output.contains(&202));
+        assert_eq!(decoded.len(), 755_200);
+        let flow_acc_window = oracle.flow_acc_window();
+        for row in 0..flow_acc_window.height {
+            for col in 0..flow_acc_window.width {
+                let index = usize::try_from(row * 944 + col).unwrap();
+                assert_eq!(
+                    decoded[index],
+                    oracle.expected_f32(row, col),
+                    "FlowAcc sample mismatch at output row {row}, column {col}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -3763,11 +3925,201 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn cross_tile_fixture_oracle_locks_observation_geometry() {
+        let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
+        assert_eq!(
+            oracle.flow_dir_bbox(),
+            Rect::new(
+                coord! { x: 1_069_057.0, y: -499_999.0 },
+                coord! { x: 1_069_999.0, y: -499_201.0 },
+            )
+        );
+        assert_eq!(
+            oracle.flow_dir_window(),
+            RasterPixelWindow {
+                col_off: 1_069_056,
+                row_off: 499_200,
+                width: 944,
+                height: 800,
+            }
+        );
+        assert_eq!(
+            oracle.flow_dir_tile_indices(),
+            [2_039_838, 2_039_839, 2_041_928, 2_041_929]
+        );
+        assert_eq!(
+            oracle.flow_acc_bbox(),
+            Rect::new(coord! { x: 1.0, y: -799.0 }, coord! { x: 943.0, y: -1.0 },)
+        );
+        assert_eq!(
+            oracle.flow_acc_window(),
+            RasterPixelWindow {
+                col_off: 0,
+                row_off: 0,
+                width: 944,
+                height: 800,
+            }
+        );
+        assert_eq!(oracle.flow_acc_tile_indices(), [0, 1, 2, 3]);
+        assert_eq!(
+            oracle.live_tile_dimensions(),
+            [(512, 512), (432, 512), (512, 288), (432, 288)]
+        );
+
+        let store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let flow_dir_request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.flow_dir_bbox());
+        let flow_dir = prepare_window(&store, &fixtures.planetary_object_path, &flow_dir_request)
+            .await
+            .expect("four-tile FlowDir observation should prepare");
+        let flow_acc_request =
+            RasterWindowRequest::new(RasterKind::FlowAcc, oracle.flow_acc_bbox());
+        let flow_acc = prepare_window(&store, &fixtures.flow_acc_object_path, &flow_acc_request)
+            .await
+            .expect("four-tile FlowAcc observation should prepare");
+
+        assert_eq!(flow_dir.window, oracle.flow_dir_window());
+        assert_eq!(
+            flow_dir
+                .plan
+                .tiles
+                .iter()
+                .map(|tile| tile.index)
+                .collect::<Vec<_>>(),
+            oracle.flow_dir_tile_indices()
+        );
+        assert_eq!(flow_acc.window, oracle.flow_acc_window());
+        assert_eq!(
+            flow_acc
+                .plan
+                .tiles
+                .iter()
+                .map(|tile| tile.index)
+                .collect::<Vec<_>>(),
+            oracle.flow_acc_tile_indices()
+        );
+        assert_eq!(
+            (
+                flow_dir.metadata.width,
+                flow_dir.metadata.height,
+                flow_dir.metadata.tiles_across(),
+                flow_dir.metadata.tiles_down(),
+            ),
+            (1_070_000, 500_000, 2_090, 977)
+        );
+        assert_eq!(
+            (
+                flow_acc.metadata.width,
+                flow_acc.metadata.height,
+                flow_acc.metadata.tiles_across(),
+                flow_acc.metadata.tiles_down(),
+            ),
+            (944, 800, 2, 2)
+        );
+        assert_eq!((flow_dir.window.width, flow_dir.window.height), (944, 800));
+        assert_eq!((flow_acc.window.width, flow_acc.window.height), (944, 800));
+        for prepared in [&flow_dir, &flow_acc] {
+            let right_width = prepared.window.width.saturating_sub(512).min(512);
+            let bottom_height = prepared.window.height.saturating_sub(512).min(512);
+            let dimensions = [
+                (
+                    prepared.window.width.min(512),
+                    prepared.window.height.min(512),
+                ),
+                (right_width, prepared.window.height.min(512)),
+                (prepared.window.width.min(512), bottom_height),
+                (right_width, bottom_height),
+            ];
+            assert_eq!(dimensions, oracle.live_tile_dimensions());
+            assert_eq!(dimensions[0].0 + dimensions[1].0, prepared.window.width);
+            assert_eq!(dimensions[0].1 + dimensions[2].1, prepared.window.height);
+        }
+    }
+
+    #[test]
+    fn planetary_fixture_populates_only_cross_tile_sparse_entries() {
+        let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
+        let bytes = fs::read(
+            fixtures
+                .temp_dir
+                .path()
+                .join(fixtures.planetary_object_path.as_ref()),
+        )
+        .expect("planetary fixture should be readable");
+        assert_eq!(bytes.len(), usize::try_from(PLANETARY_FILE_LEN).unwrap());
+        assert_eq!(
+            PLANETARY_TILE_INDICES.map(|index| 3_998 + 8 * u64::from(index)),
+            [16_322_702, 16_322_710, 16_339_422, 16_339_430]
+        );
+        assert_eq!(
+            PLANETARY_TILE_INDICES.map(|index| 16_339_438 + 4 * u64::from(index)),
+            [24_498_790, 24_498_794, 24_507_150, 24_507_154]
+        );
+
+        let mut decoded_tiles = Vec::new();
+        for (slot, ((index, expected_offset), expected_count)) in PLANETARY_TILE_INDICES
+            .into_iter()
+            .zip(PLANETARY_TILE_OFFSETS)
+            .zip(PLANETARY_TILE_BYTE_COUNTS)
+            .enumerate()
+        {
+            let offset_entry = usize::try_from(3_998 + 8 * u64::from(index)).unwrap();
+            let count_entry = usize::try_from(16_339_438 + 4 * u64::from(index)).unwrap();
+            let offset =
+                u64::from_le_bytes(bytes[offset_entry..offset_entry + 8].try_into().unwrap());
+            let count = u32::from_le_bytes(bytes[count_entry..count_entry + 4].try_into().unwrap());
+            assert_eq!((offset, count), (expected_offset, expected_count));
+
+            let payload_start = usize::try_from(offset).unwrap();
+            let payload_end = payload_start + usize::try_from(count).unwrap();
+            let decoded = prototype_decode(&bytes[payload_start..payload_end])
+                .expect("planetary tile should inflate");
+            assert_eq!(decoded.len(), 262_144);
+            for local_row in 0..512 {
+                for local_col in 0..512 {
+                    let sample = decoded[usize::try_from(local_row * 512 + local_col).unwrap()];
+                    let slot = u32::try_from(slot).unwrap();
+                    let observation_row = (slot / 2) * 512 + local_row;
+                    let observation_col = (slot % 2) * 512 + local_col;
+                    assert_eq!(sample, oracle.expected_u8(observation_row, observation_col));
+                    assert_ne!(sample, 255);
+                }
+            }
+            decoded_tiles.push(decoded);
+        }
+        for left in 0..decoded_tiles.len() {
+            for right in left + 1..decoded_tiles.len() {
+                assert_ne!(decoded_tiles[left], decoded_tiles[right]);
+            }
+        }
+
+        for unselected_index in [0_u32, 2_039_837, 2_041_927] {
+            let offset_entry = usize::try_from(3_998 + 8 * u64::from(unselected_index)).unwrap();
+            let count_entry =
+                usize::try_from(16_339_438 + 4 * u64::from(unselected_index)).unwrap();
+            assert_eq!(&bytes[offset_entry..offset_entry + 8], &[0; 8]);
+            assert_eq!(&bytes[count_entry..count_entry + 4], &[0; 4]);
+        }
+        assert_eq!(3_998 + 8 * u64::from(PLANETARY_TILE_INDICES[3]), 16_339_430);
+        assert_eq!(
+            16_339_438 + 4 * u64::from(PLANETARY_TILE_INDICES[3]),
+            24_507_154
+        );
+        assert_eq!(24_507_154 + 4, PLANETARY_INDEX_END);
+        assert_eq!(bytes[usize::try_from(PLANETARY_INDEX_END).unwrap()], 0);
+    }
+
     #[test]
     fn flow_acc_fixture_indexes_are_genuinely_out_of_line() {
         let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
         let bytes = fs::read(fixtures.temp_dir.path().join("flow_acc.tif"))
             .expect("FlowAcc fixture should be readable");
+        assert_eq!(bytes.len(), usize::try_from(FLOW_ACC_FILE_LEN).unwrap());
         let object_size = u64::try_from(bytes.len()).expect("fixture length should fit u64");
         let decode_entry = |slot: &[u8]| IfdEntry {
             tag: u16::from_le_bytes(slot[0..2].try_into().unwrap()),
@@ -3785,7 +4137,7 @@ mod tests {
                 offsets_entry.count,
                 offsets_entry.value
             ),
-            (324, 16, 3, 668)
+            (324, 16, 4, 668)
         );
         assert_eq!(
             (
@@ -3794,7 +4146,7 @@ mod tests {
                 counts_entry.count,
                 counts_entry.value
             ),
-            (325, 4, 3, 692)
+            (325, 4, 4, 700)
         );
 
         let path = ObjectPath::from("flow_acc.tif");
@@ -3807,47 +4159,54 @@ mod tests {
             IndexDescriptor {
                 field_type: 16,
                 element_width: 8,
-                count: 3,
+                count: 4,
                 storage: IndexStorage::OutOfLine(668),
             }
         );
-        assert_eq!(offsets.byte_extent().unwrap(), Some(668..692));
-        assert_eq!(offsets.count * offsets.element_width, 24);
+        assert_eq!(offsets.byte_extent().unwrap(), Some(668..700));
+        assert_eq!(offsets.count * offsets.element_width, 32);
         assert!(offsets.count * offsets.element_width > 8);
         assert_eq!(
             counts,
             IndexDescriptor {
                 field_type: 4,
                 element_width: 4,
-                count: 3,
-                storage: IndexStorage::OutOfLine(692),
+                count: 4,
+                storage: IndexStorage::OutOfLine(700),
             }
         );
-        assert_eq!(counts.byte_extent().unwrap(), Some(692..704));
-        assert_eq!(counts.count * counts.element_width, 12);
+        assert_eq!(counts.byte_extent().unwrap(), Some(700..716));
+        assert_eq!(counts.count * counts.element_width, 16);
         assert!(counts.count * counts.element_width > 8);
         assert!(!matches!(offsets.storage, IndexStorage::InlineScalar(_)));
         assert!(!matches!(counts.storage, IndexStorage::InlineScalar(_)));
 
-        let tile_offsets = (0..3)
+        let tile_offsets = (0..4)
             .map(|index| {
                 let start = 668 + index * 8;
                 u64::from_le_bytes(bytes[start..start + 8].try_into().unwrap())
             })
             .collect::<Vec<_>>();
-        let tile_counts = (0..3)
+        let tile_counts = (0..4)
             .map(|index| {
-                let start = 692 + index * 4;
+                let start = 700 + index * 4;
                 u32::from_le_bytes(bytes[start..start + 4].try_into().unwrap())
             })
             .collect::<Vec<_>>();
+        assert_eq!(tile_offsets, FLOW_ACC_TILE_OFFSETS);
+        assert_eq!(tile_counts, FLOW_ACC_TILE_BYTE_COUNTS);
         let expected_prefixes = [
-            [1.0_f32, 2.0, 3.0],
-            [4.0_f32, 5.0, 6.0],
-            [7.0_f32, 8.0, 9.0],
+            [1_000.0_f32, 1_001.0, 1_002.0],
+            [2_000.0_f32, 2_001.0, 2_002.0],
+            [3_000.0_f32, 3_001.0, 3_002.0],
+            [4_000.0_f32, 4_001.0, 4_002.0],
         ];
-        for ((offset, count), expected) in
-            tile_offsets.iter().zip(&tile_counts).zip(expected_prefixes)
+        let mut decoded_tiles = Vec::new();
+        for (slot, ((offset, count), expected)) in tile_offsets
+            .iter()
+            .zip(&tile_counts)
+            .zip(expected_prefixes)
+            .enumerate()
         {
             let start = usize::try_from(*offset).unwrap();
             let end = start + usize::try_from(*count).unwrap();
@@ -3857,26 +4216,38 @@ mod tests {
             let prefix = [0, 4, 8]
                 .map(|start| f32::from_le_bytes(decoded[start..start + 4].try_into().unwrap()));
             assert_eq!(prefix, expected);
+            for local_row in 0..512 {
+                for local_col in 0..512 {
+                    let sample_start = usize::try_from((local_row * 512 + local_col) * 4).unwrap();
+                    let sample = f32::from_le_bytes(
+                        decoded[sample_start..sample_start + 4].try_into().unwrap(),
+                    );
+                    let slot = u32::try_from(slot).unwrap();
+                    let observation_row = (slot / 2) * 512 + local_row;
+                    let observation_col = (slot % 2) * 512 + local_col;
+                    assert_eq!(
+                        sample,
+                        oracle.expected_f32(observation_row, observation_col)
+                    );
+                    assert!(sample.is_finite());
+                    assert_ne!(sample, -1.0);
+                }
+            }
+            decoded_tiles.push(decoded);
+        }
+        for left in 0..decoded_tiles.len() {
+            for right in left + 1..decoded_tiles.len() {
+                assert_ne!(decoded_tiles[left], decoded_tiles[right]);
+            }
         }
 
-        let tile_0_start = usize::try_from(tile_offsets[0]).unwrap();
-        let tile_0_end = tile_0_start + usize::try_from(tile_counts[0]).unwrap();
-        let tile_0 = prototype_decode(&bytes[tile_0_start..tile_0_end])
-            .expect("FlowAcc tile 0 should inflate");
+        let tile_0 = &decoded_tiles[0];
         let stored_bits =
             [0, 4, 8].map(|start| u32::from_le_bytes(tile_0[start..start + 4].try_into().unwrap()));
-        assert_eq!(stored_bits, [0x3f800000, 0x40000000, 0x40400000]);
-        let predictor_2_bits = [0x3f800000, 0x7f800000, 0xbfc00000];
-        assert_eq!(
-            predictor_2_bits.map(f32::from_bits),
-            [1.0, f32::INFINITY, -1.5]
-        );
+        assert_eq!(stored_bits, [0x447a0000, 0x447a4000, 0x447a8000]);
+        let predictor_2_bits = [0x447a0000, 0x88f44000, 0xcd6ec000];
         assert_ne!(predictor_2_bits, stored_bits);
-        let predictor_3_bits = [0x007f7f7f, 0x007f7f7f, 0x807f7f7f];
-        assert_eq!(
-            predictor_3_bits.map(f32::from_bits),
-            [1.1708845e-38, 1.1708845e-38, -1.1708845e-38]
-        );
+        let predictor_3_bits = [0x00c08040, 0x00c08040, 0x7a3afaba];
         assert_ne!(predictor_3_bits, stored_bits);
     }
 
@@ -4076,14 +4447,13 @@ mod tests {
     #[tokio::test]
     async fn planetary_window_locks_truncated_tile_byte_counts_failure() {
         let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
         let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
             .expect("fixture object store should be rooted");
         let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
         let store = CogFixtureCountingStore::new(inner);
-        let request = RasterWindowRequest::new(
-            RasterKind::FlowDir,
-            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
-        );
+        let request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
 
         let prepared = prepare_window(
             &store as &dyn ObjectStore,
@@ -4096,7 +4466,7 @@ mod tests {
         // See docs/releases/tile-count-independent-planetary-cog-reads.md for this transition.
         // M3-S4 hardens CogFixtureCountingStore and adds the byte-count backstop proving that
         // only covered index entries are read; these method-call counts do not prove byte volume.
-        assert_eq!(prepared.plan.tiles[0].index, 0);
+        assert_eq!(prepared.plan.tiles[0].index, 2_039_838);
         assert_eq!(prepared.plan.tiles.len(), 1);
         assert_eq!(prepared.header_bytes, 488);
         assert_eq!(store.requested_range_bytes(), 488);
@@ -4110,8 +4480,11 @@ mod tests {
     #[tokio::test]
     async fn remote_window_metadata_cost_is_tile_count_independent() {
         let fixtures = fixtures();
-        let bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 });
-        let request = RasterWindowRequest::new(RasterKind::FlowDir, bbox);
+        let oracle = CrossTileFixtureOracle::new();
+        let regional_bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 });
+        let planetary_bbox = oracle.one_tile_planetary_bbox();
+        let regional_request = RasterWindowRequest::new(RasterKind::FlowDir, regional_bbox);
+        let planetary_request = RasterWindowRequest::new(RasterKind::FlowDir, planetary_bbox);
 
         let regional_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
             .expect("regional fixture object store should be rooted");
@@ -4119,7 +4492,7 @@ mod tests {
         let regional_prepared = prepare_window(
             &regional_observation_store,
             &fixtures.regional_object_path,
-            &request,
+            &regional_request,
         )
         .await
         .expect("regional covered entries should resolve");
@@ -4129,7 +4502,7 @@ mod tests {
         let planetary_prepared = prepare_window(
             &planetary_observation_store,
             &fixtures.planetary_object_path,
-            &request,
+            &planetary_request,
         )
         .await
         .expect("planetary covered entries should resolve");
@@ -4150,7 +4523,7 @@ mod tests {
                 .iter()
                 .map(|tile| tile.index)
                 .collect::<Vec<_>>(),
-            [0]
+            [2_039_838]
         );
         let CogIndex::Remote {
             tile_offsets: regional_offsets,
@@ -4196,7 +4569,7 @@ mod tests {
         );
 
         let regional_cost =
-            measure_window_read_cost(fixtures, &fixtures.regional_object_path, bbox).await;
+            measure_window_read_cost(fixtures, &fixtures.regional_object_path, regional_bbox).await;
         assert!(
             regional_cost.total_consumed_bytes < REMOTE_WINDOW_BYTE_BACKSTOP,
             "{} is not below {}",
@@ -4205,7 +4578,8 @@ mod tests {
         );
         assert!(regional_cost.total_object_store_api_calls < REMOTE_WINDOW_API_CALL_BACKSTOP);
         let planetary_cost =
-            measure_window_read_cost(fixtures, &fixtures.planetary_object_path, bbox).await;
+            measure_window_read_cost(fixtures, &fixtures.planetary_object_path, planetary_bbox)
+                .await;
         assert!(
             planetary_cost.total_consumed_bytes < REMOTE_WINDOW_BYTE_BACKSTOP,
             "{} is not below {}",
@@ -4214,8 +4588,7 @@ mod tests {
         );
         assert!(planetary_cost.total_object_store_api_calls < REMOTE_WINDOW_API_CALL_BACKSTOP);
 
-        assert_eq!(regional_cost, planetary_cost);
-        let expected = WindowReadCost {
+        let expected_regional = WindowReadCost {
             header_bytes: 488,
             tile_bytes: 284,
             tile_count: 1,
@@ -4229,18 +4602,48 @@ mod tests {
             total_consumed_bytes: 772,
             total_object_store_api_calls: 7,
         };
-        assert_eq!(regional_cost, expected);
-        assert_eq!(planetary_cost, expected);
-        let fixed_layout_bytes = regional_cost.header_bytes
+        assert_eq!(regional_cost, expected_regional);
+        assert_eq!(regional_cost.header_bytes, planetary_cost.header_bytes);
+        assert_eq!(regional_cost.header_bytes, 488);
+        assert_eq!(regional_cost.tile_count, planetary_cost.tile_count);
+        assert_eq!(planetary_cost.tile_count, 1);
+        assert_eq!(regional_cost.head_calls, planetary_cost.head_calls);
+        assert_eq!(
+            regional_cost.non_range_get_calls,
+            planetary_cost.non_range_get_calls
+        );
+        assert_eq!(
+            regional_cost.get_range_calls,
+            planetary_cost.get_range_calls
+        );
+        assert_eq!(
+            regional_cost.get_ranges_calls,
+            planetary_cost.get_ranges_calls
+        );
+        assert_eq!(planetary_cost.tile_bytes, 434);
+        assert_eq!(planetary_cost.requested_range_bytes, 922);
+        assert_eq!(planetary_cost.consumed_range_bytes, 922);
+        assert_eq!(planetary_cost.total_consumed_bytes, 922);
+        assert_eq!(planetary_cost.total_object_store_api_calls, 7);
+        let regional_fixed_layout_bytes = regional_cost.header_bytes
             - (regional_offsets.element_width + regional_byte_counts.element_width);
-        assert_eq!(fixed_layout_bytes, 476);
+        let planetary_fixed_layout_bytes = planetary_cost.header_bytes
+            - (planetary_offsets.element_width + planetary_byte_counts.element_width);
+        assert_eq!(regional_fixed_layout_bytes, planetary_fixed_layout_bytes);
+        assert_eq!(planetary_fixed_layout_bytes, 476);
     }
 
     #[tokio::test]
     async fn remote_window_cost_scales_only_with_covered_tiles() {
         let fixtures = fixtures();
-        let one_tile_bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 });
-        let two_tile_bbox = Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 600.0, y: 0.0 });
+        let one_tile_bbox = Rect::new(
+            coord! { x: 1_069_057.0, y: -499_202.0 },
+            coord! { x: 1_069_058.0, y: -499_201.0 },
+        );
+        let two_tile_bbox = Rect::new(
+            coord! { x: 1_069_567.0, y: -499_202.0 },
+            coord! { x: 1_069_569.0, y: -499_201.0 },
+        );
 
         let one_tile_local = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
             .expect("planetary fixture object store should be rooted");
@@ -4272,7 +4675,7 @@ mod tests {
                 .iter()
                 .map(|tile| tile.index)
                 .collect::<Vec<_>>(),
-            [0]
+            [2_039_838]
         );
         assert_eq!(
             two_tile_prepared
@@ -4281,7 +4684,7 @@ mod tests {
                 .iter()
                 .map(|tile| tile.index)
                 .collect::<Vec<_>>(),
-            [0, 1]
+            [2_039_838, 2_039_839]
         );
 
         let one_tile_cost =
@@ -4293,17 +4696,17 @@ mod tests {
 
         let observed_delta =
             two_tile_cost.total_consumed_bytes - one_tile_cost.total_consumed_bytes;
-        assert_eq!(observed_delta, 296);
+        assert_eq!(observed_delta, 446);
         let header_delta = two_tile_cost.header_bytes - one_tile_cost.header_bytes;
         let tile_delta = two_tile_cost.tile_bytes - one_tile_cost.tile_bytes;
         assert_eq!(header_delta, 12);
-        assert_eq!(tile_delta, 284);
+        assert_eq!(tile_delta, 434);
         assert_eq!(observed_delta, header_delta + tile_delta);
 
         assert_eq!(one_tile_cost.header_bytes, 488);
-        assert_eq!(one_tile_cost.tile_bytes, 284);
+        assert_eq!(one_tile_cost.tile_bytes, 434);
         assert_eq!(one_tile_cost.tile_count, 1);
-        assert_eq!(one_tile_cost.total_consumed_bytes, 772);
+        assert_eq!(one_tile_cost.total_consumed_bytes, 922);
         assert_eq!(
             (
                 one_tile_cost.head_calls,
@@ -4313,15 +4716,15 @@ mod tests {
             ),
             (1, 0, 3, 3)
         );
-        assert_eq!(one_tile_cost.requested_range_bytes, 772);
-        assert_eq!(one_tile_cost.consumed_range_bytes, 772);
+        assert_eq!(one_tile_cost.requested_range_bytes, 922);
+        assert_eq!(one_tile_cost.consumed_range_bytes, 922);
         assert_eq!(one_tile_cost.charged_non_range_object_range_bytes, 0);
         assert_eq!(one_tile_cost.total_object_store_api_calls, 7);
 
         assert_eq!(two_tile_cost.header_bytes, 500);
-        assert_eq!(two_tile_cost.tile_bytes, 568);
+        assert_eq!(two_tile_cost.tile_bytes, 868);
         assert_eq!(two_tile_cost.tile_count, 2);
-        assert_eq!(two_tile_cost.total_consumed_bytes, 1_068);
+        assert_eq!(two_tile_cost.total_consumed_bytes, 1_368);
         assert_eq!(
             (
                 two_tile_cost.head_calls,
@@ -4331,8 +4734,8 @@ mod tests {
             ),
             (1, 0, 3, 3)
         );
-        assert_eq!(two_tile_cost.requested_range_bytes, 1_068);
-        assert_eq!(two_tile_cost.consumed_range_bytes, 1_068);
+        assert_eq!(two_tile_cost.requested_range_bytes, 1_368);
+        assert_eq!(two_tile_cost.consumed_range_bytes, 1_368);
         assert_eq!(two_tile_cost.charged_non_range_object_range_bytes, 0);
         assert_eq!(two_tile_cost.total_object_store_api_calls, 7);
 
@@ -4345,16 +4748,15 @@ mod tests {
     #[tokio::test]
     async fn planetary_cache_window_locks_truncated_tile_byte_counts_failure() {
         let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
         let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
             .expect("fixture object store should be rooted");
         let inner: Arc<dyn ObjectStore> = Arc::new(local_store);
         let store = CogFixtureCountingStore::new(inner);
         let cache_temp = tempfile::TempDir::new().expect("cache temp directory should be created");
         let cache = crate::raster_cache::RemoteRasterCache::new(cache_temp.path().to_path_buf());
-        let request = RasterWindowRequest::new(
-            RasterKind::FlowDir,
-            Rect::new(coord! { x: 0.0, y: -1.0 }, coord! { x: 1.0, y: 0.0 }),
-        );
+        let request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
 
         let localized = cache
             .get_or_fetch_window(
