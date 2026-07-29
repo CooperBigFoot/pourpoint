@@ -2082,16 +2082,22 @@ dependencies = [
 name = "pourpoint-gdal"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "futures-util",
  "gdal",
  "geo",
  "geozero",
  "hfx",
+ "object_store",
  "pourpoint-core",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "tiff",
+ "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

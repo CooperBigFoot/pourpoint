@@ -1,5 +1,5 @@
 //! staged_r2_carve : PublicHfxRoot × ZurichOutlet → WitnessedRequiredD8Carve
-//! Manual command: `POURPOINT_STAGED_R2_CARVE=1 cargo test -p pourpoint-core --test staged_r2_carve -- --ignored --nocapture`
+//! Manual command: `POURPOINT_STAGED_R2_CARVE=1 cargo test -p pourpoint-gdal --test staged_r2_carve -- --ignored --nocapture`
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
@@ -24,11 +24,11 @@ use object_store::{
 use pourpoint_core::algo::{GeoCoord, geodesic_area_multi};
 use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::source::DatasetSource;
-use pourpoint_core::test_raster_source::LocalTiffRasterSource;
 use pourpoint_core::{
     DelineationOptions, Engine, LevelSelection, RefinementMode, ResolutionMethod, ResolverConfig,
     SnapStrategy, TerminalRefinement,
 };
+use pourpoint_gdal::GdalRasterSource;
 use serde::Serialize;
 use serde_json::{Value, json};
 use tiff::decoder::{Decoder, DecodingResult};
@@ -786,7 +786,7 @@ fn ceiling(observed: u64, limit: u64, label: &str) -> CeilingEvidence {
 }
 
 #[test]
-#[ignore = "network-gated staged R2 carve proof; run POURPOINT_STAGED_R2_CARVE=1 cargo test -p pourpoint-core --test staged_r2_carve -- --ignored --nocapture"]
+#[ignore = "network-gated staged R2 carve proof; run POURPOINT_STAGED_R2_CARVE=1 cargo test -p pourpoint-gdal --test staged_r2_carve -- --ignored --nocapture"]
 fn staged_r2_public_carve_reads_predictor_1_rasters() {
     assert!(
         std::env::var("POURPOINT_STAGED_R2_CARVE").as_deref() == Ok("1"),
@@ -925,7 +925,7 @@ fn staged_r2_public_carve_reads_predictor_1_rasters() {
     let weight_semantics = selected_declaration.weight_semantics.clone();
 
     let engine = Engine::builder(session)
-        .with_raster_source(LocalTiffRasterSource)
+        .with_raster_source(GdalRasterSource::new())
         .build();
     let input = GeoCoord {
         lon: 8.5417,
