@@ -3620,45 +3620,80 @@ mod tests {
         );
     }
 
-    #[test]
-    fn owned_decode_clips_padded_edge_tile() {
-        let path = ObjectPath::from("padded-edge.tif");
-        let mut meta = metadata();
-        meta.width = 5;
-        meta.height = 3;
-        meta.tile_width = 3;
-        meta.tile_height = 2;
-        meta.sample_type = CogSampleType::U8;
-        meta.predictor = 2;
-        let tile_1 = compress_tile(&[4, 1, 250, 6, 1, 248]).unwrap();
-        let tile_3 = compress_tile(&[8, 1, 246, 201, 1, 53]).unwrap();
+    #[tokio::test]
+    async fn cache_route_places_four_tiles_and_clips_raster_edges() {
+        let fixtures = fixtures();
+        let oracle = CrossTileFixtureOracle::new();
+        let store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
+            .expect("fixture object store should be rooted");
+        let cache_temp = tempfile::TempDir::new().expect("cache temp directory should be created");
+        let cache = crate::raster_cache::RemoteRasterCache::new(cache_temp.path().to_path_buf());
 
-        let OwnedTileData::U8(tile_1) = decode_owned_chunk(&tile_1, &meta, 1, &path).unwrap()
-        else {
-            panic!("tile 1 should be U8");
+        let flow_dir_request =
+            RasterWindowRequest::new(RasterKind::FlowDir, oracle.flow_dir_bbox());
+        let localized = cache
+            .get_or_fetch_window(
+                &store,
+                &fixtures.planetary_object_path,
+                &flow_dir_request,
+                "test-fabric",
+                "0.1.0",
+            )
+            .await
+            .expect("FlowDir cache route should localize the four-tile window");
+        assert!(localized.path().exists());
+        assert_eq!(localized.tile_count(), 4);
+        assert_eq!(localized.window_pixels(), 755_200);
+        let mut decoder = Decoder::new(File::open(localized.path()).unwrap()).unwrap();
+        assert_eq!(decoder.dimensions().unwrap(), (944, 800));
+        let DecodingResult::U8(decoded) = decoder.read_image().unwrap() else {
+            panic!("FlowDir localized window should decode as U8");
         };
-        let OwnedTileData::U8(tile_3) = decode_owned_chunk(&tile_3, &meta, 3, &path).unwrap()
-        else {
-            panic!("tile 3 should be U8");
-        };
-        assert_eq!(tile_1, [4, 5, 6, 7]);
-        assert_eq!(tile_1.len(), 4);
-        assert_eq!(tile_3, [8, 9]);
-        assert_eq!(tile_3.len(), 2);
+        assert_eq!(decoded.len(), 755_200);
+        let flow_dir_window = oracle.flow_dir_window();
+        for row in 0..flow_dir_window.height {
+            for col in 0..flow_dir_window.width {
+                let index = usize::try_from(row * 944 + col).unwrap();
+                assert_eq!(
+                    decoded[index],
+                    oracle.expected_u8(row, col),
+                    "FlowDir sample mismatch at output row {row}, column {col}"
+                );
+            }
+        }
 
-        let window = RasterPixelWindow {
-            col_off: 3,
-            row_off: 0,
-            width: 2,
-            height: 3,
+        let flow_acc_request =
+            RasterWindowRequest::new(RasterKind::FlowAcc, oracle.flow_acc_bbox());
+        let localized = cache
+            .get_or_fetch_window(
+                &store,
+                &fixtures.flow_acc_object_path,
+                &flow_acc_request,
+                "test-fabric",
+                "0.1.0",
+            )
+            .await
+            .expect("FlowAcc cache route should localize the four-tile window");
+        assert!(localized.path().exists());
+        assert_eq!(localized.tile_count(), 4);
+        assert_eq!(localized.window_pixels(), 755_200);
+        let mut decoder = Decoder::new(File::open(localized.path()).unwrap()).unwrap();
+        assert_eq!(decoder.dimensions().unwrap(), (944, 800));
+        let DecodingResult::F32(decoded) = decoder.read_image().unwrap() else {
+            panic!("FlowAcc localized window should decode as F32");
         };
-        let mut output = vec![0_u8; 6];
-        copy_tile_u8(&tile_1, &mut output, &meta, window, 1);
-        copy_tile_u8(&tile_3, &mut output, &meta, window, 3);
-        assert_eq!(output, [4, 5, 6, 7, 8, 9]);
-        assert!(!output.contains(&255));
-        assert!(!output.contains(&201));
-        assert!(!output.contains(&202));
+        assert_eq!(decoded.len(), 755_200);
+        let flow_acc_window = oracle.flow_acc_window();
+        for row in 0..flow_acc_window.height {
+            for col in 0..flow_acc_window.width {
+                let index = usize::try_from(row * 944 + col).unwrap();
+                assert_eq!(
+                    decoded[index],
+                    oracle.expected_f32(row, col),
+                    "FlowAcc sample mismatch at output row {row}, column {col}"
+                );
+            }
+        }
     }
 
     #[test]
