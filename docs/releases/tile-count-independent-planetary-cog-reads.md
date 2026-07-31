@@ -124,10 +124,14 @@ extent assertion to green success, and its `TRANSITIONAL` label survives at
 `cog.rs:3945`; exactly one such label exists in the module today. M3 converted
 the window assertion to green success by replacing the failure-locking
 assertion and removed its `TRANSITIONAL` label. That conversion remains
-auditable through the retained failure-shaped test names
-`planetary_window_locks_truncated_tile_byte_counts_failure` (`cog.rs:4077`) and
-`planetary_cache_window_locks_truncated_tile_byte_counts_failure`
-(`cog.rs:4346`), which now assert success despite their names.
+auditable through the historical names
+`planetary_window_locks_truncated_tile_byte_counts_failure` and
+`planetary_cache_window_locks_truncated_tile_byte_counts_failure`. Their
+current success-oriented names are
+`planetary_window_resolves_covered_tile_indexes_with_bounded_reads`
+(`cog.rs:4631`) and
+`planetary_cache_window_materializes_with_bounded_reads` (`cog.rs:4932`);
+this cleanup renamed them without changing their converted-success assertions.
 
 It also contains one `DURABLE` generated-fixture invariant that must survive M2
 and M3. The invariant derives the index end from the fixture's own
@@ -333,7 +337,7 @@ The five runtime ceilings and their declaration and check locations are:
 - `MAX_PLANNED_TILE_COUNT=65,536` (`cog.rs:32`, checked at `:245`);
 - `MAX_COMPRESSED_CHUNK_BYTES=16,777,216` (`cog.rs:33`, checked at `:1307`);
 - `MAX_COVERED_CHUNK_BYTES=1,073,741,824` (`cog.rs:34`, checked at `:1319`);
-- `MAX_DECODED_CHUNK_BYTES=1,048,576` (`cog.rs:35`, checked at `:1456`);
+- `MAX_DECODED_CHUNK_BYTES=8,388,608` (`cog.rs:35`, checked at `:1456`);
 - `MAX_WINDOW_ALLOCATION_BYTES=1,073,741,824` (`cog.rs:36`, checked at
   `:1424`).
 
@@ -353,7 +357,8 @@ These are recorded compatibility measurements, not independent proofs:
 exceeding a ceiling would have stopped localization before `Applied`. The
 decoded-chunk observations `262,144` and `1,048,576` are derived constants,
 hard-coded from the staged 512×512 tile geometry, not runtime remeasurements.
-For F32, `512 × 512 × 4 = 1,048,576`, exactly
+Against the then-current `1,048,576` ceiling, for F32,
+`512 × 512 × 4 = 1,048,576`, exactly
 `MAX_DECODED_CHUNK_BYTES`; the check at `cog.rs:1456` rejects only strict `>`,
 so the staged F32 tile passes with **ZERO MARGIN**. This is compatibility,
 never decoded-chunk headroom.
@@ -429,8 +434,10 @@ oracles, not staged-byte assembly or decode.
   those tags.
 - The 4,096-byte and eight-call numeric backstops are gross-regression nets and
   cannot replace the preceding store-observed byte assertions.
-- The converted witnesses
+- The converted witnesses retain an auditable chain from the historical names
   `planetary_window_locks_truncated_tile_byte_counts_failure` and
-  `planetary_cache_window_locks_truncated_tile_byte_counts_failure` retain
-  failure-shaped names temporarily to preserve the auditable conversion chain.
-  Renaming was deferred outside M4 because `cog.rs` was outside M4's scope.
+  `planetary_cache_window_locks_truncated_tile_byte_counts_failure` to the
+  current success-oriented names
+  `planetary_window_resolves_covered_tile_indexes_with_bounded_reads` and
+  `planetary_cache_window_materializes_with_bounded_reads`. This cleanup
+  renamed them without changing their converted-success assertions.
