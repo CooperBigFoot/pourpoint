@@ -1,6 +1,6 @@
 //! Object-store integration coverage for remote HFX sessions.
 
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -10,21 +10,27 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use futures_util::TryStreamExt;
+use geo::{BoundingRect, Coord, LineString, MultiPolygon, Polygon};
 use hfx::BoundingBox;
 use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
-use object_store::{ObjectStoreExt, PutPayload};
+use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use parquet::arrow::ArrowWriter;
 use pourpoint_core::algo::{GeoCoord, canonical_wkb_multi_polygon};
 use pourpoint_core::engine::{DelineationOptions, RefinementOutcome};
 use pourpoint_core::refinement::{BestEffortSkipCategory, BestEffortSkipSource};
-use pourpoint_core::session::DatasetSession;
+use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
 use pourpoint_core::{
     BestEffortSkipReason, Engine, EngineError, RefinementMode, RefinementProvenance,
     RefinementStrategyName, SessionError,
 };
 use tempfile::TempDir;
+use tiff::decoder::Decoder;
+use tiff::tags::Tag;
 use url::Url;
 
 static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -176,6 +182,247 @@ fn remote_d8_localization_failure_skips_best_effort_and_stays_fatal_when_require
             ..
         }
     ));
+}
+
+#[test]
+fn remote_reader_accepts_out_of_line_gdal_nodata() {
+    const ORIGINAL_ROOT: &str = "m3-s3/generated-512-original";
+    const FLOW_ACC_PROBE_ROOT: &str = "m3-s3/generated-512-flow-acc-probe";
+    const ARTIFACT_KEYS: [&str; 5] = [
+        "manifest.json",
+        "graph.parquet",
+        "catchments.parquet",
+        "aux/d8/projected/flow_dir.tif",
+        "aux/d8/projected/flow_acc.tif",
+    ];
+    const FLOW_DIR_RED_DIAGNOSTIC: &str = "failed to read D8 COG extent header for declaration 0 FlowDir at aux/d8/projected/flow_dir.tif: unsupported remote COG raster m3-s3/generated-512-original/aux/d8/projected/flow_dir.tif: TIFF tag 42113 out-of-line ASCII is unsupported";
+    const FLOW_ACC_RED_DIAGNOSTIC: &str = "failed to read D8 COG extent header for declaration 0 FlowAcc at aux/d8/projected/flow_acc.tif: unsupported remote COG raster m3-s3/generated-512-flow-acc-probe/aux/d8/projected/flow_acc.tif: TIFF tag 42113 out-of-line ASCII is unsupported";
+
+    let cache_dir = TempDir::new().unwrap();
+    let _cache_env = CacheEnv::set(cache_dir.path());
+    let store = Arc::new(InMemory::new());
+    let source_manifest =
+        include_str!("fixtures/parity/tiny-with-aux-d8-projected-grass/manifest.json");
+    let graph = include_bytes!("fixtures/parity/tiny-with-aux-d8-projected-grass/graph.parquet");
+    let catchments =
+        include_bytes!("fixtures/parity/tiny-with-aux-d8-projected-grass/catchments.parquet");
+    let flow_dir = classic_tiled_tiff(GeneratedRaster::FlowDirOutOfLine);
+    let flow_dir_probe = classic_tiled_tiff(GeneratedRaster::FlowDirInlineProbe);
+    let flow_acc = classic_tiled_tiff(GeneratedRaster::FlowAccOutOfLine);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        for (root, identity, generated_flow_dir) in [
+            (ORIGINAL_ROOT, "generated-512-original", flow_dir.as_slice()),
+            (
+                FLOW_ACC_PROBE_ROOT,
+                "generated-512-flow-acc-probe",
+                flow_dir_probe.as_slice(),
+            ),
+        ] {
+            let manifest = generated_manifest(source_manifest, identity);
+            for (key, payload) in [
+                ("manifest.json", manifest.as_bytes()),
+                ("graph.parquet", graph.as_slice()),
+                ("catchments.parquet", catchments.as_slice()),
+                ("aux/d8/projected/flow_dir.tif", generated_flow_dir),
+                ("aux/d8/projected/flow_acc.tif", flow_acc.as_slice()),
+            ] {
+                let path = ObjectPath::from(format!("{root}/{key}"));
+                store
+                    .put(&path, PutPayload::from(payload.to_vec()))
+                    .await
+                    .unwrap_or_else(|error| panic!("failed to stage {path}: {error}"));
+            }
+        }
+
+        for root in [ORIGINAL_ROOT, FLOW_ACC_PROBE_ROOT] {
+            let root_path = ObjectPath::from(root);
+            let staged = store
+                .list(Some(&root_path))
+                .map_ok(|metadata| metadata.location.to_string())
+                .try_collect::<Vec<_>>()
+                .await
+                .unwrap_or_else(|error| panic!("failed to list staged root {root}: {error}"));
+            let expected = ARTIFACT_KEYS
+                .map(|key| format!("{root}/{key}"))
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            let actual = staged
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            for key in &expected {
+                assert!(actual.contains(key), "missing staged object {key}");
+            }
+            assert_eq!(actual, expected, "unexpected staged inventory under {root}");
+        }
+    });
+    drop(runtime);
+
+    let original_root = ObjectPath::from(ORIGINAL_ROOT);
+    let flow_acc_probe_root = ObjectPath::from(FLOW_ACC_PROBE_ROOT);
+    let original_url = Url::parse("s3://pourpoint-test/m3-s3/generated-512-original").unwrap();
+    let flow_acc_probe_url =
+        Url::parse("s3://pourpoint-test/m3-s3/generated-512-flow-acc-probe").unwrap();
+    let original_session =
+        DatasetSession::open_remote_with_store(store.clone(), &original_root, &original_url)
+            .expect("generated original remote session should open");
+    let flow_acc_probe_session =
+        DatasetSession::open_remote_with_store(store, &flow_acc_probe_root, &flow_acc_probe_url)
+            .expect("generated FlowAcc probe remote session should open");
+    let terminal = closed_terminal_polygon(0.983_333_333_333_333_3, 0.416_666_666_666_666_7);
+    let original_selection = original_session.select_d8_raster_for_terminal(&terminal);
+    let flow_acc_probe_selection = flow_acc_probe_session.select_d8_raster_for_terminal(&terminal);
+    if let (Err(flow_dir_error), Err(flow_acc_error)) =
+        (&original_selection, &flow_acc_probe_selection)
+    {
+        assert_eq!(flow_dir_error.to_string(), FLOW_DIR_RED_DIAGNOSTIC);
+        assert_eq!(flow_acc_error.to_string(), FLOW_ACC_RED_DIAGNOSTIC);
+        panic!("{FLOW_DIR_RED_DIAGNOSTIC}\n{FLOW_ACC_RED_DIAGNOSTIC}");
+    }
+    let (handle, native_terminal) =
+        original_selection.expect("out-of-line FlowDir and FlowAcc metadata should be accepted");
+    flow_acc_probe_selection.expect("out-of-line FlowAcc metadata should be accepted");
+    let native_bounds = native_terminal
+        .bounding_rect()
+        .expect("terminal polygon should have native bounds");
+    let localized_flow_dir = original_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowDir, native_bounds)
+        .expect("generated out-of-line FlowDir window should localize");
+    let localized_flow_acc = original_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowAcc, native_bounds)
+        .expect("generated out-of-line FlowAcc window should localize");
+    assert_eq!(localized_nodata(localized_flow_dir.path()), "128");
+    assert_eq!(localized_nodata(localized_flow_acc.path()), "nan");
+}
+
+#[derive(Clone, Copy)]
+enum GeneratedRaster {
+    FlowDirOutOfLine,
+    FlowDirInlineProbe,
+    FlowAccOutOfLine,
+}
+
+fn generated_manifest(source: &str, identity: &str) -> String {
+    let mut manifest: serde_json::Value = serde_json::from_str(source).unwrap();
+    manifest["fabric_name"] = serde_json::Value::String(format!("m3-s3-{identity}"));
+    manifest["adapter_version"] = serde_json::Value::String(format!("m3-s3-{identity}-v1"));
+    serde_json::to_string(&manifest).unwrap()
+}
+
+fn classic_tiled_tiff(kind: GeneratedRaster) -> Vec<u8> {
+    const IFD_OFFSET: u32 = 8;
+    const ENTRY_COUNT: u16 = 16;
+    const SCALE_OFFSET: u32 = 206;
+    const TIEPOINT_OFFSET: u32 = 230;
+    const OUT_OF_LINE_ASCII_OFFSET: u32 = 278;
+
+    let (bits_per_sample, sample_format, nodata, tile) = match kind {
+        GeneratedRaster::FlowDirOutOfLine => {
+            (8_u32, 2_u32, b"-128\0".as_slice(), vec![1_u8; 512 * 512])
+        }
+        GeneratedRaster::FlowDirInlineProbe => (8, 2, b"-1\0".as_slice(), vec![1_u8; 512 * 512]),
+        GeneratedRaster::FlowAccOutOfLine => {
+            let mut tile = Vec::with_capacity(512 * 512 * 4);
+            for _ in 0..512 * 512 {
+                tile.extend_from_slice(&1_i32.to_le_bytes());
+            }
+            (32, 2, b"-2147483648\0".as_slice(), tile)
+        }
+    };
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&tile).unwrap();
+    let compressed_tile = encoder.finish().unwrap();
+    let inline_nodata = nodata.len() <= 4;
+    let tile_offset = OUT_OF_LINE_ASCII_OFFSET
+        + if inline_nodata {
+            0
+        } else {
+            nodata.len() as u32
+        };
+    let tile_byte_count = u32::try_from(compressed_tile.len()).unwrap();
+    let nodata_value = if inline_nodata {
+        let mut bytes = [0_u8; 4];
+        bytes[..nodata.len()].copy_from_slice(nodata);
+        u32::from_le_bytes(bytes)
+    } else {
+        OUT_OF_LINE_ASCII_OFFSET
+    };
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"II");
+    bytes.extend_from_slice(&42_u16.to_le_bytes());
+    bytes.extend_from_slice(&IFD_OFFSET.to_le_bytes());
+    bytes.extend_from_slice(&ENTRY_COUNT.to_le_bytes());
+    for (tag, field_type, count, value) in [
+        (256_u16, 4_u16, 1_u32, 512_u32),
+        (257, 4, 1, 512),
+        (258, 3, 1, bits_per_sample),
+        (259, 3, 1, 8),
+        (262, 3, 1, 1),
+        (277, 3, 1, 1),
+        (284, 3, 1, 1),
+        (317, 3, 1, 1),
+        (322, 4, 1, 512),
+        (323, 4, 1, 512),
+        (324, 4, 1, tile_offset),
+        (325, 4, 1, tile_byte_count),
+        (339, 3, 1, sample_format),
+        (33_550, 12, 3, SCALE_OFFSET),
+        (33_922, 12, 6, TIEPOINT_OFFSET),
+        (42_113, 2, nodata.len() as u32, nodata_value),
+    ] {
+        bytes.extend_from_slice(&tag.to_le_bytes());
+        bytes.extend_from_slice(&field_type.to_le_bytes());
+        bytes.extend_from_slice(&count.to_le_bytes());
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    for value in [1_000.0_f64, 1_000.0, 0.0] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [0.0_f64, 0.0, 0.0, 0.0, 256_000.0, 0.0] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    if !inline_nodata {
+        bytes.extend_from_slice(nodata);
+    }
+    bytes.extend_from_slice(&compressed_tile);
+    bytes
+}
+
+fn closed_terminal_polygon(lon: f64, lat: f64) -> MultiPolygon<f64> {
+    let delta = 0.000_001;
+    MultiPolygon(vec![Polygon::new(
+        LineString::new(vec![
+            Coord {
+                x: lon - delta,
+                y: lat - delta,
+            },
+            Coord {
+                x: lon + delta,
+                y: lat - delta,
+            },
+            Coord {
+                x: lon + delta,
+                y: lat + delta,
+            },
+            Coord {
+                x: lon - delta,
+                y: lat + delta,
+            },
+            Coord {
+                x: lon - delta,
+                y: lat - delta,
+            },
+        ]),
+        Vec::new(),
+    )])
+}
+
+fn localized_nodata(path: &Path) -> String {
+    let file = std::fs::File::open(path).unwrap();
+    let mut decoder = Decoder::new(file).unwrap();
+    decoder.get_tag_ascii_string(Tag::GdalNodata).unwrap()
 }
 
 fn assert_remote_delineation_succeeds(session: DatasetSession) {

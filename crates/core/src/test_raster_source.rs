@@ -98,6 +98,17 @@ fn map_cache_error(source: CacheError, uri: &str) -> RasterSourceError {
             path: uri.to_string(),
             reason,
         },
+        CacheError::RemoteTiffAsciiTooLong {
+            path,
+            tag,
+            length,
+            limit,
+        } => RasterSourceError::ReadFailed {
+            path: uri.to_string(),
+            reason: format!(
+                "remote TIFF ASCII tag {tag} at {path} declares {length} bytes, exceeding limit {limit}"
+            ),
+        },
         CacheError::ObjectStore { source, .. } => RasterSourceError::ReadFailed {
             path: uri.to_string(),
             reason: source.to_string(),
