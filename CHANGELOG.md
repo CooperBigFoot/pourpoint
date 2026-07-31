@@ -18,6 +18,9 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 - Filled unwritten U8/I8 remote COG window cells with each raster's declared
   nodata sentinel instead of direction code `0`, so missing tile coverage
   remains detectable.
+- Raised the fixed, file-independent decoded COG chunk ceiling from 1 MiB to
+  8 MiB, covering a 1024 x 1024 float64 tile while retaining positive
+  headroom above 512 x 512 F32 tiles.
 - The built-in D8 refinement strategy
   (`D8RasterRefinementStrategy::refine_terminal`) now rejects degenerate input
   terminal geometry with `RefinementError::DegenerateTerminalPolygon` before

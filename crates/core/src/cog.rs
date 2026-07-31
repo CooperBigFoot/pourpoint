@@ -32,7 +32,7 @@ const MAX_REMOTE_METADATA_VALUE_BYTES: u64 = 65_536;
 const MAX_PLANNED_TILE_COUNT: u64 = 65_536;
 const MAX_COMPRESSED_CHUNK_BYTES: u64 = 16_777_216;
 const MAX_COVERED_CHUNK_BYTES: u64 = 1_073_741_824;
-const MAX_DECODED_CHUNK_BYTES: u64 = 1_048_576;
+const MAX_DECODED_CHUNK_BYTES: u64 = 8_388_608;
 const MAX_WINDOW_ALLOCATION_BYTES: u64 = 1_073_741_824;
 const MODEL_PIXEL_SCALE_TAG: Tag = Tag::ModelPixelScaleTag;
 const MODEL_TIEPOINT_TAG: Tag = Tag::ModelTiepointTag;
@@ -2197,6 +2197,24 @@ mod tests {
     const REGIONAL_FILE_LEN: u64 = 16_287;
     const REGIONAL_TILE_COUNT: u64 = 1_024;
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct CeilingObservations {
+        planned_tile_count: u64,
+        largest_compressed_chunk_bytes: u64,
+        covered_compressed_bytes: u64,
+        decoded_chunk_bytes: u64,
+        window_allocation_bytes: u64,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct RequiredCeilingMargins {
+        planned_tile_count: u64,
+        largest_compressed_chunk_bytes: u64,
+        covered_compressed_bytes: u64,
+        decoded_chunk_bytes: u64,
+        window_allocation_bytes: u64,
+    }
+
     #[derive(Debug, Clone, PartialEq)]
     struct CrossTileFixtureOracle {
         flow_dir_bbox: Rect<f64>,
@@ -2265,6 +2283,46 @@ mod tests {
             self.live_tile_dimensions
         }
 
+        fn flow_dir_ceiling_observations(&self) -> CeilingObservations {
+            CeilingObservations {
+                planned_tile_count: 4,
+                largest_compressed_chunk_bytes: 434,
+                covered_compressed_bytes: 1_736,
+                decoded_chunk_bytes: 262_144,
+                window_allocation_bytes: 755_200,
+            }
+        }
+
+        fn flow_dir_required_ceiling_margins(&self) -> RequiredCeilingMargins {
+            RequiredCeilingMargins {
+                planned_tile_count: 65_532,
+                largest_compressed_chunk_bytes: 16_776_782,
+                covered_compressed_bytes: 1_073_740_088,
+                decoded_chunk_bytes: 8_126_464,
+                window_allocation_bytes: 1_072_986_624,
+            }
+        }
+
+        fn flow_acc_ceiling_observations(&self) -> CeilingObservations {
+            CeilingObservations {
+                planned_tile_count: 4,
+                largest_compressed_chunk_bytes: 3_249,
+                covered_compressed_bytes: 12_960,
+                decoded_chunk_bytes: 1_048_576,
+                window_allocation_bytes: 3_020_800,
+            }
+        }
+
+        fn flow_acc_required_ceiling_margins(&self) -> RequiredCeilingMargins {
+            RequiredCeilingMargins {
+                planned_tile_count: 65_532,
+                largest_compressed_chunk_bytes: 16_773_967,
+                covered_compressed_bytes: 1_073_728_864,
+                decoded_chunk_bytes: 7_340_032,
+                window_allocation_bytes: 1_070_721_024,
+            }
+        }
+
         fn one_tile_planetary_bbox(&self) -> Rect<f64> {
             Rect::new(
                 coord! { x: 1_069_057.0, y: -499_202.0 },
@@ -2288,6 +2346,112 @@ mod tests {
             let (slot, local_row, local_col) = Self::output_coordinates(row, col);
             (1_000 * (slot + 1) + 10 * (local_row / 64) + local_col % 16) as f32
         }
+    }
+
+    fn ceiling_observations(
+        prepared: &PreparedCogWindow,
+        sample_width: u64,
+    ) -> CeilingObservations {
+        let planned_tile_count = u64::try_from(prepared.plan.tiles.len())
+            .unwrap_or_else(|_| panic!("planned tile count observation does not fit u64"));
+        let mut largest_compressed_chunk_bytes = None;
+        let mut covered_compressed_bytes = 0_u64;
+        for tile in &prepared.plan.tiles {
+            let compressed_chunk_bytes = tile
+                .range
+                .end
+                .checked_sub(tile.range.start)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "compressed chunk byte observation underflow for tile {}",
+                        tile.index
+                    )
+                });
+            largest_compressed_chunk_bytes = Some(
+                largest_compressed_chunk_bytes.map_or(compressed_chunk_bytes, |largest: u64| {
+                    largest.max(compressed_chunk_bytes)
+                }),
+            );
+            covered_compressed_bytes = covered_compressed_bytes
+                .checked_add(compressed_chunk_bytes)
+                .unwrap_or_else(|| panic!("covered compressed byte observation overflow"));
+        }
+        let largest_compressed_chunk_bytes = largest_compressed_chunk_bytes
+            .unwrap_or_else(|| panic!("largest compressed chunk observation requires a tile"));
+        assert_eq!(
+            covered_compressed_bytes, prepared.plan.compressed_bytes,
+            "independently derived covered compressed byte observation must match the production plan"
+        );
+        let decoded_tile_pixels = u64::from(prepared.metadata.tile_width)
+            .checked_mul(u64::from(prepared.metadata.tile_height))
+            .unwrap_or_else(|| panic!("decoded chunk pixel observation overflow"));
+        let decoded_chunk_bytes = decoded_tile_pixels
+            .checked_mul(sample_width)
+            .unwrap_or_else(|| panic!("decoded chunk byte observation overflow"));
+        let window_pixels = u64::from(prepared.window.width)
+            .checked_mul(u64::from(prepared.window.height))
+            .unwrap_or_else(|| panic!("window allocation pixel observation overflow"));
+        let window_allocation_bytes = window_pixels
+            .checked_mul(sample_width)
+            .unwrap_or_else(|| panic!("window allocation byte observation overflow"));
+
+        CeilingObservations {
+            planned_tile_count,
+            largest_compressed_chunk_bytes,
+            covered_compressed_bytes,
+            decoded_chunk_bytes,
+            window_allocation_bytes,
+        }
+    }
+
+    fn assert_required_ceiling_margins(
+        observations: CeilingObservations,
+        required_margins: RequiredCeilingMargins,
+    ) {
+        fn assert_margin(ceiling_name: &str, observed: u64, ceiling: u64, required_margin: u64) {
+            assert_ne!(
+                required_margin, 0,
+                "{ceiling_name} required margin must be nonzero"
+            );
+            let actual_margin = ceiling.checked_sub(observed).unwrap_or_else(|| {
+                panic!("{ceiling_name} observation {observed} exceeds ceiling {ceiling}")
+            });
+            assert!(
+                actual_margin >= required_margin,
+                "{ceiling_name}: observed {observed}, ceiling {ceiling}, actual margin {actual_margin}, required margin {required_margin}"
+            );
+        }
+
+        assert_margin(
+            "MAX_PLANNED_TILE_COUNT",
+            observations.planned_tile_count,
+            MAX_PLANNED_TILE_COUNT,
+            required_margins.planned_tile_count,
+        );
+        assert_margin(
+            "MAX_COMPRESSED_CHUNK_BYTES",
+            observations.largest_compressed_chunk_bytes,
+            MAX_COMPRESSED_CHUNK_BYTES,
+            required_margins.largest_compressed_chunk_bytes,
+        );
+        assert_margin(
+            "MAX_COVERED_CHUNK_BYTES",
+            observations.covered_compressed_bytes,
+            MAX_COVERED_CHUNK_BYTES,
+            required_margins.covered_compressed_bytes,
+        );
+        assert_margin(
+            "MAX_DECODED_CHUNK_BYTES",
+            observations.decoded_chunk_bytes,
+            MAX_DECODED_CHUNK_BYTES,
+            required_margins.decoded_chunk_bytes,
+        );
+        assert_margin(
+            "MAX_WINDOW_ALLOCATION_BYTES",
+            observations.window_allocation_bytes,
+            MAX_WINDOW_ALLOCATION_BYTES,
+            required_margins.window_allocation_bytes,
+        );
     }
 
     struct CogFixtures {
@@ -3777,6 +3941,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn decoded_chunk_ceiling_is_fixed_with_defended_headroom() {
+        let decoded_chunk_ceiling = MAX_DECODED_CHUNK_BYTES;
+
+        assert_eq!(decoded_chunk_ceiling, 8_388_608_u64);
+    }
+
     #[tokio::test]
     async fn cache_route_places_four_tiles_and_clips_raster_edges() {
         let fixtures = fixtures();
@@ -3788,6 +3959,12 @@ mod tests {
 
         let flow_dir_request =
             RasterWindowRequest::new(RasterKind::FlowDir, oracle.flow_dir_bbox());
+        let prepared = prepare_window(&store, &fixtures.planetary_object_path, &flow_dir_request)
+            .await
+            .expect("FlowDir production route should prepare the four-tile window");
+        let observations = ceiling_observations(&prepared, 1_u64);
+        assert_eq!(observations, oracle.flow_dir_ceiling_observations());
+        assert_required_ceiling_margins(observations, oracle.flow_dir_required_ceiling_margins());
         let localized = cache
             .get_or_fetch_window(
                 &store,
@@ -3821,6 +3998,12 @@ mod tests {
 
         let flow_acc_request =
             RasterWindowRequest::new(RasterKind::FlowAcc, oracle.flow_acc_bbox());
+        let prepared = prepare_window(&store, &fixtures.flow_acc_object_path, &flow_acc_request)
+            .await
+            .expect("FlowAcc production route should prepare the four-tile window");
+        let observations = ceiling_observations(&prepared, 4_u64);
+        assert_eq!(observations, oracle.flow_acc_ceiling_observations());
+        assert_required_ceiling_margins(observations, oracle.flow_acc_required_ceiling_margins());
         let localized = cache
             .get_or_fetch_window(
                 &store,
@@ -4602,7 +4785,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn planetary_window_locks_truncated_tile_byte_counts_failure() {
+    async fn planetary_window_resolves_covered_tile_indexes_with_bounded_reads() {
         let fixtures = fixtures();
         let oracle = CrossTileFixtureOracle::new();
         let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
@@ -4903,7 +5086,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn planetary_cache_window_locks_truncated_tile_byte_counts_failure() {
+    async fn planetary_cache_window_materializes_with_bounded_reads() {
         let fixtures = fixtures();
         let oracle = CrossTileFixtureOracle::new();
         let local_store = LocalFileSystem::new_with_prefix(fixtures.temp_dir.path())
