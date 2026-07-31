@@ -1433,6 +1433,34 @@ fn window_allocation_len(
         .map_err(|_| remote_layout_error(path, "TIFF window element count does not fit usize"))
 }
 
+fn direction_nodata_byte(
+    sample_type: CogSampleType,
+    declared: &str,
+    remote_path: &ObjectPath,
+) -> Result<u8, CacheError> {
+    match sample_type {
+        CogSampleType::U8 => declared.parse::<u8>().map_err(|_| {
+            remote_layout_error(
+                remote_path,
+                format!("declared U8 nodata {declared:?} is not representable as u8"),
+            )
+        }),
+        CogSampleType::I8 => declared
+            .parse::<i8>()
+            .map(|value| value as u8)
+            .map_err(|_| {
+                remote_layout_error(
+                    remote_path,
+                    format!("declared I8 nodata {declared:?} is not representable as i8"),
+                )
+            }),
+        CogSampleType::F32 | CogSampleType::I32 => Err(remote_layout_error(
+            remote_path,
+            format!("sample type {sample_type:?} does not use byte nodata"),
+        )),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum OwnedTileData {
     U8(Vec<u8>),
@@ -1617,8 +1645,10 @@ fn decode_window<B: AsRef<[u8]>>(
 ) -> Result<WindowData, CacheError> {
     match metadata.sample_type {
         CogSampleType::U8 | CogSampleType::I8 => {
+            let nodata =
+                direction_nodata_byte(metadata.sample_type, &metadata.nodata, remote_path)?;
             let length = window_allocation_len(remote_path, window.width, window.height, 1)?;
-            let mut out = vec![0_u8; length];
+            let mut out = vec![nodata; length];
             for (tile, bytes) in plan.tiles.iter().zip(compressed) {
                 let OwnedTileData::U8(data) =
                     decode_owned_chunk(bytes.as_ref(), metadata, tile.index, remote_path)?
@@ -3435,6 +3465,133 @@ mod tests {
 
         assert_eq!(&decoded[..8], [1, 2, 3, 4, 5, 6, 7, 8]);
         assert_ne!(&decoded[..8], [1, 3, 6, 10, 15, 21, 28, 36]);
+    }
+
+    #[test]
+    fn decode_window_preserves_declared_nodata_for_unwritten_spanned_tile() {
+        let mut meta = metadata();
+        meta.width = 4;
+        meta.height = 2;
+        meta.tile_width = 2;
+        meta.tile_height = 2;
+        meta.sample_type = CogSampleType::U8;
+        meta.compression = 8;
+        meta.predictor = 1;
+        meta.nodata = "255".to_string();
+        let window = RasterPixelWindow {
+            col_off: 0,
+            row_off: 0,
+            width: 4,
+            height: 2,
+        };
+        let compressed = compress_tile(&[1_u8, 2, 4, 8]).unwrap();
+        let compressed_len = u64::try_from(compressed.len()).unwrap();
+        let plan = ResolvedTilePlan {
+            object_size: compressed_len,
+            tiles: vec![ResolvedTile {
+                index: 0,
+                range: 0..compressed_len,
+            }],
+            compressed_bytes: compressed_len,
+        };
+
+        let WindowData::U8(decoded) = decode_window(
+            &[compressed],
+            &meta,
+            window,
+            &plan,
+            &ObjectPath::from("unwritten-direction-window.tif"),
+        )
+        .unwrap() else {
+            panic!("U8 metadata should produce a U8 window");
+        };
+
+        assert_eq!(decoded, vec![1, 2, 255, 255, 4, 8, 255, 255]);
+    }
+
+    #[test]
+    fn decode_window_prefills_i8_nodata_as_stored_byte() {
+        let mut meta = metadata();
+        meta.width = 1;
+        meta.height = 1;
+        meta.tile_width = 1;
+        meta.tile_height = 1;
+        meta.sample_type = CogSampleType::I8;
+        meta.nodata = "-1".to_string();
+        let window = RasterPixelWindow {
+            col_off: 0,
+            row_off: 0,
+            width: 1,
+            height: 1,
+        };
+        let plan = ResolvedTilePlan {
+            object_size: 0,
+            tiles: Vec::new(),
+            compressed_bytes: 0,
+        };
+        let compressed: [&[u8]; 0] = [];
+
+        let WindowData::U8(decoded) = decode_window(
+            &compressed,
+            &meta,
+            window,
+            &plan,
+            &ObjectPath::from("i8-nodata-window.tif"),
+        )
+        .unwrap() else {
+            panic!("I8 metadata should produce a U8 window");
+        };
+
+        assert_eq!(decoded, vec![255]);
+    }
+
+    #[test]
+    fn decode_window_rejects_unrepresentable_direction_nodata() {
+        fn assert_rejected(sample_type: CogSampleType, declared: &str, expected_reason: &str) {
+            let mut meta = metadata();
+            meta.width = 1;
+            meta.height = 1;
+            meta.tile_width = 1;
+            meta.tile_height = 1;
+            meta.sample_type = sample_type;
+            meta.nodata = declared.to_string();
+            let window = RasterPixelWindow {
+                col_off: 0,
+                row_off: 0,
+                width: 1,
+                height: 1,
+            };
+            let plan = ResolvedTilePlan {
+                object_size: 0,
+                tiles: Vec::new(),
+                compressed_bytes: 0,
+            };
+            let compressed: [&[u8]; 0] = [];
+            let path = ObjectPath::from("invalid-direction-nodata.tif");
+
+            match decode_window(&compressed, &meta, window, &plan, &path) {
+                Err(CacheError::UnsupportedCog {
+                    path: error_path,
+                    reason,
+                }) => {
+                    assert_eq!(error_path, path);
+                    assert_eq!(reason, expected_reason);
+                }
+                Err(other) => panic!("expected UnsupportedCog, got {other:?}"),
+                Ok(_) => panic!("unrepresentable direction nodata should fail"),
+            }
+        }
+
+        assert_rejected(
+            CogSampleType::U8,
+            "not-a-byte",
+            "declared U8 nodata \"not-a-byte\" is not representable as u8",
+        );
+        assert_rejected(
+            CogSampleType::I8,
+            "128",
+            "declared I8 nodata \"128\" is not representable as i8",
+        );
     }
 
     #[tokio::test]
