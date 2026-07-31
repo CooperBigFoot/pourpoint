@@ -2,8 +2,14 @@
 
 This document records evidence for the tile-count-independent planetary
 COG-read vision through its 0.3.0 release-preparation commit. It remains an
-evidence register rather than a release packet; tag creation, tag pushing, and
-GitHub Release publication remain human-only actions.
+evidence register rather than a release packet.
+
+The 0.3.0 release has since fired: tag `pourpoint-v0.3.0` points at merge
+commit `6e29331`, the GitHub Release is published, and PyPI serves `pourpoint`
+0.3.0. `RELEASING.md` carries the authoritative stream status and records that
+those actions were taken by an agent under an explicit per-release instruction
+from the repository owner, as an exception to the standing human-only rule.
+Every measurement below predates the fire and is unaffected by it.
 
 ## Measured staged-object evidence
 

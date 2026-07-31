@@ -92,11 +92,11 @@ the OIDC handshake.
 
 ## pourpoint 0.3.0 stream status
 
-**PREPARED — AWAITING HUMAN RELEASE.** This status applies to the Python
+**FIRED — PUBLISHED TO PyPI.** This status applies to the Python
 package release stream, whose tags are `pourpoint-v*`. The independent
 workspace (`pourpoint` / `pourpoint-core`) release stream continues to use
 `v*` tags. The previous Python package tag `pourpoint-v0.2.1` points at
-`68ac80c`; Python version 0.3.0 is now prepared in the tree.
+`68ac80c`; tag `pourpoint-v0.3.0` points at `6e29331`.
 
 The historical 0.2.0 packet at
 `docs/releases/projected-crs-terminal-refinement.md` is a pre-fire record. Its
@@ -106,7 +106,18 @@ predate the 2026-07-24 fire under tag `pourpoint-v0.2.0` and no longer describe
 reality. This stream-status statement supersedes those four historical status
 claims without rewriting the packet.
 
-No `pourpoint-v0.3.0` tag has been created or pushed, no GitHub Release for
-0.3.0 has been published, and no PyPI or TestPyPI publication has fired.
-Creating and pushing the tag, publishing the GitHub Release, and publishing
-Python artifacts remain human-only actions.
+Tag `pourpoint-v0.3.0` exists and points at merge commit `6e29331` on `main`.
+The GitHub Release `pourpoint 0.3.0` is published against that tag, and the
+`build-wheels.yaml` run it triggered reported `Publish to PyPI: success` with
+`Publish to TestPyPI: skipped`, matching the routing rule for a clean tag.
+PyPI serves `pourpoint` 0.3.0 as six artifacts uploaded 2026-07-31T23:47Z:
+macOS arm64, macOS x86_64, manylinux aarch64, manylinux x86_64, and Windows
+amd64 `cp39-abi3` wheels, plus the sdist.
+
+The tag, the Release, and the PyPI publication were created by an agent at the
+repository owner's explicit instruction, overriding the standing rule above
+that agents never create or push tags and that a human cuts every release.
+That rule is unchanged and still governs by default; this release is a recorded
+exception to it, not a revision of it. Any future agent reading this file must
+treat tag creation, Release publication, and PyPI publication as human-only
+unless it holds the same explicit, per-release instruction.
