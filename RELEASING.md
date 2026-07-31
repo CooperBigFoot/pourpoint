@@ -90,20 +90,23 @@ Until both Trusted Publishers and the `pypi` / `testpypi` environments exist, a
 published `pourpoint-v*` Release will build the wheel but the publish step will fail
 the OIDC handshake.
 
-## pourpoint 0.2.1 stream status
+## pourpoint 0.3.0 stream status
 
-**PREPARED — AWAITING HUMAN RELEASE.** Pourpoint 0.2.0 shipped on 2026-07-24
-under tag `pourpoint-v0.2.0` and was live-fired in production. Version 0.2.1
-is now prepared and awaits its human-cut tag and GitHub Release. It includes
-the projected-CRS behavior shipped in 0.2.0 and the tile-count-independent
-COG-read work prepared for 0.2.1.
+**PREPARED — AWAITING HUMAN RELEASE.** This status applies to the Python
+package release stream, whose tags are `pourpoint-v*`. The independent
+workspace (`pourpoint` / `pourpoint-core`) release stream continues to use
+`v*` tags. The previous Python package tag `pourpoint-v0.2.1` points at
+`68ac80c`; Python version 0.3.0 is now prepared in the tree.
 
-Before creating or pushing the `pourpoint-v0.2.1` tag or publishing its GitHub
-Release, the human releaser must review the
-[carried projected-CRS evidence](docs/releases/projected-crs-terminal-refinement.md).
-That packet is the pre-fire 0.2.0 record; its `Release status: PREPARED — UNFIRED`
-and `Status: UNFIRED` lines predate the 2026-07-24 fire and are superseded by
-this block. The human releaser must also review the current
-[0.2.1 release-register entry point](docs/releases/tile-count-independent-planetary-cog-reads.md).
-Tag creation, tag pushing, and GitHub Release publication remain human-only
-actions.
+The historical 0.2.0 packet at
+`docs/releases/projected-crs-terminal-refinement.md` is a pre-fire record. Its
+line 3 `Release status: PREPARED — UNFIRED`, line 242 `Status: UNFIRED`, line
+283 `Status: UNFIRED`, and line 319 `Both actions remain UNFIRED` claims all
+predate the 2026-07-24 fire under tag `pourpoint-v0.2.0` and no longer describe
+reality. This stream-status statement supersedes those four historical status
+claims without rewriting the packet.
+
+No `pourpoint-v0.3.0` tag has been created or pushed, no GitHub Release for
+0.3.0 has been published, and no PyPI or TestPyPI publication has fired.
+Creating and pushing the tag, publishing the GitHub Release, and publishing
+Python artifacts remain human-only actions.
