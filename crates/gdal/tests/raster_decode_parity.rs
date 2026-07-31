@@ -21,8 +21,8 @@ use pourpoint_core::algo::{
 use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
 use pourpoint_core::{
-    DelineationOptions, Engine, LevelSelection, RefinementMode, ResolverConfig, SearchRadiusMetres,
-    TerminalRefinement,
+    CrossedTileAxes, DelineationOptions, Engine, LevelSelection, LocalizedRasterWindow,
+    RefinementMode, ResolverConfig, SearchRadiusMetres, TerminalRefinement,
 };
 use pourpoint_gdal::GdalRasterSource;
 use serde::Deserialize;
@@ -409,6 +409,45 @@ fn localized_nodata(path: &Path) -> String {
         .expect("localized TIFF should declare GDAL nodata")
 }
 
+fn assert_remote_window_coverage(
+    localized: &LocalizedRasterWindow,
+    expected_offsets: (u32, u32),
+    expected_flat_indexes: &[u32],
+    expected_axes: CrossedTileAxes,
+) {
+    let coverage = localized
+        .coverage()
+        .expect("remote localization should expose prepared COG coverage");
+    assert_eq!(coverage.origin_x(), 0.0);
+    assert_eq!(coverage.origin_y(), 256000.0);
+    assert_eq!(coverage.pixel_width(), 1000.0);
+    assert_eq!(coverage.pixel_height(), -1000.0);
+    assert_eq!(coverage.raster_width(), 1024);
+    assert_eq!(coverage.raster_height(), 1024);
+    assert_eq!(coverage.tile_width(), 512);
+    assert_eq!(coverage.tile_height(), 512);
+    assert_eq!(
+        (coverage.window_col_off(), coverage.window_row_off()),
+        expected_offsets
+    );
+    assert_eq!(coverage.covered_tile_indexes(), expected_flat_indexes);
+    for &flat_index in expected_flat_indexes {
+        let expected_col_row = match flat_index {
+            0 => (0, 0),
+            1 => (1, 0),
+            2 => (0, 1),
+            3 => (1, 1),
+            _ => panic!("fixture flat tile index {flat_index} has no expected mapping"),
+        };
+        assert_eq!(
+            coverage.covered_tile_col_row(flat_index),
+            Some(expected_col_row)
+        );
+    }
+    assert_eq!(coverage.covered_tile_col_row(4), None);
+    assert_eq!(coverage.crossed_axes(), expected_axes);
+}
+
 async fn put_staged(store: &Arc<dyn ObjectStore>, root: &str, key: &str, bytes: &[u8]) {
     let path = ObjectPath::from(format!("{root}/{key}"));
     store
@@ -523,15 +562,69 @@ fn remote_four_tile_localization_preserves_source_placement_and_gdal_engine_pari
     let localized_dir = probe_session
         .localize_d8_raster_window(&handle, RasterKind::FlowDir, full_bbox)
         .expect("four-tile FlowDir window should localize");
+    assert_remote_window_coverage(
+        &localized_dir,
+        (0, 0),
+        &[0, 1, 2, 3],
+        CrossedTileAxes::XAndY,
+    );
+    let cached_localized_dir = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowDir, full_bbox)
+        .expect("cached four-tile FlowDir window should localize");
+    assert_eq!(cached_localized_dir.path(), localized_dir.path());
+    assert_eq!(cached_localized_dir.header_bytes(), 0);
+    assert_eq!(cached_localized_dir.tile_bytes(), 0);
+    assert_eq!(cached_localized_dir.tile_count(), 0);
+    assert_eq!(cached_localized_dir.window_pixels(), 0);
+    assert_remote_window_coverage(
+        &cached_localized_dir,
+        (0, 0),
+        &[0, 1, 2, 3],
+        CrossedTileAxes::XAndY,
+    );
     let localized_acc = probe_session
         .localize_d8_raster_window(&handle, RasterKind::FlowAcc, full_bbox)
         .expect("four-tile FlowAcc window should localize");
+    assert_remote_window_coverage(
+        &localized_acc,
+        (0, 0),
+        &[0, 1, 2, 3],
+        CrossedTileAxes::XAndY,
+    );
     assert_eq!(localized_dir.tile_count(), 4);
     assert_eq!(localized_acc.tile_count(), 4);
     assert_eq!(localized_dir.window_pixels(), 1_048_576);
     assert_eq!(localized_acc.window_pixels(), 1_048_576);
     assert_eq!(localized_nodata(localized_dir.path()), "128");
     assert_eq!(localized_nodata(localized_acc.path()), "nan");
+
+    // One-pixel padding makes this x-seam request a (510, 1, 4, 4) pixel window.
+    let x_only_bbox = Rect::new(
+        geo::coord! { x: 511000.0, y: 252000.0 },
+        geo::coord! { x: 513000.0, y: 254000.0 },
+    );
+    let x_only_dir = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowDir, x_only_bbox)
+        .expect("x-only FlowDir window should localize");
+    let x_only_acc = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowAcc, x_only_bbox)
+        .expect("x-only FlowAcc window should localize");
+    assert_remote_window_coverage(&x_only_dir, (510, 1), &[0, 1], CrossedTileAxes::X);
+    assert_remote_window_coverage(&x_only_acc, (510, 1), &[0, 1], CrossedTileAxes::X);
+
+    // One-pixel padding makes this y-seam request a (0, 510, 4, 4) pixel window.
+    let y_only_bbox = Rect::new(
+        geo::coord! { x: 1000.0, y: -257000.0 },
+        geo::coord! { x: 3000.0, y: -255000.0 },
+    );
+    let y_only_dir = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowDir, y_only_bbox)
+        .expect("y-only FlowDir window should localize");
+    let y_only_acc = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowAcc, y_only_bbox)
+        .expect("y-only FlowAcc window should localize");
+    assert_remote_window_coverage(&y_only_dir, (0, 510), &[0, 2], CrossedTileAxes::Y);
+    assert_remote_window_coverage(&y_only_acc, (0, 510), &[0, 2], CrossedTileAxes::Y);
 
     let local = LocalTiffRasterSource;
     let gdal = GdalRasterSource::new();

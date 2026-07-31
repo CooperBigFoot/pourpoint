@@ -54,6 +54,7 @@ impl RemoteRasterCache {
             record_path(Path::new(remote_path.as_ref()));
             prepare_window(store, remote_path, request).await?
         };
+        let coverage = prepared.coverage();
         let canonical = self.canonical_window_path(
             remote_path,
             request,
@@ -69,7 +70,9 @@ impl RemoteRasterCache {
             hit
         };
         if hit {
-            return Ok(LocalizedRasterWindow::cached(canonical));
+            return Ok(LocalizedRasterWindow::cached_with_coverage(
+                canonical, coverage,
+            ));
         }
 
         loop {
@@ -91,7 +94,9 @@ impl RemoteRasterCache {
                         hit
                     };
                     if hit {
-                        return Ok(LocalizedRasterWindow::cached(canonical));
+                        return Ok(LocalizedRasterWindow::cached_with_coverage(
+                            canonical, coverage,
+                        ));
                     }
                 }
                 Entry::Vacant(entry) => {
@@ -100,8 +105,14 @@ impl RemoteRasterCache {
                     let result = {
                         let _guard = StageGuard::enter(Stage::CogFetchTiles);
                         record_path(&canonical);
-                        let result =
-                            fetch_window_to_path(store, remote_path, prepared, &canonical).await;
+                        let result = fetch_window_to_path(
+                            store,
+                            remote_path,
+                            prepared,
+                            coverage,
+                            &canonical,
+                        )
+                        .await;
                         if let Ok(window) = &result {
                             record_bytes(window.header_bytes() + window.tile_bytes());
                             record_requests(window.tile_count() as u64);
