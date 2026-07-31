@@ -12,8 +12,17 @@ thiserror = "2"
 tracing = "0.1"
 
 [dev-dependencies]
-pourpoint-core = { path = "../core", features = ["test-fixtures"] }
+bytes = "1"
+futures-util = "0.3"
+geo = "0.29"
 geozero = { version = "0.14", default-features = false, features = ["with-geo", "with-wkb"] }
+object_store = { version = "0.13", features = ["aws"] }
+pourpoint-core = { path = "../core", features = ["test-fixtures"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+tiff = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+url = "2"

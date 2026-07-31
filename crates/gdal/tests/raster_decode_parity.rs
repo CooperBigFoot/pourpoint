@@ -1,11 +1,18 @@
 //! Isolated GDAL parity proof for committed raster fixtures.
 
+use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard};
+
 use gdal::DriverManager;
-use gdal::raster::Buffer;
+use gdal::raster::{Buffer, GdalDataType, RasterCreationOptions};
+use gdal::spatial_ref::SpatialRef;
 use geo::{Area, BoundingRect, Rect};
 use geozero::ToGeo;
 use geozero::wkb::Wkb;
 use hfx::{FlowAccumulationUnits, FlowDirEncoding, UnitId};
+use object_store::memory::InMemory;
+use object_store::path::Path as ObjectPath;
+use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use pourpoint_core::algo::{
     Crs, GeoCoord, GridCoord, GridDims, NativeCoord, RasterSource, RasterSourceError,
     RefinementError, SnapThreshold, canonical_wkb_multi_polygon, forward,
@@ -13,9 +20,16 @@ use pourpoint_core::algo::{
 };
 use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
-use pourpoint_core::{DelineationOptions, Engine, ResolverConfig, SearchRadiusMetres};
+use pourpoint_core::{
+    DelineationOptions, Engine, LevelSelection, RefinementMode, ResolverConfig, SearchRadiusMetres,
+    TerminalRefinement,
+};
 use pourpoint_gdal::GdalRasterSource;
 use serde::Deserialize;
+use tempfile::TempDir;
+use tiff::decoder::Decoder;
+use tiff::tags::Tag;
+use url::Url;
 
 const FIXTURE_ROOT: &str = "../core/tests/fixtures/parity/v01_synthetic_refined";
 const MERIT_URL: &str = "https://basin-delineations-public.upstream.tech/merit-basins/0.1.0/";
@@ -24,6 +38,23 @@ const MERIT_GOLDEN: &str =
 const MERIT_WINDOW_ROOT: &str = "merit_basins/0.1.0/raster-windows";
 const PROJECTED_GRASS_ROOT: &str = "../core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass";
 const PROJECTED_GRASS_GOLDEN: &str = "../core/tests/fixtures/parity/goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined.json";
+const PROJECTED_GRASS_FLOW_DIR: &str =
+    "../core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass/aux/d8/projected/flow_dir.tif";
+const PROJECTED_GRASS_FLOW_ACC: &str =
+    "../core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass/aux/d8/projected/flow_acc.tif";
+const REMOTE_ROOT: &str = "m3-s2/projected-grass";
+const PROBE_ROOT: &str = "m3-s2/projected-grass-placement-probe";
+const REMOTE_URL: &str = "s3://pourpoint-test/m3-s2/projected-grass/";
+const PROBE_URL: &str = "s3://pourpoint-test/m3-s2/projected-grass-placement-probe/";
+const PROBE_FABRIC_NAME: &str = "conformance-tiny-projected-grass-placement-probe";
+const SOURCE_SIDE: usize = 256;
+const RASTER_SIDE: usize = 1024;
+const TILE_SIDE: usize = 512;
+const RASTER_PIXELS: usize = RASTER_SIDE * RASTER_SIDE;
+const TILE_PIXELS: usize = TILE_SIDE * TILE_SIDE;
+const PROJECTED_TRANSFORM: [f64; 6] = [0.0, 1000.0, 0.0, 256000.0, 0.0, -1000.0];
+
+static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Deserialize)]
 struct ProjectedGrassGolden {
@@ -48,6 +79,628 @@ fn decode_hex(value: &str) -> Vec<u8> {
                 .expect("projected GRASS golden must contain hexadecimal bytes")
         })
         .collect()
+}
+
+struct CacheEnv {
+    _guard: MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl CacheEnv {
+    fn set(path: &Path) -> Self {
+        let guard = CACHE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let previous = std::env::var_os("HFX_CACHE_DIR");
+        // SAFETY: this test binary serializes HFX_CACHE_DIR changes with
+        // CACHE_ENV_LOCK and restores the prior value before releasing it.
+        unsafe {
+            std::env::set_var("HFX_CACHE_DIR", path);
+        }
+        Self {
+            _guard: guard,
+            previous,
+        }
+    }
+}
+
+impl Drop for CacheEnv {
+    fn drop(&mut self) {
+        // SAFETY: CACHE_ENV_LOCK remains held while the prior value is restored.
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var("HFX_CACHE_DIR", value),
+                None => std::env::remove_var("HFX_CACHE_DIR"),
+            }
+        }
+    }
+}
+
+fn creation_options() -> RasterCreationOptions {
+    RasterCreationOptions::from_iter([
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+    ])
+}
+
+fn read_source_i8(path: &Path) -> Vec<i8> {
+    let dataset = gdal::Dataset::open(path).expect("committed FlowDir source should open");
+    assert_eq!(dataset.raster_size(), (SOURCE_SIDE, SOURCE_SIDE));
+    assert_eq!(dataset.raster_count(), 1);
+    assert_eq!(
+        dataset.geo_transform().expect("source geotransform"),
+        PROJECTED_TRANSFORM
+    );
+    assert_eq!(
+        dataset
+            .spatial_ref()
+            .expect("source CRS")
+            .authority()
+            .expect("source CRS authority"),
+        "EPSG:8857"
+    );
+    let band = dataset.rasterband(1).expect("source FlowDir band");
+    assert_eq!(band.band_type(), GdalDataType::Int8);
+    assert_eq!(band.no_data_value(), Some(-128.0));
+    band.read_as::<i8>(
+        (0, 0),
+        (SOURCE_SIDE, SOURCE_SIDE),
+        (SOURCE_SIDE, SOURCE_SIDE),
+        None,
+    )
+    .expect("source FlowDir samples should read")
+    .data()
+    .to_vec()
+}
+
+fn read_source_i32(path: &Path) -> Vec<i32> {
+    let dataset = gdal::Dataset::open(path).expect("committed FlowAcc source should open");
+    assert_eq!(dataset.raster_size(), (SOURCE_SIDE, SOURCE_SIDE));
+    assert_eq!(dataset.raster_count(), 1);
+    assert_eq!(
+        dataset.geo_transform().expect("source geotransform"),
+        PROJECTED_TRANSFORM
+    );
+    assert_eq!(
+        dataset
+            .spatial_ref()
+            .expect("source CRS")
+            .authority()
+            .expect("source CRS authority"),
+        "EPSG:8857"
+    );
+    let band = dataset.rasterband(1).expect("source FlowAcc band");
+    assert_eq!(band.band_type(), GdalDataType::Int32);
+    assert_eq!(band.no_data_value(), Some(-2_147_483_648.0));
+    band.read_as::<i32>(
+        (0, 0),
+        (SOURCE_SIDE, SOURCE_SIDE),
+        (SOURCE_SIDE, SOURCE_SIDE),
+        None,
+    )
+    .expect("source FlowAcc samples should read")
+    .data()
+    .to_vec()
+}
+
+fn write_i8_raster(path: &Path, samples: &[i8]) {
+    assert_eq!(samples.len(), RASTER_PIXELS);
+    let driver = DriverManager::get_driver_by_name("GTiff").expect("GTiff driver should exist");
+    let mut dataset = driver
+        .create_with_band_type_with_options::<i8, _>(
+            path,
+            RASTER_SIDE,
+            RASTER_SIDE,
+            1,
+            &creation_options(),
+        )
+        .expect("tiled Int8 TIFF should be created");
+    dataset
+        .set_geo_transform(&PROJECTED_TRANSFORM)
+        .expect("Int8 geotransform should be written");
+    dataset
+        .set_spatial_ref(&SpatialRef::from_epsg(8857).expect("EPSG:8857 should resolve"))
+        .expect("Int8 CRS should be written");
+    {
+        let mut band = dataset.rasterband(1).expect("Int8 band should exist");
+        band.set_no_data_value(Some(-128.0))
+            .expect("Int8 nodata should be written");
+        let mut buffer = Buffer::new((RASTER_SIDE, RASTER_SIDE), samples.to_vec());
+        band.write((0, 0), (RASTER_SIDE, RASTER_SIDE), &mut buffer)
+            .expect("Int8 samples should be written");
+    }
+    dataset.flush_cache().expect("Int8 TIFF should flush");
+}
+
+fn write_i32_raster(path: &Path, samples: &[i32]) {
+    assert_eq!(samples.len(), RASTER_PIXELS);
+    let driver = DriverManager::get_driver_by_name("GTiff").expect("GTiff driver should exist");
+    let mut dataset = driver
+        .create_with_band_type_with_options::<i32, _>(
+            path,
+            RASTER_SIDE,
+            RASTER_SIDE,
+            1,
+            &creation_options(),
+        )
+        .expect("tiled Int32 TIFF should be created");
+    dataset
+        .set_geo_transform(&PROJECTED_TRANSFORM)
+        .expect("Int32 geotransform should be written");
+    dataset
+        .set_spatial_ref(&SpatialRef::from_epsg(8857).expect("EPSG:8857 should resolve"))
+        .expect("Int32 CRS should be written");
+    {
+        let mut band = dataset.rasterband(1).expect("Int32 band should exist");
+        band.set_no_data_value(Some(-2_147_483_648.0))
+            .expect("Int32 nodata should be written");
+        let mut buffer = Buffer::new((RASTER_SIDE, RASTER_SIDE), samples.to_vec());
+        band.write((0, 0), (RASTER_SIDE, RASTER_SIDE), &mut buffer)
+            .expect("Int32 samples should be written");
+    }
+    dataset.flush_cache().expect("Int32 TIFF should flush");
+}
+
+fn validate_i8_raster(path: &Path, expected: &[i8]) -> Vec<i8> {
+    let dataset = gdal::Dataset::open(path).expect("generated Int8 TIFF should reopen");
+    assert_generated_layout(&dataset, GdalDataType::Int8, -128.0);
+    let actual = dataset
+        .rasterband(1)
+        .expect("generated Int8 band")
+        .read_as::<i8>(
+            (0, 0),
+            (RASTER_SIDE, RASTER_SIDE),
+            (RASTER_SIDE, RASTER_SIDE),
+            None,
+        )
+        .expect("generated Int8 samples should read");
+    assert_eq!(actual.data(), expected);
+    actual.data().to_vec()
+}
+
+fn validate_i32_raster(path: &Path, expected: &[i32]) -> Vec<i32> {
+    let dataset = gdal::Dataset::open(path).expect("generated Int32 TIFF should reopen");
+    assert_generated_layout(&dataset, GdalDataType::Int32, -2_147_483_648.0);
+    let actual = dataset
+        .rasterband(1)
+        .expect("generated Int32 band")
+        .read_as::<i32>(
+            (0, 0),
+            (RASTER_SIDE, RASTER_SIDE),
+            (RASTER_SIDE, RASTER_SIDE),
+            None,
+        )
+        .expect("generated Int32 samples should read");
+    assert_eq!(actual.data(), expected);
+    actual.data().to_vec()
+}
+
+fn assert_generated_layout(dataset: &gdal::Dataset, data_type: GdalDataType, nodata: f64) {
+    assert_eq!(dataset.raster_size(), (RASTER_SIDE, RASTER_SIDE));
+    assert_eq!(dataset.raster_count(), 1);
+    assert_eq!(
+        dataset.geo_transform().expect("generated geotransform"),
+        PROJECTED_TRANSFORM
+    );
+    assert_eq!(
+        dataset
+            .spatial_ref()
+            .expect("generated CRS")
+            .authority()
+            .expect("generated CRS authority"),
+        "EPSG:8857"
+    );
+    let band = dataset.rasterband(1).expect("generated band should exist");
+    assert_eq!(band.block_size(), (TILE_SIDE, TILE_SIDE));
+    assert_eq!(band.band_type(), data_type);
+    assert_eq!(band.no_data_value(), Some(nodata));
+}
+
+fn pristine_i8(source: &[i8]) -> Vec<i8> {
+    assert_eq!(source.len(), SOURCE_SIDE * SOURCE_SIDE);
+    let mut expanded = vec![-128_i8; RASTER_PIXELS];
+    for y in 0..SOURCE_SIDE {
+        let source_row = &source[y * SOURCE_SIDE..(y + 1) * SOURCE_SIDE];
+        expanded[y * RASTER_SIDE..y * RASTER_SIDE + SOURCE_SIDE].copy_from_slice(source_row);
+    }
+    for y in 0..RASTER_SIDE {
+        for x in 0..RASTER_SIDE {
+            if x < SOURCE_SIDE && y < SOURCE_SIDE {
+                assert_eq!(expanded[y * RASTER_SIDE + x], source[y * SOURCE_SIDE + x]);
+            } else {
+                assert_eq!(expanded[y * RASTER_SIDE + x], -128);
+            }
+        }
+    }
+    expanded
+}
+
+fn pristine_i32(source: &[i32]) -> Vec<i32> {
+    assert_eq!(source.len(), SOURCE_SIDE * SOURCE_SIDE);
+    let mut expanded = vec![-2_147_483_648_i32; RASTER_PIXELS];
+    for y in 0..SOURCE_SIDE {
+        let source_row = &source[y * SOURCE_SIDE..(y + 1) * SOURCE_SIDE];
+        expanded[y * RASTER_SIDE..y * RASTER_SIDE + SOURCE_SIDE].copy_from_slice(source_row);
+    }
+    for y in 0..RASTER_SIDE {
+        for x in 0..RASTER_SIDE {
+            if x < SOURCE_SIDE && y < SOURCE_SIDE {
+                assert_eq!(expanded[y * RASTER_SIDE + x], source[y * SOURCE_SIDE + x]);
+            } else {
+                assert_eq!(expanded[y * RASTER_SIDE + x], -2_147_483_648);
+            }
+        }
+    }
+    expanded
+}
+
+fn probe_i8() -> Vec<i8> {
+    let mut samples = Vec::with_capacity(RASTER_PIXELS);
+    for y in 0..RASTER_SIDE {
+        for x in 0..RASTER_SIDE {
+            let bx = x / TILE_SIDE;
+            let by = y / TILE_SIDE;
+            let b = 2 * by + bx;
+            let u = x % TILE_SIDE;
+            let v = y % TILE_SIDE;
+            samples.push(if u == 0 && v == 0 {
+                -128
+            } else {
+                (1 + ((b + u + 3 * v) % 8)) as i8
+            });
+        }
+    }
+    samples
+}
+
+fn probe_i32() -> Vec<i32> {
+    let mut samples = Vec::with_capacity(RASTER_PIXELS);
+    for y in 0..RASTER_SIDE {
+        for x in 0..RASTER_SIDE {
+            let bx = x / TILE_SIDE;
+            let by = y / TILE_SIDE;
+            let b = 2 * by + bx;
+            let u = x % TILE_SIDE;
+            let v = y % TILE_SIDE;
+            samples.push(if u == 0 && v == 0 {
+                -2_147_483_648
+            } else {
+                (b * 1_000_000 + v * TILE_SIDE + u + 1) as i32
+            });
+        }
+    }
+    samples
+}
+
+fn block_samples<T: Copy>(samples: &[T], block: usize) -> Vec<T> {
+    let bx = block % 2;
+    let by = block / 2;
+    let mut result = Vec::with_capacity(TILE_PIXELS);
+    for v in 0..TILE_SIDE {
+        for u in 0..TILE_SIDE {
+            let x = bx * TILE_SIDE + u;
+            let y = by * TILE_SIDE + v;
+            result.push(samples[y * RASTER_SIDE + x]);
+        }
+    }
+    result
+}
+
+fn assert_distinct_blocks<T: Copy + Eq + std::fmt::Debug>(samples: &[T]) {
+    let blocks = [
+        block_samples(samples, 0),
+        block_samples(samples, 1),
+        block_samples(samples, 2),
+        block_samples(samples, 3),
+    ];
+    for (left, right) in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)] {
+        assert_ne!(blocks[left], blocks[right], "blocks {left} and {right}");
+    }
+}
+
+fn localized_nodata(path: &Path) -> String {
+    let file = std::fs::File::open(path).expect("localized TIFF should open");
+    let mut decoder = Decoder::new(file).expect("localized TIFF should decode");
+    decoder
+        .get_tag_ascii_string(Tag::GdalNodata)
+        .expect("localized TIFF should declare GDAL nodata")
+}
+
+async fn put_staged(store: &Arc<dyn ObjectStore>, root: &str, key: &str, bytes: &[u8]) {
+    let path = ObjectPath::from(format!("{root}/{key}"));
+    store
+        .put(&path, PutPayload::from(bytes.to_vec()))
+        .await
+        .unwrap_or_else(|error| panic!("failed to stage {path}: {error}"));
+}
+
+#[test]
+fn remote_four_tile_localization_preserves_source_placement_and_gdal_engine_parity() {
+    let directory = TempDir::new().expect("multi-tile proof temp directory should be created");
+    let _cache_env = CacheEnv::set(&directory.path().join("cache"));
+    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(PROJECTED_GRASS_ROOT);
+    let source_flow_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(PROJECTED_GRASS_FLOW_DIR);
+    let source_flow_acc = Path::new(env!("CARGO_MANIFEST_DIR")).join(PROJECTED_GRASS_FLOW_ACC);
+    let source_dir_samples = read_source_i8(&source_flow_dir);
+    let source_acc_samples = read_source_i32(&source_flow_acc);
+
+    let pristine_dir_samples = pristine_i8(&source_dir_samples);
+    let pristine_acc_samples = pristine_i32(&source_acc_samples);
+    let probe_dir_samples = probe_i8();
+    let probe_acc_samples = probe_i32();
+    let pristine_dir_path = directory.path().join("pristine-flow-dir.tif");
+    let pristine_acc_path = directory.path().join("pristine-flow-acc.tif");
+    let probe_dir_path = directory.path().join("probe-flow-dir.tif");
+    let probe_acc_path = directory.path().join("probe-flow-acc.tif");
+
+    write_i8_raster(&pristine_dir_path, &pristine_dir_samples);
+    write_i32_raster(&pristine_acc_path, &pristine_acc_samples);
+    write_i8_raster(&probe_dir_path, &probe_dir_samples);
+    write_i32_raster(&probe_acc_path, &probe_acc_samples);
+    drop(validate_i8_raster(
+        &pristine_dir_path,
+        &pristine_dir_samples,
+    ));
+    drop(validate_i32_raster(
+        &pristine_acc_path,
+        &pristine_acc_samples,
+    ));
+    let reopened_probe_dir = validate_i8_raster(&probe_dir_path, &probe_dir_samples);
+    let reopened_probe_acc = validate_i32_raster(&probe_acc_path, &probe_acc_samples);
+    assert_distinct_blocks(&reopened_probe_dir);
+    assert_distinct_blocks(&reopened_probe_acc);
+
+    let manifest = std::fs::read(fixture_root.join("manifest.json"))
+        .expect("projected manifest should be readable");
+    let graph = std::fs::read(fixture_root.join("graph.parquet"))
+        .expect("projected graph should be readable");
+    let catchments = std::fs::read(fixture_root.join("catchments.parquet"))
+        .expect("projected catchments should be readable");
+    let pristine_dir_bytes =
+        std::fs::read(&pristine_dir_path).expect("pristine FlowDir should be readable");
+    let pristine_acc_bytes =
+        std::fs::read(&pristine_acc_path).expect("pristine FlowAcc should be readable");
+    let probe_dir_bytes = std::fs::read(&probe_dir_path).expect("probe FlowDir should be readable");
+    let probe_acc_bytes = std::fs::read(&probe_acc_path).expect("probe FlowAcc should be readable");
+    let mut probe_manifest: serde_json::Value =
+        serde_json::from_slice(&manifest).expect("projected manifest JSON should parse");
+    assert_eq!(
+        probe_manifest["fabric_name"],
+        serde_json::Value::String("conformance-tiny-projected-grass".to_string())
+    );
+    probe_manifest["fabric_name"] = serde_json::Value::String(PROBE_FABRIC_NAME.to_string());
+    let probe_manifest =
+        serde_json::to_vec(&probe_manifest).expect("probe manifest should serialize");
+
+    let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+    let runtime = tokio::runtime::Runtime::new().expect("staging runtime should be created");
+    runtime.block_on(async {
+        for (root, staged_manifest, flow_dir, flow_acc) in [
+            (
+                REMOTE_ROOT,
+                manifest.as_slice(),
+                pristine_dir_bytes.as_slice(),
+                pristine_acc_bytes.as_slice(),
+            ),
+            (
+                PROBE_ROOT,
+                probe_manifest.as_slice(),
+                probe_dir_bytes.as_slice(),
+                probe_acc_bytes.as_slice(),
+            ),
+        ] {
+            put_staged(&store, root, "manifest.json", staged_manifest).await;
+            put_staged(&store, root, "graph.parquet", &graph).await;
+            put_staged(&store, root, "catchments.parquet", &catchments).await;
+            put_staged(&store, root, "aux/d8/projected/flow_dir.tif", flow_dir).await;
+            put_staged(&store, root, "aux/d8/projected/flow_acc.tif", flow_acc).await;
+        }
+    });
+    drop(runtime);
+
+    let golden_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(PROJECTED_GRASS_GOLDEN);
+    let golden: ProjectedGrassGolden = serde_json::from_str(
+        &std::fs::read_to_string(golden_path).expect("projected GRASS golden should be readable"),
+    )
+    .expect("projected GRASS golden should match the proof schema");
+    let probe_root = ObjectPath::from(PROBE_ROOT);
+    let probe_url = Url::parse(PROBE_URL).expect("probe URL should parse");
+    let probe_session =
+        DatasetSession::open_remote_with_store(store.clone(), &probe_root, &probe_url)
+            .expect("placement-probe remote session should open");
+    let geographic_terminal = terminal_polygon(&probe_session, golden.terminal_id);
+    let (handle, _) = probe_session
+        .select_d8_raster_for_terminal(&geographic_terminal)
+        .expect("declared projected GRASS rasters should cover the terminal");
+    assert_eq!(handle.flow_dir_encoding(), FlowDirEncoding::Grass);
+    let full_bbox = Rect::new(
+        geo::coord! { x: 0.0, y: -768000.0 },
+        geo::coord! { x: 1024000.0, y: 256000.0 },
+    );
+    let localized_dir = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowDir, full_bbox)
+        .expect("four-tile FlowDir window should localize");
+    let localized_acc = probe_session
+        .localize_d8_raster_window(&handle, RasterKind::FlowAcc, full_bbox)
+        .expect("four-tile FlowAcc window should localize");
+    assert_eq!(localized_dir.tile_count(), 4);
+    assert_eq!(localized_acc.tile_count(), 4);
+    assert_eq!(localized_dir.window_pixels(), 1_048_576);
+    assert_eq!(localized_acc.window_pixels(), 1_048_576);
+    assert_eq!(localized_nodata(localized_dir.path()), "128");
+    assert_eq!(localized_nodata(localized_acc.path()), "nan");
+
+    let local = LocalTiffRasterSource;
+    let gdal = GdalRasterSource::new();
+    let local_dir = local
+        .load_flow_direction(
+            &localized_dir.path().to_string_lossy(),
+            &full_bbox,
+            handle.flow_dir_encoding(),
+        )
+        .expect("local reader should decode localized FlowDir");
+    let gdal_dir = gdal
+        .load_flow_direction(
+            &localized_dir.path().to_string_lossy(),
+            &full_bbox,
+            handle.flow_dir_encoding(),
+        )
+        .expect("GDAL reader should decode localized FlowDir");
+    assert_eq!(local_dir.dims(), GridDims::new(RASTER_SIDE, RASTER_SIDE));
+    assert_eq!(gdal_dir.dims(), GridDims::new(RASTER_SIDE, RASTER_SIDE));
+    assert_eq!(local_dir.inner().nodata(), 128);
+    assert_eq!(gdal_dir.inner().nodata(), 128);
+    for y in 0..RASTER_SIDE {
+        for x in 0..RASTER_SIDE {
+            let bx = x / TILE_SIDE;
+            let by = y / TILE_SIDE;
+            let b = 2 * by + bx;
+            let u = x % TILE_SIDE;
+            let v = y % TILE_SIDE;
+            let s = y * RASTER_SIDE + x;
+            let i = (TILE_SIDE * by + v) * RASTER_SIDE + (TILE_SIDE * bx + u);
+            let expected = probe_dir_samples[s] as u8;
+            assert_eq!(
+                local_dir.inner().data()[i],
+                expected,
+                "local FlowDir mismatch x={x} y={y} b={b} u={u} v={v} s={s} i={i}"
+            );
+            assert_eq!(
+                gdal_dir.inner().data()[i],
+                expected,
+                "GDAL FlowDir mismatch x={x} y={y} b={b} u={u} v={v} s={s} i={i}"
+            );
+        }
+    }
+    assert_eq!(local_dir.inner().data(), gdal_dir.inner().data());
+    assert_eq!(local_dir.geo(), gdal_dir.geo());
+    assert_eq!(local_dir.geo().origin_x(), 0.0);
+    assert_eq!(local_dir.geo().origin_y(), 256000.0);
+    assert_eq!(local_dir.geo().pixel_width(), 1000.0);
+    assert_eq!(local_dir.geo().pixel_height(), -1000.0);
+    assert_eq!(gdal_dir.geo().origin_x(), 0.0);
+    assert_eq!(gdal_dir.geo().origin_y(), 256000.0);
+    assert_eq!(gdal_dir.geo().pixel_width(), 1000.0);
+    assert_eq!(gdal_dir.geo().pixel_height(), -1000.0);
+
+    let local_acc = local
+        .load_accumulation(&localized_acc.path().to_string_lossy(), &full_bbox)
+        .expect("local reader should decode localized FlowAcc");
+    let gdal_acc = gdal
+        .load_accumulation(&localized_acc.path().to_string_lossy(), &full_bbox)
+        .expect("GDAL reader should decode localized FlowAcc");
+    assert_eq!(local_acc.dims(), GridDims::new(RASTER_SIDE, RASTER_SIDE));
+    assert_eq!(gdal_acc.dims(), GridDims::new(RASTER_SIDE, RASTER_SIDE));
+    assert!(local_acc.inner().nodata().is_nan());
+    assert!(gdal_acc.inner().nodata().is_nan());
+    let expected_nan_indices = std::collections::BTreeSet::from([0, 512, 524288, 524800]);
+    let local_nan_indices = local_acc
+        .inner()
+        .data()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| value.is_nan().then_some(index))
+        .collect::<std::collections::BTreeSet<_>>();
+    let gdal_nan_indices = gdal_acc
+        .inner()
+        .data()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| value.is_nan().then_some(index))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(local_nan_indices, expected_nan_indices);
+    assert_eq!(gdal_nan_indices, expected_nan_indices);
+    for y in 0..RASTER_SIDE {
+        for x in 0..RASTER_SIDE {
+            let bx = x / TILE_SIDE;
+            let by = y / TILE_SIDE;
+            let b = 2 * by + bx;
+            let u = x % TILE_SIDE;
+            let v = y % TILE_SIDE;
+            let s = y * RASTER_SIDE + x;
+            let i = (TILE_SIDE * by + v) * RASTER_SIDE + (TILE_SIDE * bx + u);
+            let raw = probe_acc_samples[s];
+            if raw == -2_147_483_648 {
+                assert!(
+                    local_acc.inner().data()[i].is_nan(),
+                    "local FlowAcc nodata mismatch x={x} y={y} b={b} u={u} v={v} s={s} i={i}"
+                );
+                assert!(
+                    gdal_acc.inner().data()[i].is_nan(),
+                    "GDAL FlowAcc nodata mismatch x={x} y={y} b={b} u={u} v={v} s={s} i={i}"
+                );
+            } else {
+                let expected = raw as f32;
+                assert_eq!(
+                    local_acc.inner().data()[i].to_bits(),
+                    expected.to_bits(),
+                    "local FlowAcc mismatch x={x} y={y} b={b} u={u} v={v} s={s} i={i}"
+                );
+                assert_eq!(
+                    gdal_acc.inner().data()[i].to_bits(),
+                    expected.to_bits(),
+                    "GDAL FlowAcc mismatch x={x} y={y} b={b} u={u} v={v} s={s} i={i}"
+                );
+            }
+        }
+    }
+    assert_f32_tiles_equal(local_acc.inner().data(), gdal_acc.inner().data());
+    assert_eq!(local_acc.geo(), gdal_acc.geo());
+    assert_eq!(local_acc.geo().origin_x(), 0.0);
+    assert_eq!(local_acc.geo().origin_y(), 256000.0);
+    assert_eq!(local_acc.geo().pixel_width(), 1000.0);
+    assert_eq!(local_acc.geo().pixel_height(), -1000.0);
+    assert_eq!(gdal_acc.geo().origin_x(), 0.0);
+    assert_eq!(gdal_acc.geo().origin_y(), 256000.0);
+    assert_eq!(gdal_acc.geo().pixel_width(), 1000.0);
+    assert_eq!(gdal_acc.geo().pixel_height(), -1000.0);
+
+    let pristine_root = ObjectPath::from(REMOTE_ROOT);
+    let pristine_url = Url::parse(REMOTE_URL).expect("pristine URL should parse");
+    let session = DatasetSession::open_remote_with_store(store, &pristine_root, &pristine_url)
+        .expect("pristine remote session should open");
+    let engine = Engine::builder(session)
+        .with_raster_source(GdalRasterSource::new())
+        .build();
+    let options = DelineationOptions::default()
+        .with_resolver_config(
+            ResolverConfig::new().with_search_radius(
+                SearchRadiusMetres::new(1_000.0)
+                    .expect("projected fixture search radius should be valid"),
+            ),
+        )
+        .with_snap_threshold(SnapThreshold::new(500))
+        .with_refinement_mode(RefinementMode::RequireD8);
+    let input_outlet = GeoCoord::new(golden.input_outlet.lon, golden.input_outlet.lat);
+    let selected = engine
+        .select_level(LevelSelection::Finest)
+        .expect("projected fixture finest level should resolve");
+    let resolved = engine
+        .resolve_outlet_at_level(input_outlet, selected, options.resolver_config())
+        .expect("projected fixture outlet should resolve");
+    let upstream = engine
+        .traverse_upstream_at_level(&resolved)
+        .expect("projected same-level traversal should succeed");
+    let units = engine
+        .produce_pre_merge_units(&upstream)
+        .expect("projected pre-merge units should materialize");
+    let refinement = engine
+        .refine_terminal_placeholder(&resolved, &units, &options)
+        .expect("required projected D8 refinement should complete");
+    assert!(
+        matches!(&refinement, TerminalRefinement::Applied { .. }),
+        "required D8 refinement must be applied, got {refinement:?}"
+    );
+    let dissolved = engine
+        .dissolve_watershed(&units, &refinement, &options)
+        .expect("refined projected watershed should dissolve");
+    let result = engine.compose_result(resolved, upstream, &units, refinement, dissolved);
+    let actual_wkb = canonical_wkb_multi_polygon(result.geometry())
+        .expect("remote GDAL engine geometry should canonicalize");
+    assert_eq!(actual_wkb, decode_hex(&golden.canonical_wkb_hex));
 }
 
 #[test]

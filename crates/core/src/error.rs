@@ -62,6 +62,21 @@ pub enum CacheError {
         reason: String,
     },
 
+    /// Fired when a remote TIFF ASCII tag declares more bytes than the fixed reader ceiling.
+    #[error(
+        "remote TIFF ASCII tag {tag} at {path} declares {length} bytes, exceeding limit {limit}"
+    )]
+    RemoteTiffAsciiTooLong {
+        /// Object-store path containing the TIFF metadata.
+        path: ObjectPath,
+        /// Numeric TIFF tag whose ASCII value exceeded the ceiling.
+        tag: u16,
+        /// Untrusted byte length declared by the TIFF entry.
+        length: u64,
+        /// Fixed maximum permitted remote ASCII byte length.
+        limit: u64,
+    },
+
     /// Fired when TIFF metadata, tile decode, or local encoding fails.
     #[error("TIFF processing failed for {path}: {source}")]
     Tiff {

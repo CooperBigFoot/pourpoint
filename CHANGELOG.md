@@ -15,6 +15,9 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Read out-of-line TIFF ASCII metadata through the remote COG reader with a
+  fixed 256-byte ceiling, enabling GDAL nodata values such as `-128` and
+  `-2147483648`.
 - Filled unwritten U8/I8 remote COG window cells with each raster's declared
   nodata sentinel instead of direction code `0`, so missing tile coverage
   remains detectable.

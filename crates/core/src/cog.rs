@@ -29,6 +29,7 @@ use crate::session::RasterKind;
 const MAX_REMOTE_IFD_ENTRIES: u64 = 4_096;
 const MAX_REMOTE_IFD_ENTRY_BYTES: u64 = 65_536;
 const MAX_REMOTE_METADATA_VALUE_BYTES: u64 = 65_536;
+const MAX_REMOTE_ASCII_BYTES: u64 = 256;
 const MAX_PLANNED_TILE_COUNT: u64 = 65_536;
 const MAX_COMPRESSED_CHUNK_BYTES: u64 = 16_777_216;
 const MAX_COVERED_CHUNK_BYTES: u64 = 1_073_741_824;
@@ -510,14 +511,16 @@ fn remote_inline_scalar(
     Ok(entry.value)
 }
 
-fn remote_ascii(
+async fn remote_ascii(
+    store: &dyn ObjectStore,
     path: &ObjectPath,
+    object_size: u64,
     format: TiffFormat,
     entries: &[IfdEntry],
     tag: u16,
-) -> Result<Option<String>, CacheError> {
+) -> Result<(Option<String>, usize), CacheError> {
     let Some(entry) = entries.iter().find(|entry| entry.tag == tag) else {
-        return Ok(None);
+        return Ok((None, 0));
     };
     if entry.field_type != 2 || entry.count == 0 {
         return Err(remote_layout_error(
@@ -525,21 +528,46 @@ fn remote_ascii(
             format!("TIFF tag {tag} must contain ASCII"),
         ));
     }
-    if entry.count > format.inline_width() {
-        return Err(remote_layout_error(
-            path,
-            format!("TIFF tag {tag} out-of-line ASCII is unsupported"),
-        ));
+    if entry.count > MAX_REMOTE_ASCII_BYTES {
+        return Err(CacheError::RemoteTiffAsciiTooLong {
+            path: path.clone(),
+            tag,
+            length: entry.count,
+            limit: MAX_REMOTE_ASCII_BYTES,
+        });
     }
     let width = usize::try_from(entry.count)
         .map_err(|_| remote_layout_error(path, "TIFF ASCII length does not fit usize"))?;
-    let bytes = entry.value.to_le_bytes();
-    let raw = &bytes[..width];
-    let text = std::str::from_utf8(raw)
+    let (raw, fetched_bytes) = if entry.count <= format.inline_width() {
+        let bytes = entry.value.to_le_bytes();
+        (bytes[..width].to_vec(), 0)
+    } else {
+        let range = checked_remote_range(path, entry.value, entry.count, object_size)?;
+        let bytes =
+            store
+                .get_range(path, range)
+                .await
+                .map_err(|source| CacheError::ObjectStore {
+                    path: path.clone(),
+                    source,
+                })?;
+        if bytes.len() != width {
+            return Err(remote_layout_error(
+                path,
+                format!(
+                    "TIFF tag {tag} ASCII value returned {} bytes, expected {width}",
+                    bytes.len()
+                ),
+            ));
+        }
+        let fetched_bytes = bytes.len();
+        (bytes.to_vec(), fetched_bytes)
+    };
+    let text = std::str::from_utf8(&raw)
         .map_err(|_| remote_layout_error(path, format!("TIFF tag {tag} is not valid ASCII")))?
         .trim_end_matches('\0')
         .to_string();
-    Ok(Some(text))
+    Ok((Some(text), fetched_bytes))
 }
 
 fn remote_value_range(
@@ -805,7 +833,9 @@ async fn read_remote_layout(
             ));
         }
     };
-    let nodata = remote_ascii(path, format, &entries, 42_113)?.unwrap_or_else(|| {
+    let (nodata, ascii_bytes_read) =
+        remote_ascii(store, path, object_size, format, &entries, 42_113).await?;
+    let nodata = nodata.unwrap_or_else(|| {
         match sample_type {
             CogSampleType::U8 => "255",
             CogSampleType::I8 | CogSampleType::F32 | CogSampleType::I32 => "-1",
@@ -834,6 +864,7 @@ async fn read_remote_layout(
             entry_bytes.len(),
             values[0].len(),
             values[1].len(),
+            ascii_bytes_read,
         ],
     )?;
 
@@ -2161,7 +2192,7 @@ mod tests {
     use std::path::PathBuf;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Arc, OnceLock};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     use bytes::Bytes;
     use flate2::Compression;
@@ -2893,6 +2924,7 @@ mod tests {
         requested_range_bytes: AtomicU64,
         consumed_range_bytes: AtomicU64,
         charged_non_range_object_range_bytes: AtomicU64,
+        get_range_lengths: Mutex<Vec<u64>>,
     }
 
     #[derive(Debug)]
@@ -2944,6 +2976,10 @@ mod tests {
 
         fn consumed_range_bytes(&self) -> u64 {
             self.counters.consumed_range_bytes.load(Ordering::SeqCst)
+        }
+
+        fn get_range_lengths(&self) -> Vec<u64> {
+            self.counters.get_range_lengths.lock().unwrap().clone()
         }
 
         fn charged_non_range_object_range_bytes(&self) -> u64 {
@@ -3023,6 +3059,11 @@ mod tests {
             } else if let Some(range) = &options.range {
                 self.counters.get_range_calls.fetch_add(1, Ordering::SeqCst);
                 if let GetRange::Bounded(range) = range {
+                    self.counters
+                        .get_range_lengths
+                        .lock()
+                        .unwrap()
+                        .push(range.end - range.start);
                     self.counters
                         .requested_range_bytes
                         .fetch_add(range.end - range.start, Ordering::SeqCst);
@@ -3516,6 +3557,82 @@ mod tests {
             "TIFF metadata value bytes 65544 exceeds parser ceiling 65536",
         );
         assert_eq!(counters, (0, 3, 0, 404, 404));
+    }
+
+    #[tokio::test]
+    async fn remote_ascii_rejects_count_above_ceiling_with_typed_error() {
+        let (result, counters) = mutated_planetary_layout(PLANETARY_FILE_LEN, |bytes| {
+            let entry_offset = bigtiff_entry_offset(bytes, 42_113);
+            bytes[entry_offset + 4..entry_offset + 12].copy_from_slice(&257_u64.to_le_bytes());
+        })
+        .await;
+
+        match result {
+            Err(CacheError::RemoteTiffAsciiTooLong {
+                path,
+                tag,
+                length,
+                limit,
+            }) => {
+                assert_eq!(path, ObjectPath::from("mutated.tif"));
+                assert_eq!(tag, 42_113);
+                assert_eq!(length, 257);
+                assert_eq!(limit, 256);
+            }
+            other => panic!("expected RemoteTiffAsciiTooLong, got {other:?}"),
+        }
+        assert_eq!(counters, (0, 3, 0, 404, 404));
+    }
+
+    #[tokio::test]
+    async fn remote_ascii_rejects_out_of_object_range_before_fetch() {
+        let offset = PLANETARY_FILE_LEN - 4;
+        let (result, counters) = mutated_planetary_layout(PLANETARY_FILE_LEN, |bytes| {
+            let entry_offset = bigtiff_entry_offset(bytes, 42_113);
+            bytes[entry_offset + 4..entry_offset + 12].copy_from_slice(&9_u64.to_le_bytes());
+            bytes[entry_offset + 12..entry_offset + 20].copy_from_slice(&offset.to_le_bytes());
+        })
+        .await;
+
+        assert_owned_layout_rejection(
+            result,
+            "TIFF range 24507155..24507164 exceeds object size 24507159",
+        );
+        assert_eq!(counters, (0, 3, 0, 404, 404));
+    }
+
+    #[tokio::test]
+    async fn remote_ascii_reads_one_bounded_out_of_line_range() {
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parity/tiny-with-aux-d8-projected-grass");
+        for (relative_path, expected_nodata, declared_bytes) in [
+            ("aux/d8/projected/flow_dir.tif", "-128", 5_usize),
+            ("aux/d8/projected/flow_acc.tif", "-2147483648", 12_usize),
+        ] {
+            let local_store = LocalFileSystem::new_with_prefix(&fixture_root)
+                .expect("projected GRASS fixture object store should be rooted");
+            let store = CogFixtureCountingStore::new(Arc::new(local_store));
+            let path = ObjectPath::from(relative_path);
+            let object_size = fs::metadata(fixture_root.join(relative_path))
+                .expect("projected GRASS TIFF metadata should be readable")
+                .len();
+
+            let layout = read_remote_layout(&store, &path, object_size)
+                .await
+                .expect("out-of-line ASCII metadata should parse");
+
+            assert_eq!(layout.nodata, expected_nodata);
+            assert_eq!(store.get_range_calls(), 4);
+            assert_eq!(store.get_ranges_calls(), 1);
+            assert_eq!(store.requested_range_bytes(), layout.bytes_read as u64);
+            assert_eq!(store.consumed_range_bytes(), layout.bytes_read as u64);
+            assert_eq!(
+                store.get_range_lengths().last(),
+                Some(&(declared_bytes as u64))
+            );
+            assert_eq!(layout.tile_offsets.byte_extent().unwrap(), None);
+            assert_eq!(layout.tile_byte_counts.byte_extent().unwrap(), None);
+        }
     }
 
     #[tokio::test]
