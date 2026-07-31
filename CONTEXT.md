@@ -100,15 +100,23 @@ geometry assembly, an unrelated late stage)
 **Bounds erasure**:
 Answering with a value that is legal in the raster's own vocabulary where the
 truthful answer is that no cell was there, so a spatial fact is destroyed by a
-byte that decodes cleanly. It occurs at two sites. An out-of-window neighbor
-probe answered with the raster's nodata *value* rather than an explicit absence
-makes "outside the window" and "nodata inside the window" the same byte; that
-distinction is recoverable only while the nodata sentinel decodes to nothing,
-and a raster declaring a sentinel that is also a legal direction code lets the
-trace index on coordinates it never bounds-checked. A window buffer
-pre-filled with a legal sample makes an output cell no tile ever wrote
-indistinguishable from a decoded one — flow-direction code 0 decodes as a real
-terminating cell, so a dropped tile reads as a plausible field of sinks.
+byte that decodes cleanly. The historical defect occurred at two sites. First,
+an out-of-window neighbor probe answered with the raster's nodata *value*
+rather than explicit absence, making "outside the window" and "nodata inside
+the window" the same byte. Checked probes now preserve absence. Second, a
+window buffer pre-filled with legal flow-direction code 0 made an output cell
+no tile ever wrote indistinguishable from a decoded terminating cell. U8 and
+I8 window buffers now prefill every not-yet-written position with the parsed
+declared nodata byte. `direction_nodata_byte` runs unconditionally before
+allocation and before the tile loop, so an invalid or unrepresentable U8/I8
+declaration fails loudly even when later writes would cover every output cell.
+This prefill discriminates an unwritten cell only when the declared sentinel is
+not itself a legal direction code. A raster declaring nodata `1` through `8`
+would still erase the bounds fact because those bytes are legal GRASS
+directions. The shipped staged flow-direction raster uses `255`, and the U8
+fallback when the nodata tag is absent is also `255`, so the mechanism preserves
+the spatial fact for that fabric rather than establishing it for every possible
+declaration.
 _Avoid_: "nodata handling" (the sentinel is handled correctly; what is lost is
 the bounds fact), "off-by-one" (the arithmetic is right; its input is a cell
 that does not exist), "zero-initialized buffer" (names the mechanism, not the
@@ -121,7 +129,10 @@ independent spatial arithmetics meet here — the tile paste that writes the fil
 and its geotransform, and the backend's box-to-pixel read out of it — and
 production runs GDAL on the second while a GDAL-free `crates/core` test can only
 substitute a pure-Rust reader. Evidence that covers only one side leaves a
-placement defect on the other unwitnessed.
+placement defect on the other unwitnessed. The localizer emits `GDAL_NODATA`
+through `normalized_nodata`: U8 and F32 use `metadata.nodata`, I8 is normalized
+to its stored U8 byte representation, and I32 is normalized to `nan`. The
+remote metadata reader synthesizes `"-1"` when F32 nodata is absent.
 _Avoid_: "the raster source reads the COG" (it never touches the remote object;
 it reads the localized window), "cache path" (naming the storage, not the
 reader boundary)
@@ -138,12 +149,16 @@ value-domain checks that a wrong sub-window already passes)
 
 **Guard ceiling**:
 A fixed, file-independent cap that bounds a single allocation against a
-malformed or hostile declaration, sized with recorded headroom over the largest
-artifact class the reader intends to serve and defended by a margin assertion
-against the shipped fabric. Distinct from a bound whose adequacy scales with
+malformed or hostile declaration. The source-backed
+`MAX_DECODED_CHUNK_BYTES = 8_388_608` ceiling covers the largest artifact class
+the reader intends to serve. A tempfile-backed synthetic four-tile regression
+asserts required margin from parsed fixture geometry. The live carve instead
+checks only that hard-coded `512 * 512 * 4` decoded bytes do not exceed the
+ceiling; its `7,340,032`-byte margin is a derivation, not a shipped-fabric
+runtime observation. This is distinct from a bound whose adequacy scales with
 tile count, which is a boundedness defect to delete rather than resize (see
-**Bounded remote read**). A guard ceiling derived from the declared geometry is
-not a guard: the declaration is the untrusted input it exists to bound.
+**Bounded remote read**). A guard ceiling derived from declared geometry is not
+a guard: the declaration is the untrusted input it exists to bound.
 _Avoid_: "byte ceiling" unqualified (condemned for the tile-count-scaling
 class); "derived limit", "adaptive ceiling" (a file authorizing its own
 allocation)
