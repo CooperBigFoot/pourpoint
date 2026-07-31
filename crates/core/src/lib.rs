@@ -29,7 +29,7 @@ pub mod test_raster_source;
 #[allow(deprecated)]
 pub mod testutil;
 
-pub use cog::LocalizedRasterWindow;
+pub use cog::{CrossedTileAxes, LocalizedRasterWindow, RasterWindowCoverage};
 pub use engine::{
     DelineationOptions, DelineationResult, DelineationUnitMetadata, Engine, EngineBuilder,
     EngineError, RefinementOutcome,

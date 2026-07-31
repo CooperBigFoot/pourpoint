@@ -1,7 +1,12 @@
 //! Windowed COG reads for remote raster refinement.
 //! remote_layout : RemoteTiff × ObjectSize → Dimensions × GeoTiffTransform × LazyTileIndexDescriptors
+//! window_coverage : PreparedCogWindow → RasterWindowCoverage
+//!
+//! Window coverage is the immutable remote-grid and selected-tile observation produced by COG
+//! preparation.
 
 use std::cmp::{max, min};
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::ops::Range;
@@ -62,6 +67,7 @@ impl RasterWindowRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedRasterWindow {
     path: PathBuf,
+    coverage: Option<RasterWindowCoverage>,
     header_bytes: u64,
     tile_bytes: u64,
     tile_count: usize,
@@ -72,6 +78,18 @@ impl LocalizedRasterWindow {
     pub(crate) fn cached(path: PathBuf) -> Self {
         Self {
             path,
+            coverage: None,
+            header_bytes: 0,
+            tile_bytes: 0,
+            tile_count: 0,
+            window_pixels: 0,
+        }
+    }
+
+    pub(crate) fn cached_with_coverage(path: PathBuf, coverage: RasterWindowCoverage) -> Self {
+        Self {
+            path,
+            coverage: Some(coverage),
             header_bytes: 0,
             tile_bytes: 0,
             tile_count: 0,
@@ -81,6 +99,10 @@ impl LocalizedRasterWindow {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn coverage(&self) -> Option<&RasterWindowCoverage> {
+        self.coverage.as_ref()
     }
 
     pub fn header_bytes(&self) -> u64 {
@@ -97,6 +119,105 @@ impl LocalizedRasterWindow {
 
     pub fn window_pixels(&self) -> u64 {
         self.window_pixels
+    }
+}
+
+/// The tile axes crossed by a prepared remote raster window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrossedTileAxes {
+    Neither,
+    X,
+    Y,
+    XAndY,
+}
+
+/// The remote raster grid and ordered tiles selected during COG preparation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RasterWindowCoverage {
+    origin_x: f64,
+    origin_y: f64,
+    pixel_width: f64,
+    pixel_height: f64,
+    raster_width: u32,
+    raster_height: u32,
+    tile_width: u32,
+    tile_height: u32,
+    window_col_off: u32,
+    window_row_off: u32,
+    covered_tile_indexes: Vec<u32>,
+}
+
+impl RasterWindowCoverage {
+    pub fn origin_x(&self) -> f64 {
+        self.origin_x
+    }
+
+    pub fn origin_y(&self) -> f64 {
+        self.origin_y
+    }
+
+    pub fn pixel_width(&self) -> f64 {
+        self.pixel_width
+    }
+
+    pub fn pixel_height(&self) -> f64 {
+        self.pixel_height
+    }
+
+    pub fn raster_width(&self) -> u32 {
+        self.raster_width
+    }
+
+    pub fn raster_height(&self) -> u32 {
+        self.raster_height
+    }
+
+    pub fn tile_width(&self) -> u32 {
+        self.tile_width
+    }
+
+    pub fn tile_height(&self) -> u32 {
+        self.tile_height
+    }
+
+    pub fn window_col_off(&self) -> u32 {
+        self.window_col_off
+    }
+
+    pub fn window_row_off(&self) -> u32 {
+        self.window_row_off
+    }
+
+    pub fn covered_tile_indexes(&self) -> &[u32] {
+        &self.covered_tile_indexes
+    }
+
+    pub fn covered_tile_col_row(&self, flat_index: u32) -> Option<(u32, u32)> {
+        if !self.covered_tile_indexes.contains(&flat_index) {
+            return None;
+        }
+        let tiles_across = self.raster_width.div_ceil(self.tile_width);
+        Some((flat_index % tiles_across, flat_index / tiles_across))
+    }
+
+    pub fn crossed_axes(&self) -> CrossedTileAxes {
+        let tiles_across = self.raster_width.div_ceil(self.tile_width);
+        let columns = self
+            .covered_tile_indexes
+            .iter()
+            .map(|index| index % tiles_across)
+            .collect::<BTreeSet<_>>();
+        let rows = self
+            .covered_tile_indexes
+            .iter()
+            .map(|index| index / tiles_across)
+            .collect::<BTreeSet<_>>();
+        match (columns.len() > 1, rows.len() > 1) {
+            (false, false) => CrossedTileAxes::Neither,
+            (true, false) => CrossedTileAxes::X,
+            (false, true) => CrossedTileAxes::Y,
+            (true, true) => CrossedTileAxes::XAndY,
+        }
     }
 }
 
@@ -892,6 +1013,22 @@ impl PreparedCogWindow {
     pub(crate) fn cache_fragment(&self) -> String {
         self.window.cache_fragment()
     }
+
+    pub(crate) fn coverage(&self) -> RasterWindowCoverage {
+        RasterWindowCoverage {
+            origin_x: self.metadata.origin_x,
+            origin_y: self.metadata.origin_y,
+            pixel_width: self.metadata.pixel_width,
+            pixel_height: self.metadata.pixel_height,
+            raster_width: self.metadata.width,
+            raster_height: self.metadata.height,
+            tile_width: self.metadata.tile_width,
+            tile_height: self.metadata.tile_height,
+            window_col_off: self.window.col_off,
+            window_row_off: self.window.row_off,
+            covered_tile_indexes: self.plan.tiles.iter().map(|tile| tile.index).collect(),
+        }
+    }
 }
 
 fn metadata_from_layout(
@@ -1241,6 +1378,7 @@ pub(crate) async fn fetch_window_to_path(
     store: &dyn ObjectStore,
     remote_path: &ObjectPath,
     prepared: PreparedCogWindow,
+    coverage: RasterWindowCoverage,
     canonical: &Path,
 ) -> Result<LocalizedRasterWindow, CacheError> {
     let ranges = validate_compressed_ranges(remote_path, &prepared.plan)?;
@@ -1297,6 +1435,7 @@ pub(crate) async fn fetch_window_to_path(
 
     let stats = LocalizedRasterWindow {
         path: canonical.to_path_buf(),
+        coverage: Some(coverage),
         header_bytes: prepared.header_bytes,
         tile_bytes: prepared.plan.compressed_bytes,
         tile_count: prepared.plan.tiles.len(),
@@ -3706,10 +3845,11 @@ mod tests {
         let request =
             RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
         let prepared = prepare_window(&store, &path, &request).await.unwrap();
+        let coverage = prepared.coverage();
         let output = temp_dir.path().join("short-window.tif");
 
         assert_unsupported_reason(
-            fetch_window_to_path(&store, &path, prepared, &output).await,
+            fetch_window_to_path(&store, &path, prepared, coverage, &output).await,
             &path,
             "TIFF compressed chunk 2039838 returned 15 bytes, expected 16",
         );
@@ -3730,11 +3870,13 @@ mod tests {
         let prepared = prepare_window(&local_store, &fixtures.planetary_object_path, &request)
             .await
             .expect("planetary window should prepare");
+        let coverage = prepared.coverage();
         let output = fixtures.temp_dir.path().join("known-u8-window.tif");
         fetch_window_to_path(
             &local_store,
             &fixtures.planetary_object_path,
             prepared,
+            coverage,
             &output,
         )
         .await
@@ -3887,11 +4029,13 @@ mod tests {
         let prepared = prepare_window(&local_store, &fixtures.flow_acc_object_path, &request)
             .await
             .expect("FlowAcc window should prepare");
+        let coverage = prepared.coverage();
         let output = fixtures.temp_dir.path().join("known-f32-window.tif");
         fetch_window_to_path(
             &local_store,
             &fixtures.flow_acc_object_path,
             prepared,
+            coverage,
             &output,
         )
         .await
@@ -3981,9 +4125,10 @@ mod tests {
         let request =
             RasterWindowRequest::new(RasterKind::FlowDir, oracle.one_tile_planetary_bbox());
         let prepared = prepare_window(&store, &path, &request).await.unwrap();
+        let coverage = prepared.coverage();
         let output = temp_dir.path().join("wrong-length-window.tif");
         assert_unsupported_reason(
-            fetch_window_to_path(&store, &path, prepared, &output).await,
+            fetch_window_to_path(&store, &path, prepared, coverage, &output).await,
             &path,
             "TIFF tile 2039838 decoded 262143 bytes, expected 262144",
         );
