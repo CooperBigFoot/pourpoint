@@ -5,9 +5,14 @@
 Thumbs.db
 __pycache__/
 crates/python/python/pourpoint/_data/
-crates/python/python/pourpoint/_pourpoint*.so
-crates/python/python/pourpoint/_pourpoint*.dylib
-crates/python/python/pourpoint/_pourpoint*.pyd
+
+# Compiled extension modules under any package directory, not just the current
+# one: the shed/pyshed -> pourpoint rename (45c0582) left a 61 MB
+# `pyshed/_pyshed.abi3.so` on disk that the package-specific patterns no longer
+# matched, so it kept showing up as untracked.
+crates/python/python/**/*.so
+crates/python/python/**/*.dylib
+crates/python/python/**/*.pyd
 
 # Python build artifacts
 crates/python/dist/
