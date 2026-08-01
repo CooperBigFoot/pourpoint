@@ -4,7 +4,9 @@
 //! by production. Stable claim IDs are correspondence keys for independent
 //! shipped-path evidence.
 
-use hfx::{Crs, FlowDirEncoding, FormatVersion};
+use hfx::{Crs, FlowAccumulationUnits, FlowDirEncoding, FormatVersion};
+
+use crate::algo::projection::Crs as D8Crs;
 
 /// Stable correspondence key for a reader support claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,6 +37,10 @@ pub enum ReaderSupportValue {
     DatasetCrs(Crs),
     /// An implemented D8 flow-direction encoding.
     FlowDirectionEncoding(FlowDirEncoding),
+    /// An implemented D8 raster coordinate reference system.
+    D8Crs(D8Crs),
+    /// Implemented D8 flow-accumulation units.
+    D8FlowAccumulationUnits(FlowAccumulationUnits),
 }
 
 /// One exact on-disk declaration implemented by the reader.
@@ -121,6 +127,42 @@ pub const FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS: &[ReaderSupportClaim] = &[
 pub const CORE_MANIFEST_SUPPORT_CLAIMS: &[ReaderSupportClaim] =
     &[FORMAT_VERSION_V0_3_0, DATASET_CRS_EPSG_4326];
 
+/// Support claim for D8 raster `crs = "EPSG:4326"`.
+pub const D8_CRS_EPSG_4326: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-d8-crs-epsg-4326"),
+    "EPSG:4326",
+    ReaderSupportValue::D8Crs(D8Crs::Epsg4326),
+);
+
+/// Support claim for D8 raster `crs = "EPSG:8857"`.
+pub const D8_CRS_EPSG_8857: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-d8-crs-epsg-8857"),
+    "EPSG:8857",
+    ReaderSupportValue::D8Crs(D8Crs::Epsg8857),
+);
+
+/// Support claim for D8 raster `flow_acc_units = "cells"`.
+pub const D8_FLOW_ACCUMULATION_UNITS_CELLS: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-d8-flow-acc-units-cells"),
+    "cells",
+    ReaderSupportValue::D8FlowAccumulationUnits(FlowAccumulationUnits::Cells),
+);
+
+/// Support claim for D8 raster `flow_acc_units = "km2"`.
+pub const D8_FLOW_ACCUMULATION_UNITS_KM2: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-d8-flow-acc-units-km2"),
+    "km2",
+    ReaderSupportValue::D8FlowAccumulationUnits(FlowAccumulationUnits::Km2),
+);
+
+/// Implemented exact declarations for D8 raster CRS and accumulation metadata.
+pub const D8_METADATA_SUPPORT_CLAIMS: &[ReaderSupportClaim] = &[
+    D8_CRS_EPSG_4326,
+    D8_CRS_EPSG_8857,
+    D8_FLOW_ACCUMULATION_UNITS_CELLS,
+    D8_FLOW_ACCUMULATION_UNITS_KM2,
+];
+
 /// Returns the typed format version for an implemented declaration.
 pub fn claimed_format_version(declaration: &str) -> Option<FormatVersion> {
     if declaration != FORMAT_VERSION_V0_3_0.canonical_declaration() {
@@ -128,8 +170,10 @@ pub fn claimed_format_version(declaration: &str) -> Option<FormatVersion> {
     }
     match FORMAT_VERSION_V0_3_0.value() {
         ReaderSupportValue::FormatVersion(value) => Some(*value),
-        ReaderSupportValue::DatasetCrs(_) => None,
-        ReaderSupportValue::FlowDirectionEncoding(_) => None,
+        ReaderSupportValue::DatasetCrs(_)
+        | ReaderSupportValue::FlowDirectionEncoding(_)
+        | ReaderSupportValue::D8Crs(_)
+        | ReaderSupportValue::D8FlowAccumulationUnits(_) => None,
     }
 }
 
@@ -140,7 +184,61 @@ pub fn claimed_dataset_crs(declaration: &str) -> Option<Crs> {
     }
     match DATASET_CRS_EPSG_4326.value() {
         ReaderSupportValue::DatasetCrs(value) => Some(*value),
-        ReaderSupportValue::FormatVersion(_) => None,
-        ReaderSupportValue::FlowDirectionEncoding(_) => None,
+        ReaderSupportValue::FormatVersion(_)
+        | ReaderSupportValue::FlowDirectionEncoding(_)
+        | ReaderSupportValue::D8Crs(_)
+        | ReaderSupportValue::D8FlowAccumulationUnits(_) => None,
     }
+}
+
+/// Returns the typed D8 CRS for an implemented exact declaration.
+pub fn claimed_d8_crs(declaration: &str) -> Option<D8Crs> {
+    let claim = if declaration == D8_CRS_EPSG_4326.canonical_declaration() {
+        &D8_CRS_EPSG_4326
+    } else if declaration == D8_CRS_EPSG_8857.canonical_declaration() {
+        &D8_CRS_EPSG_8857
+    } else {
+        return None;
+    };
+    match claim.value() {
+        ReaderSupportValue::D8Crs(value) => Some(*value),
+        ReaderSupportValue::FormatVersion(_)
+        | ReaderSupportValue::DatasetCrs(_)
+        | ReaderSupportValue::FlowDirectionEncoding(_)
+        | ReaderSupportValue::D8FlowAccumulationUnits(_) => None,
+    }
+}
+
+/// Returns the typed D8 flow-accumulation units for an implemented exact declaration.
+pub fn claimed_d8_flow_accumulation_units(declaration: &str) -> Option<FlowAccumulationUnits> {
+    let claim = if declaration == D8_FLOW_ACCUMULATION_UNITS_CELLS.canonical_declaration() {
+        &D8_FLOW_ACCUMULATION_UNITS_CELLS
+    } else if declaration == D8_FLOW_ACCUMULATION_UNITS_KM2.canonical_declaration() {
+        &D8_FLOW_ACCUMULATION_UNITS_KM2
+    } else {
+        return None;
+    };
+    match claim.value() {
+        ReaderSupportValue::D8FlowAccumulationUnits(value) => Some(*value),
+        ReaderSupportValue::FormatVersion(_)
+        | ReaderSupportValue::DatasetCrs(_)
+        | ReaderSupportValue::FlowDirectionEncoding(_)
+        | ReaderSupportValue::D8Crs(_) => None,
+    }
+}
+
+/// Returns whether two exact D8 metadata declarations form a supported pair.
+pub fn d8_pair_is_compatible(
+    crs_declaration: &str,
+    flow_accumulation_units_declaration: &str,
+) -> bool {
+    matches!(
+        (
+            claimed_d8_crs(crs_declaration),
+            claimed_d8_flow_accumulation_units(flow_accumulation_units_declaration),
+        ),
+        (Some(D8Crs::Epsg4326), Some(FlowAccumulationUnits::Cells))
+            | (Some(D8Crs::Epsg8857), Some(FlowAccumulationUnits::Cells))
+            | (Some(D8Crs::Epsg8857), Some(FlowAccumulationUnits::Km2))
+    )
 }
