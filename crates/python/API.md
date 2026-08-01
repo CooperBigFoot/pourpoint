@@ -91,7 +91,7 @@ Engine(
 
 Opens an HFX dataset and constructs a delineation engine.
 
-`dataset_path` must point to an HFX v0.2.1 dataset. HFX v0.1 datasets
+`dataset_path` must point to an HFX v0.3.0 dataset. HFX v0.1 datasets
 hard-error as an unsupported format version.
 
 | Parameter | Type | Default | Meaning |
@@ -112,6 +112,15 @@ hard-error as an unsupported format version.
 - `ValueError` when a configuration argument is invalid, such as an unknown
   `snap_strategy`, unknown `repair_geometry`, a non-positive `snap_radius`, or
   `parquet_cache_max_mb=0` when `parquet_cache=True`.
+
+### Engine Properties
+
+`unreadable_auxiliary_schemas: list[str]` reports declarations ignored by the
+linked HFX reader. It is empty when every auxiliary declaration is readable and
+otherwise contains one raw schema string per unreadable occurrence in manifest
+order, preserving duplicates. Each access returns a defensive copy. These
+diagnostic entries do not promise that their declared artifacts exist or are
+usable by the engine.
 
 ### Tuning Knobs
 

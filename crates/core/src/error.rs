@@ -193,12 +193,6 @@ pub enum SessionError {
         reason: String,
     },
 
-    /// Fired when a manifest declares the de-blessed v1 D8 raster schema.
-    #[error(
-        "auxiliary schema \"hfx.aux.d8_raster.v1\" is no longer supported; recompile the dataset with a v2-emitting adapter that declares \"hfx.aux.d8_raster.v2\""
-    )]
-    UnsupportedD8RasterV1,
-
     /// Fired when a declared auxiliary artifact path is absolute or escapes the
     /// dataset root.
     #[error(

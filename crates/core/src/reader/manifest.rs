@@ -65,6 +65,20 @@ pub struct GenericAuxDecl {
     pub metadata: serde_json::Value,
 }
 
+/// `retain : unrecognized hfx.aux declaration -> raw declaration`.
+///
+/// This carrier is diagnostic-only, is not inserted into [`hfx::Manifest`],
+/// and does not assert that its artifact paths are safe, present, or usable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadableAuxDecl {
+    /// The complete raw schema name.
+    pub schema: String,
+    /// The raw artifact key-to-path mapping.
+    pub artifacts: BTreeMap<String, String>,
+    /// Raw metadata retained without interpretation.
+    pub metadata: serde_json::Value,
+}
+
 /// pourpoint-side classified auxiliary declarations parsed from `manifest.auxiliary[]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AuxDeclarations {
@@ -74,6 +88,8 @@ pub struct AuxDeclarations {
     pub snaps: Vec<SnapDecl>,
     /// Provisional / third-party declarations retained as raw handles.
     pub generic: Vec<GenericAuxDecl>,
+    /// Unrecognized `hfx.aux.*` declarations retained for diagnostics only.
+    pub unreadable: Vec<UnreadableAuxDecl>,
 }
 
 /// A parsed manifest plus its classified auxiliary declarations.
@@ -229,12 +245,16 @@ fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
     let mut aux = AuxDeclarations::default();
     let mut aux_decls: Vec<AuxiliaryDecl> = Vec::with_capacity(raw.auxiliary.len());
     for entry in raw.auxiliary {
-        let (decl, classified) = parse_auxiliary(entry)?;
-        aux_decls.push(decl);
-        match classified {
-            ClassifiedAux::D8(d8) => aux.d8_rasters.push(d8),
-            ClassifiedAux::Snap(snap) => aux.snaps.push(snap),
-            ClassifiedAux::Generic(g) => aux.generic.push(g),
+        match parse_auxiliary(entry)? {
+            ParsedAuxiliary::Readable { decl, classified } => {
+                aux_decls.push(decl);
+                match classified {
+                    ClassifiedAux::D8(d8) => aux.d8_rasters.push(d8),
+                    ClassifiedAux::Snap(snap) => aux.snaps.push(snap),
+                    ClassifiedAux::Generic(g) => aux.generic.push(g),
+                }
+            }
+            ParsedAuxiliary::Unreadable(decl) => aux.unreadable.push(decl),
         }
     }
 
@@ -277,23 +297,38 @@ enum ClassifiedAux {
     Generic(GenericAuxDecl),
 }
 
-/// Parse one `auxiliary[]` entry into both an [`AuxiliaryDecl`] for the core
-/// manifest and a pourpoint-side [`ClassifiedAux`] carrying parsed metadata.
-fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), SessionError> {
+/// Result of attempting to interpret one raw auxiliary declaration.
+enum ParsedAuxiliary {
+    Readable {
+        decl: AuxiliaryDecl,
+        classified: ClassifiedAux,
+    },
+    Unreadable(UnreadableAuxDecl),
+}
+
+/// Parse one `auxiliary[]` entry into a readable declaration or raw diagnostic.
+fn parse_auxiliary(raw: RawAuxiliary) -> Result<ParsedAuxiliary, SessionError> {
     let schema_str = raw.schema.ok_or_else(|| SessionError::AuxiliaryDeclParse {
         schema: "<missing>".to_string(),
         reason: "auxiliary entry is missing required \"schema\" field".to_string(),
     })?;
 
-    if schema_str == "hfx.aux.d8_raster.v1" {
-        return Err(SessionError::UnsupportedD8RasterV1);
-    }
-
-    let schema_id =
-        AuxiliarySchemaId::parse(&schema_str).map_err(|e| SessionError::AuxiliaryDeclParse {
-            schema: schema_str.clone(),
-            reason: e.to_string(),
-        })?;
+    let schema_id = match AuxiliarySchemaId::parse(&schema_str) {
+        Ok(schema_id) => schema_id,
+        Err(_) if schema_str.starts_with("hfx.aux.") => {
+            return Ok(ParsedAuxiliary::Unreadable(UnreadableAuxDecl {
+                schema: schema_str,
+                artifacts: raw.artifacts,
+                metadata: raw.metadata,
+            }));
+        }
+        Err(error) => {
+            return Err(SessionError::AuxiliaryDeclParse {
+                schema: schema_str,
+                reason: error.to_string(),
+            });
+        }
+    };
 
     if raw.artifacts.is_empty() {
         return Err(SessionError::AuxiliaryDeclParse {
@@ -326,7 +361,7 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
         }
     };
 
-    Ok((decl, classified))
+    Ok(ParsedAuxiliary::Readable { decl, classified })
 }
 
 /// Parse the metadata block for an `hfx.aux.d8_raster.v2` declaration.
@@ -484,13 +519,14 @@ fn require_artifact(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::io::Write;
 
     use hfx::{Crs, FlowAccumulationUnits, FlowDirEncoding, FormatVersion, Topology};
     use serde_json::json;
     use tempfile::TempDir;
 
-    use super::read_manifest;
+    use super::{UnreadableAuxDecl, read_manifest};
     use crate::error::SessionError;
 
     fn write_manifest(dir: &TempDir, value: &serde_json::Value) -> std::path::PathBuf {
@@ -620,6 +656,110 @@ mod tests {
         assert_eq!(parsed.aux.snaps.len(), 1);
         assert_eq!(parsed.aux.snaps[0].name, "segment-stems");
         assert_eq!(parsed.aux.snaps[0].references_levels, vec![0]);
+    }
+
+    #[test]
+    fn test_unreadable_hfx_auxiliary_retained_outside_typed_manifest() {
+        let dir = TempDir::new().unwrap();
+        let mut value = minimal_json();
+        value["auxiliary"] = json!([
+            {
+                "schema": "hfx.aux.d8_raster.v1",
+                "artifacts": {
+                    "flow_dir": "missing/v1-dir.tif",
+                    "flow_acc": "missing/v1-acc.tif"
+                },
+                "metadata": {
+                    "flow_dir_encoding": "esri",
+                    "producer": "legacy-v1"
+                }
+            },
+            {
+                "schema": "hfx.aux.d8_raster.v3",
+                "artifacts": {
+                    "flow_dir": "missing/v3-dir.tif",
+                    "flow_acc": "missing/v3-acc.tif"
+                },
+                "metadata": {"purpose": "future-d8"}
+            },
+            {
+                "schema": "hfx.aux.d8_raster.v1",
+                "artifacts": {
+                    "flow_dir": "missing/duplicate-v1-dir.tif",
+                    "flow_acc": "missing/duplicate-v1-acc.tif"
+                },
+                "metadata": {
+                    "flow_dir_encoding": "grass",
+                    "producer": "duplicate-v1"
+                }
+            },
+            {
+                "schema": "hfx.aux.snap.v2",
+                "artifacts": {"snap": "snap.parquet"},
+                "metadata": {
+                    "name": "synthetic-outlet-snap",
+                    "description": "Synthetic snap target at the unit 3 outlet.",
+                    "weight_semantics": "higher is preferred",
+                    "references_levels": [0]
+                }
+            }
+        ]);
+        let path = write_manifest(&dir, &value);
+
+        let parsed = read_manifest(&path).unwrap();
+
+        assert_eq!(parsed.manifest.auxiliary().len(), 1);
+        assert_eq!(
+            parsed.manifest.auxiliary()[0].schema().to_string(),
+            "hfx.aux.snap.v2"
+        );
+        assert!(parsed.aux.d8_rasters.is_empty());
+        assert!(parsed.aux.generic.is_empty());
+        assert_eq!(parsed.aux.snaps.len(), 1);
+        assert_eq!(parsed.aux.snaps[0].name, "synthetic-outlet-snap");
+        assert_eq!(parsed.aux.snaps[0].snap, "snap.parquet");
+        assert_eq!(parsed.aux.snaps[0].references_levels, vec![0]);
+        assert_eq!(
+            parsed.aux.unreadable,
+            vec![
+                UnreadableAuxDecl {
+                    schema: "hfx.aux.d8_raster.v1".to_string(),
+                    artifacts: BTreeMap::from([
+                        ("flow_acc".to_string(), "missing/v1-acc.tif".to_string()),
+                        ("flow_dir".to_string(), "missing/v1-dir.tif".to_string()),
+                    ]),
+                    metadata: json!({
+                        "flow_dir_encoding": "esri",
+                        "producer": "legacy-v1"
+                    }),
+                },
+                UnreadableAuxDecl {
+                    schema: "hfx.aux.d8_raster.v3".to_string(),
+                    artifacts: BTreeMap::from([
+                        ("flow_acc".to_string(), "missing/v3-acc.tif".to_string()),
+                        ("flow_dir".to_string(), "missing/v3-dir.tif".to_string()),
+                    ]),
+                    metadata: json!({"purpose": "future-d8"}),
+                },
+                UnreadableAuxDecl {
+                    schema: "hfx.aux.d8_raster.v1".to_string(),
+                    artifacts: BTreeMap::from([
+                        (
+                            "flow_acc".to_string(),
+                            "missing/duplicate-v1-acc.tif".to_string(),
+                        ),
+                        (
+                            "flow_dir".to_string(),
+                            "missing/duplicate-v1-dir.tif".to_string(),
+                        ),
+                    ]),
+                    metadata: json!({
+                        "flow_dir_encoding": "grass",
+                        "producer": "duplicate-v1"
+                    }),
+                },
+            ]
+        );
     }
 
     #[test]

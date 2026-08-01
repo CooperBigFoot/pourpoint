@@ -31,6 +31,29 @@ def read_parquet_table(path):
         return pq.read_table(fh)
 
 
+class TestUnreadableAuxiliaryDeclarations:
+    def test_unreadable_auxiliary_declarations_are_retained_through_installed_wheel(
+        self, hfx_dataset_with_unreadable_auxiliary
+    ):
+        engine = pourpoint.Engine(hfx_dataset_with_unreadable_auxiliary, refine=False)
+        result = engine.delineate(lat=0.20, lon=1.70)
+
+        expected = [
+            "hfx.aux.d8_raster.v1",
+            "hfx.aux.d8_raster.v3",
+            "hfx.aux.d8_raster.v1",
+        ]
+        assert result.area_km2 > 0
+        assert result.terminal_unit_id > 0
+        assert engine.unreadable_auxiliary_schemas == expected
+
+        returned = engine.unreadable_auxiliary_schemas
+        returned.append("sentinel")
+        assert engine.unreadable_auxiliary_schemas == expected
+        with pytest.raises(AttributeError):
+            engine.unreadable_auxiliary_schemas = []
+
+
 class TestSingleDelineation:
     """Tests for engine.delineate()."""
 
