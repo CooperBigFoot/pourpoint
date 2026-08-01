@@ -4,7 +4,7 @@
 //! by production. Stable claim IDs are correspondence keys for independent
 //! shipped-path evidence.
 
-use hfx::{Crs, FormatVersion};
+use hfx::{Crs, FlowDirEncoding, FormatVersion};
 
 /// Stable correspondence key for a reader support claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -33,6 +33,8 @@ pub enum ReaderSupportValue {
     FormatVersion(FormatVersion),
     /// An implemented dataset-level coordinate reference system.
     DatasetCrs(Crs),
+    /// An implemented D8 flow-direction encoding.
+    FlowDirectionEncoding(FlowDirEncoding),
 }
 
 /// One exact on-disk declaration implemented by the reader.
@@ -87,6 +89,34 @@ pub const DATASET_CRS_EPSG_4326: ReaderSupportClaim = ReaderSupportClaim::new(
     ReaderSupportValue::DatasetCrs(Crs::Epsg4326),
 );
 
+/// Support claim for D8 `flow_dir_encoding = "esri"`.
+pub const FLOW_DIR_ENCODING_ESRI: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-flow-dir-encoding-esri"),
+    "esri",
+    ReaderSupportValue::FlowDirectionEncoding(FlowDirEncoding::Esri),
+);
+
+/// Support claim for D8 `flow_dir_encoding = "taudem"`.
+pub const FLOW_DIR_ENCODING_TAUDEM: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-flow-dir-encoding-taudem"),
+    "taudem",
+    ReaderSupportValue::FlowDirectionEncoding(FlowDirEncoding::Taudem),
+);
+
+/// Support claim for D8 `flow_dir_encoding = "grass"`.
+pub const FLOW_DIR_ENCODING_GRASS: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("core-flow-dir-encoding-grass"),
+    "grass",
+    ReaderSupportValue::FlowDirectionEncoding(FlowDirEncoding::Grass),
+);
+
+/// Implemented declarations for D8 flow-direction encoding.
+pub const FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS: &[ReaderSupportClaim] = &[
+    FLOW_DIR_ENCODING_ESRI,
+    FLOW_DIR_ENCODING_TAUDEM,
+    FLOW_DIR_ENCODING_GRASS,
+];
+
 /// Implemented declarations that govern admission of the HFX core manifest.
 pub const CORE_MANIFEST_SUPPORT_CLAIMS: &[ReaderSupportClaim] =
     &[FORMAT_VERSION_V0_3_0, DATASET_CRS_EPSG_4326];
@@ -99,6 +129,7 @@ pub fn claimed_format_version(declaration: &str) -> Option<FormatVersion> {
     match FORMAT_VERSION_V0_3_0.value() {
         ReaderSupportValue::FormatVersion(value) => Some(*value),
         ReaderSupportValue::DatasetCrs(_) => None,
+        ReaderSupportValue::FlowDirectionEncoding(_) => None,
     }
 }
 
@@ -110,5 +141,6 @@ pub fn claimed_dataset_crs(declaration: &str) -> Option<Crs> {
     match DATASET_CRS_EPSG_4326.value() {
         ReaderSupportValue::DatasetCrs(value) => Some(*value),
         ReaderSupportValue::FormatVersion(_) => None,
+        ReaderSupportValue::FlowDirectionEncoding(_) => None,
     }
 }
