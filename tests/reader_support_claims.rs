@@ -5,27 +5,26 @@ use assert_cmd::Command;
 use pourpoint_core::algo::projection::Crs;
 use pourpoint_core::algo::refine::RefinementError;
 use pourpoint_core::support_claims::{
-    CORE_MANIFEST_SUPPORT_CLAIMS, D8_METADATA_SUPPORT_CLAIMS, DATASET_CRS_EPSG_4326,
-    FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS, FORMAT_VERSION_V0_3_0, ReaderSupportValue,
-    d8_pair_is_compatible,
+    AUXILIARY_SCHEMA_SUPPORT_CLAIMS, CORE_MANIFEST_SUPPORT_CLAIMS, D8_METADATA_SUPPORT_CLAIMS,
+    DATASET_CRS_EPSG_4326, FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS, FORMAT_VERSION_V0_3_0,
+    ReaderSupportClaim, ReaderSupportValue, d8_pair_is_compatible,
 };
 use pourpoint_core::testutil::DatasetBuilder;
 use serde_json::{Value, json};
+use tempfile::TempDir;
 
 fn pourpoint() -> Command {
     Command::cargo_bin("pourpoint").unwrap()
 }
 
-fn invoke_delineate(root: &Path) -> (bool, Value) {
+fn invoke_delineate(root: &Path, lat: &str, lon: &str) -> (bool, Value) {
     let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
             root.to_str().unwrap(),
-            "--lat",
-            "0.20",
-            "--lon",
-            "1.70",
+            &format!("--lat={lat}"),
+            &format!("--lon={lon}"),
             "--no-refine",
             "--json",
         ])
@@ -227,6 +226,45 @@ fn invoke_successful_refinement(
     json
 }
 
+fn auxiliary_schema_support_claims() -> &'static [ReaderSupportClaim] {
+    AUXILIARY_SCHEMA_SUPPORT_CLAIMS
+}
+
+fn replace_manifest_auxiliary(root: &Path, auxiliary: Value) {
+    let path = root.join("manifest.json");
+    let bytes = std::fs::read(&path).expect("fixture manifest should be readable");
+    let mut manifest: Value =
+        serde_json::from_slice(&bytes).expect("fixture manifest should be valid JSON");
+    manifest["auxiliary"] = auxiliary;
+    std::fs::write(
+        path,
+        serde_json::to_vec(&manifest).expect("edited manifest should serialize"),
+    )
+    .expect("edited fixture manifest should be writable");
+}
+
+fn copy_tracked_fixture(source: &Path) -> (TempDir, PathBuf) {
+    fn copy_directory(source: &Path, destination: &Path) {
+        std::fs::create_dir_all(destination).expect("fixture directory should be created");
+        for entry in std::fs::read_dir(source).expect("fixture directory should be readable") {
+            let entry = entry.expect("fixture entry should be readable");
+            let source_path = entry.path();
+            let destination_path = destination.join(entry.file_name());
+            if source_path.is_dir() {
+                copy_directory(&source_path, &destination_path);
+            } else {
+                std::fs::copy(&source_path, &destination_path)
+                    .expect("fixture file should be copied byte-for-byte");
+            }
+        }
+    }
+
+    let directory = TempDir::new().expect("temporary fixture directory should be created");
+    let root = directory.path().join("dataset");
+    copy_directory(source, &root);
+    (directory, root)
+}
+
 fn replace_manifest_field(root: &Path, field: &str, replacement: &str) {
     let path = root.join("manifest.json");
     let bytes = std::fs::read(&path).expect("fixture manifest should be readable");
@@ -265,6 +303,40 @@ fn core_manifest_inventory_is_typed() {
 }
 
 #[test]
+fn auxiliary_schema_inventory_is_typed() {
+    assert_eq!(AUXILIARY_SCHEMA_SUPPORT_CLAIMS.len(), 4);
+
+    let expected = [
+        (
+            "aux-schema-d8-raster-v2",
+            "hfx.aux.d8_raster.v2",
+            ReaderSupportValue::AuxiliarySchemaD8RasterV2,
+        ),
+        (
+            "aux-schema-snap-v2",
+            "hfx.aux.snap.v2",
+            ReaderSupportValue::AuxiliarySchemaSnapV2,
+        ),
+        (
+            "aux-schema-generic",
+            "hfx.x.experimental.v1",
+            ReaderSupportValue::AuxiliarySchemaGeneric,
+        ),
+        (
+            "aux-schema-d8-raster-v1-unsupported",
+            "hfx.aux.d8_raster.v1",
+            ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported,
+        ),
+    ];
+
+    for (claim, (id, declaration, value)) in AUXILIARY_SCHEMA_SUPPORT_CLAIMS.iter().zip(expected) {
+        assert_eq!(claim.id().as_str(), id);
+        assert_eq!(claim.canonical_declaration(), declaration);
+        assert_eq!(claim.value(), &value);
+    }
+}
+
+#[test]
 fn format_version_claim_has_shipped_cli_evidence() {
     assert_eq!(
         FORMAT_VERSION_V0_3_0.id().as_str(),
@@ -272,12 +344,12 @@ fn format_version_claim_has_shipped_cli_evidence() {
     );
     let (_directory, root) = DatasetBuilder::new(3).build();
 
-    let (succeeded, json) = invoke_delineate(&root);
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
     assert!(succeeded, "claimed format version should succeed: {json}");
     assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
 
     replace_manifest_field(&root, "format_version", "0.2.1");
-    let (succeeded, json) = invoke_delineate(&root);
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
     assert!(!succeeded, "unsupported format version should fail");
     assert_eq!(
         json["error"],
@@ -293,12 +365,12 @@ fn dataset_crs_claim_has_shipped_cli_evidence() {
     );
     let (_directory, root) = DatasetBuilder::new(3).build();
 
-    let (succeeded, json) = invoke_delineate(&root);
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
     assert!(succeeded, "claimed dataset CRS should succeed: {json}");
     assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
 
     replace_manifest_field(&root, "crs", "EPSG:3857");
-    let (succeeded, json) = invoke_delineate(&root);
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
     assert!(!succeeded, "unsupported dataset CRS should fail");
     assert_eq!(
         json["error"],
@@ -556,4 +628,149 @@ fn projected_d8_claims_have_shipped_cli_evidence() {
         "claimed projected/km2 declaration must refine through the shipped CLI"
     );
     assert_eq!(refined["successes"][0]["terminal_unit_id"], 4);
+}
+
+#[test]
+fn auxiliary_schema_claims_have_shipped_cli_evidence() {
+    let mut calls_completed = 0;
+
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/core/tests/fixtures/parity/v021_synthetic_refined");
+    let (_directory, root) = copy_tracked_fixture(&fixture);
+    let (succeeded, json) = invoke_delineate(&root, "-2.5", "2.5");
+    calls_completed += 1;
+    assert!(succeeded, "tracked D8-v2 fixture should succeed: {json}");
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
+    assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
+
+    let (_directory, root) = DatasetBuilder::new(3).with_snap().build();
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(succeeded, "snap-v2 fixture should succeed: {json}");
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
+    assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
+
+    let (_directory, root) = DatasetBuilder::new(3).build();
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "hfx.x.experimental.v1",
+            "artifacts": { "x": "graph.parquet" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(
+        succeeded,
+        "present provisional artifact should succeed: {json}"
+    );
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
+    assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
+
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "hfx.x.experimental.v1",
+            "artifacts": { "x": "missing.bin" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(!succeeded, "missing provisional artifact should fail");
+    assert_eq!(
+        json["error"],
+        format!(
+            "failed to open HFX dataset session: auxiliary artifact \"x\" for schema \"hfx.x.experimental.v1\" not found at {}",
+            root.join("missing.bin").display()
+        )
+    );
+
+    let (_directory, root) = DatasetBuilder::new(3).build();
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "com.example.thing.v1",
+            "artifacts": { "x": "graph.parquet" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(
+        succeeded,
+        "present third-party artifact should succeed: {json}"
+    );
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
+    assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
+
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "com.example.thing.v1",
+            "artifacts": { "x": "missing.bin" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(!succeeded, "missing third-party artifact should fail");
+    assert_eq!(
+        json["error"],
+        format!(
+            "failed to open HFX dataset session: auxiliary artifact \"x\" for schema \"com.example.thing.v1\" not found at {}",
+            root.join("missing.bin").display()
+        )
+    );
+
+    let (_directory, root) = DatasetBuilder::new(3).build();
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": { "x": "missing.bin" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(!succeeded, "D8-v1 declaration should fail");
+    assert_eq!(
+        json["error"],
+        "failed to open HFX dataset session: auxiliary schema \"hfx.aux.d8_raster.v1\" is no longer supported; recompile the dataset with a v2-emitting adapter that declares \"hfx.aux.d8_raster.v2\""
+    );
+
+    let (_directory, root) = DatasetBuilder::new(3).build();
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "hfx.aux.bogus.v9",
+            "artifacts": { "x": "graph.parquet" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(!succeeded, "unblessed HFX declaration should fail");
+    assert_eq!(
+        json["error"],
+        "failed to open HFX dataset session: auxiliary declaration for schema \"hfx.aux.bogus.v9\" is invalid: malformed auxiliary schema id: \"hfx.aux.bogus.v9\""
+    );
+
+    assert_eq!(calls_completed, 8, "all shipped CLI calls must complete");
+    assert_eq!(
+        auxiliary_schema_support_claims().len(),
+        4,
+        "auxiliary-schema inventory must contain exactly four rows"
+    );
+    assert_eq!(
+        auxiliary_schema_support_claims()[2].canonical_declaration(),
+        "hfx.x.experimental.v1",
+        "the generic claim representative must correspond to shipped evidence"
+    );
 }

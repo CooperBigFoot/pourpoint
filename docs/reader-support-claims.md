@@ -149,3 +149,66 @@ is:
 Topology parsing validates the HFX domain, but the accepted values do not select
 different reader behavior, decode, or traversal. It therefore has no claim row
 or CLI topology witness in this step.
+
+## Auxiliary-schema classification inventory
+
+Auxiliary classification has its own four-row inventory and does not enlarge
+the bounded two-row core-manifest inventory:
+
+| Claim ID | Canonical declaration | Typed value | Caller-visible outcome |
+|---|---|---|---|
+| `aux-schema-d8-raster-v2` | `hfx.aux.d8_raster.v2` | `AuxiliarySchemaD8RasterV2` | Parse blessed D8 metadata. |
+| `aux-schema-snap-v2` | `hfx.aux.snap.v2` | `AuxiliarySchemaSnapV2` | Parse blessed snap metadata. |
+| `aux-schema-generic` | `hfx.x.experimental.v1` | `AuxiliarySchemaGeneric` | Retain a generic raw handle and presence-check its artifacts. |
+| `aux-schema-d8-raster-v1-unsupported` | `hfx.aux.d8_raster.v1` | `AuxiliarySchemaD8RasterV1Unsupported` | Return the named de-blessing error. |
+
+`parse_auxiliary` first compares the raw declaration with the D8-v1 claim, so
+that named outcome precedes both HFX schema parsing and artifact presence
+validation. All other declarations are parsed as `hfx::AuxiliarySchemaId` and
+looked up in the neutral crate-root catalog. Blessed D8-v2 and snap-v2 IDs route
+through their typed values and must still equal their claims' declarations
+before metadata parsing. Provisional and third-party IDs route through the
+generic typed value. A core-only or D8-v1 typed value on that post-parse path is
+an error rather than a default classification.
+
+The generic row is unbounded classification represented by the literal
+provisional declaration `hfx.x.experimental.v1`. The independent
+`com.example.thing.v1` fixture proves that a third-party declaration reaches
+the same arm. For each representative, `graph.parquet` proves the present path
+and `missing.bin` proves the exact missing-artifact diagnostic.
+
+## Auxiliary shipped evidence and mutation limits
+
+The permanent shipped-path evidence is run with:
+
+```console
+cargo test -p pourpoint --test reader_support_claims auxiliary_schema_claims_have_shipped_cli_evidence -- --exact --nocapture
+cargo test -p pourpoint --test reader_support_claims
+```
+
+It invokes the compiled `pourpoint` binary eight times: an unmodified tracked
+D8-v2 fixture, a builder-created snap-v2 fixture, present and missing
+provisional artifacts, present and missing third-party artifacts, D8-v1 with a
+missing artifact, and another unblessed HFX-owned declaration. The separate
+`auxiliary_schema_inventory_is_typed` test fixes the inventory count, order,
+IDs, declarations, and typed variants.
+
+Canonical-declaration mutations made D8-v2 and snap-v2 fail at their distinct
+metadata-shaped fixtures, made the generic representative fail its independent
+declaration-correspondence assertion after both generic paths ran, and made
+D8-v1 fall through to the malformed-HFX-schema diagnostic. Swapping the D8 and
+snap declarations failed both fixture halves. Typed-value mutations showed the
+evidence boundary: changing D8-v2 or snap-v2 to generic left shipped CLI
+outcomes green but failed typed inventory evidence; changing generic to D8-v2
+failed both shipped and inventory evidence. The D8-v1 typed variant is inert on
+the shipped path because its raw declaration guard returns before parsing; its
+typed mutation therefore left shipped evidence green and failed inventory
+evidence. All mutations were restored.
+
+This step does not claim flow-direction encoding support, D8 CRS or
+`flow_acc_units` compatibility, the coupled EPSG/units refinement branch, or a
+global claim-to-evidence enforcement mechanism.
+
+If unreadable-declaration retention is integrated later, the caller-visible
+D8-v1 outcome is expected to change. Its claim row and shipped evidence must be
+changed together at that time.
