@@ -1,0 +1,55 @@
+{
+  "stated": {
+    "gates": {
+      "format": "cargo fmt --check",
+      "lint": "cargo clippy --workspace -- -D warnings",
+      "typecheck": "cargo check --workspace --all-targets",
+      "test": "cargo test --workspace --exclude pourpoint-python",
+      "build": "cargo build --workspace --exclude pourpoint-python"
+    },
+    "version_policy": "NONE",
+    "branches": {
+      "default": "main",
+      "milestone": "pce/{vision}/milestone-{milestone}",
+      "step": "pce/{vision}/m{milestone}-s{step}"
+    },
+    "pull_requests": {
+      "step_base": "MILESTONE",
+      "milestone_base": "DEFAULT",
+      "merge_method": "SQUASH"
+    },
+    "workflows": [
+      {
+        "workflow": "ci.yml",
+        "stand_in": {
+          "kind": "COMMAND",
+          "command": "cargo fmt --check && cargo clippy --workspace -- -D warnings && cargo test --workspace --exclude pourpoint-python && cargo check -p pourpoint-python"
+        }
+      },
+      {
+        "workflow": "build-wheels.yaml",
+        "stand_in": {
+          "kind": "COMMAND",
+          "command": "cd crates/python && maturin build --release --out dist"
+        }
+      },
+      {
+        "workflow": "docs.yml",
+        "stand_in": {
+          "kind": "COMMAND",
+          "command": "uv run --project crates/python --only-group docs mkdocs build --strict"
+        }
+      }
+    ]
+  },
+  "appendable": {
+    "environment_hazards": [
+      "GDAL must be installed and discoverable via gdal-config; crates/gdal and the wheel build fail without it.",
+      "cargo build --workspace fails at link time on macOS because pourpoint-python is a pyo3 cdylib that resolves CPython symbols only under maturin's extension-module configuration; the build and test gates exclude pourpoint-python for this reason."
+    ],
+    "gate_orderings": [
+      "The lint gate omits --all-targets deliberately. cargo clippy --workspace --all-targets is red on pre-existing test code (crates/core/tests/object_store_integration.rs, clippy::enum_variant_names) and CI does not lint test targets."
+    ],
+    "lockfile_rules": []
+  }
+}
