@@ -12,17 +12,15 @@ use std::path::Path;
 use std::str::FromStr;
 
 use hfx::{
-    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, Crs, D8RasterMetadataV2,
-    FormatVersion, Manifest, ManifestBuilder, Topology, UnitCount,
+    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, D8RasterMetadataV2, Manifest,
+    ManifestBuilder, Topology, UnitCount,
 };
 use tracing::instrument;
 
 use crate::error::SessionError;
-
-/// The only HFX on-disk format version this engine reads.
-const SUPPORTED_FORMAT_VERSION: &str = "0.3.0";
-/// The only CRS this engine reads.
-const SUPPORTED_CRS: &str = "EPSG:4326";
+use crate::support_claims::{
+    DATASET_CRS_EPSG_4326, FORMAT_VERSION_V0_3_0, claimed_dataset_crs, claimed_format_version,
+};
 
 /// Parsed metadata for a blessed `hfx.aux.d8_raster.v2` declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,13 +154,12 @@ fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
         .ok_or(SessionError::ManifestFieldMissing {
             field: "format_version",
         })?;
-    if format_version_str != SUPPORTED_FORMAT_VERSION {
-        return Err(SessionError::UnsupportedFormatVersion {
+    let format_version = claimed_format_version(&format_version_str).ok_or_else(|| {
+        SessionError::UnsupportedFormatVersion {
             found: format_version_str,
-            expected: SUPPORTED_FORMAT_VERSION,
-        });
-    }
-    let format_version = FormatVersion::V0_3_0;
+            expected: FORMAT_VERSION_V0_3_0.canonical_declaration(),
+        }
+    })?;
 
     let fabric_name = raw.fabric_name.ok_or(SessionError::ManifestFieldMissing {
         field: "fabric_name",
@@ -171,13 +168,10 @@ fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
     let crs_str = raw
         .crs
         .ok_or(SessionError::ManifestFieldMissing { field: "crs" })?;
-    if crs_str != SUPPORTED_CRS {
-        return Err(SessionError::UnsupportedCrs {
-            found: crs_str,
-            expected: SUPPORTED_CRS,
-        });
-    }
-    let crs = Crs::Epsg4326;
+    let crs = claimed_dataset_crs(&crs_str).ok_or_else(|| SessionError::UnsupportedCrs {
+        found: crs_str,
+        expected: DATASET_CRS_EPSG_4326.canonical_declaration(),
+    })?;
 
     let topology_str = raw
         .topology
