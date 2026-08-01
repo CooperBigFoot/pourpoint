@@ -121,3 +121,45 @@ That rule is unchanged and still governs by default; this release is a recorded
 exception to it, not a revision of it. Any future agent reading this file must
 treat tag creation, Release publication, and PyPI publication as human-only
 unless it holds the same explicit, per-release instruction.
+
+## pourpoint 0.2.x publication decision and 0.3.0 successor mechanism
+
+The prior premise was that pourpoint 0.2.0 and 0.2.1 had an empty installed
+base and could be yanked. BigQuery measurements from
+`bigquery-public-data.pypi.file_downloads`, covering downloads since 2026-07-24
+(the 0.2.0 fire date) and measured on 2026-08-01, falsified that premise. The
+installer-attributed measurements were:
+
+- pourpoint 0.2.0: 37 installer-attributed downloads (pip 35, uv 2).
+- pourpoint 0.2.1: 36 installer-attributed downloads (pip 34, uv 2).
+
+The raw counts were 639 for 0.2.0 and 658 for 0.2.1. They are mostly
+bandersnatch, Browser, and unattributed traffic, so raw traffic is not a
+measure of installed base.
+
+**Decision: DO NOT YANK.** pourpoint 0.2.0 and 0.2.1 remain published on PyPI by deliberate decision.
+
+The repository owner made that explicit keep-published decision after being
+shown these measurements. These releases remain published on purpose rather
+than by oversight.
+
+For pourpoint 0.3.0, `grit/hfx-v0.3.0` is the frozen source prefix, and its
+manifest carries no `hfx.aux.d8_raster.v2` entry. The existing record in
+`CONTEXT.md` names only a generic “successor prefix”; under that explicit
+decision by the repository owner, this release record fixes and establishes
+`grit/hfx-v0.3.1` as the successor-prefix name. That named successor prefix is
+created by a server-side copy of frozen `grit/hfx-v0.3.0`, and the copy carries
+the staged `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif` rasters. The
+successor manifest is where the D8 entry will be declared. “Unchanged” means its
+schema version remains `hfx.aux.d8_raster.v2` rather than being bumped; it does
+not mean that the declaration is inherited from the frozen prefix.
+
+**SERVER-SIDE COPY: UNFIRED. LIVE CARVE: UNFIRED.**
+
+Neither action has been performed.
+
+Because pourpoint 0.2.0 and 0.2.1 remain published, released 0.2.x remains a
+straggler for a declared-`grass` D8 entry: the frozen-prefix discipline shields
+a reader that stays on `grit/hfx-v0.3.0`, but nothing it provides protects a
+0.2.x reader that follows `grit/hfx-v0.3.1`, so the successor declaration and
+its publication timing must be chosen with that unprotected reader in mind.
