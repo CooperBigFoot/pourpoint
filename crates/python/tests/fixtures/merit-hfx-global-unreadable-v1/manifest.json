@@ -1,0 +1,693 @@
+{
+  "adapter_version": "0.2.0",
+  "auxiliary": [
+    {
+      "artifacts": {
+        "snap": "snap.parquet"
+      },
+      "metadata": {
+        "description": "MERIT-Basins reach centerlines for Pfaf-L2 basin snapping. weight = uparea (km^2). stem_role derived by largest-uparea descent at each confluence.",
+        "name": "stems",
+        "references_levels": [
+          0
+        ],
+        "weight_semantics": "drainage_area_km2"
+      },
+      "schema": "hfx.aux.snap.v2"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_11/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_11/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-11"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_12/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_12/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-12"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_13/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_13/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-13"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_14/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_14/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-14"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_15/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_15/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-15"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_16/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_16/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-16"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_17/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_17/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-17"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_18/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_18/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-18"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_21/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_21/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-21"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_22/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_22/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-22"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_23/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_23/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-23"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_24/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_24/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-24"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_25/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_25/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-25"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_26/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_26/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-26"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_27/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_27/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-27"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_28/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_28/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-28"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_29/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_29/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-29"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_31/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_31/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-31"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_32/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_32/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-32"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_33/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_33/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-33"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_34/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_34/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-34"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_36/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_36/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-36"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_41/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_41/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-41"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_42/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_42/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-42"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_43/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_43/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-43"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_44/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_44/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-44"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_45/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_45/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-45"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_46/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_46/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-46"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_47/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_47/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-47"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_48/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_48/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-48"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_49/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_49/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-49"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_51/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_51/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-51"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_52/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_52/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-52"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_53/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_53/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-53"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_54/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_54/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-54"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_55/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_55/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-55"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_56/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_56/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-56"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_57/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_57/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-57"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_61/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_61/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-61"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_62/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_62/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-62"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_63/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_63/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-63"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_64/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_64/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-64"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_65/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_65/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-65"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_66/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_66/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-66"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_67/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_67/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-67"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_71/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_71/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-71"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_72/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_72/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-72"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_73/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_73/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-73"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_74/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_74/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-74"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_75/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_75/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-75"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_76/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_76/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-76"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_77/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_77/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-77"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_78/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_78/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-78"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_81/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_81/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-81"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_82/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_82/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-82"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_83/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_83/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-83"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_84/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_84/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-84"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_85/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_85/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-85"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_86/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_86/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-86"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    },
+    {
+      "artifacts": {
+        "flow_acc": "aux/d8/pfaf_91/flow_acc.tif",
+        "flow_dir": "aux/d8/pfaf_91/flow_dir.tif"
+      },
+      "metadata": {
+        "flow_dir_encoding": "esri",
+        "name": "pfaf-91"
+      },
+      "schema": "hfx.aux.d8_raster.v1"
+    }
+  ],
+  "bbox": [
+    8.399582862854004,
+    46.79708480834961,
+    9.43375015258789,
+    47.432918548583984
+  ],
+  "created_at": "2026-07-16T00:41:46.929475+00:00",
+  "crs": "EPSG:4326",
+  "fabric_name": "merit_basins",
+  "fabric_version": "v0.7_bugfix1",
+  "format_version": "0.3.0",
+  "has_up_area": true,
+  "topology": "tree",
+  "unit_count": 43
+}
