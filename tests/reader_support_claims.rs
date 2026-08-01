@@ -2,9 +2,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use pourpoint_core::algo::projection::Crs;
+use pourpoint_core::algo::refine::RefinementError;
 use pourpoint_core::support_claims::{
-    CORE_MANIFEST_SUPPORT_CLAIMS, DATASET_CRS_EPSG_4326, FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS,
-    FORMAT_VERSION_V0_3_0, ReaderSupportValue,
+    CORE_MANIFEST_SUPPORT_CLAIMS, D8_METADATA_SUPPORT_CLAIMS, DATASET_CRS_EPSG_4326,
+    FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS, FORMAT_VERSION_V0_3_0, ReaderSupportValue,
+    d8_pair_is_compatible,
 };
 use pourpoint_core::testutil::DatasetBuilder;
 use serde_json::{Value, json};
@@ -34,7 +37,7 @@ fn invoke_delineate(root: &Path) -> (bool, Value) {
     (output.status.success(), json)
 }
 
-fn invoke_refined_delineate(root: &Path) -> Value {
+fn invoke_flow_encoding_refined_delineate(root: &Path) -> Value {
     let output = pourpoint()
         .args([
             "delineate",
@@ -140,7 +143,7 @@ fn assert_encoding_outcome(
     expected_ring_vertex_counts: Value,
 ) {
     let (_directory, root) = fixture_copy_with_flow_direction_encoding(declaration);
-    let output = invoke_refined_delineate(&root);
+    let output = invoke_flow_encoding_refined_delineate(&root);
     let features = output["features"]
         .as_array()
         .expect("CLI output should contain a feature array");
@@ -173,6 +176,55 @@ fn assert_encoding_outcome(
             .collect(),
     );
     assert_eq!(ring_vertex_counts, expected_ring_vertex_counts);
+}
+
+fn invoke_refined_delineate(root: &Path, lon: &str, lat: &str) -> Value {
+    invoke_successful_refinement(root, lon, lat, RefinementInvocation::Enabled)
+}
+
+fn invoke_unrefined_delineate(root: &Path, lon: &str, lat: &str) -> Value {
+    invoke_successful_refinement(root, lon, lat, RefinementInvocation::Disabled)
+}
+
+enum RefinementInvocation {
+    Enabled,
+    Disabled,
+}
+
+fn invoke_successful_refinement(
+    root: &Path,
+    lon: &str,
+    lat: &str,
+    refinement: RefinementInvocation,
+) -> Value {
+    let mut command = pourpoint();
+    command.args([
+        "delineate",
+        "--dataset",
+        root.to_str().expect("fixture path should be UTF-8"),
+        lon,
+        lat,
+        "--snap-threshold=500",
+        "--json",
+    ]);
+    if matches!(refinement, RefinementInvocation::Disabled) {
+        command.arg("--no-refine");
+    }
+    let output = command
+        .output()
+        .expect("failed to execute the shipped pourpoint binary");
+    let stdout = String::from_utf8(output.stdout).expect("CLI stdout should be UTF-8");
+    let stderr = String::from_utf8(output.stderr).expect("CLI stderr should be UTF-8");
+    assert!(
+        output.status.success(),
+        "shipped CLI failed: status={}\nstderr={stderr}\nstdout={stdout}",
+        output.status
+    );
+    let json: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("CLI stdout should be JSON: {error}\nstdout={stdout}"));
+    assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["failures"].as_array().map(Vec::len), Some(0));
+    json
 }
 
 fn replace_manifest_field(root: &Path, field: &str, replacement: &str) {
@@ -273,6 +325,174 @@ fn grass_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence()
 }
 
 #[test]
+fn d8_metadata_inventory_is_typed() {
+    assert_eq!(D8_METADATA_SUPPORT_CLAIMS.len(), 4);
+
+    let crs_4326 = &D8_METADATA_SUPPORT_CLAIMS[0];
+    assert_eq!(crs_4326.id().as_str(), "core-d8-crs-epsg-4326");
+    assert_eq!(crs_4326.canonical_declaration(), "EPSG:4326");
+    assert!(matches!(
+        crs_4326.value(),
+        ReaderSupportValue::D8Crs(Crs::Epsg4326)
+    ));
+
+    let crs_8857 = &D8_METADATA_SUPPORT_CLAIMS[1];
+    assert_eq!(crs_8857.id().as_str(), "core-d8-crs-epsg-8857");
+    assert_eq!(crs_8857.canonical_declaration(), "EPSG:8857");
+    assert!(matches!(
+        crs_8857.value(),
+        ReaderSupportValue::D8Crs(Crs::Epsg8857)
+    ));
+
+    let cells = &D8_METADATA_SUPPORT_CLAIMS[2];
+    assert_eq!(cells.id().as_str(), "core-d8-flow-acc-units-cells");
+    assert_eq!(cells.canonical_declaration(), "cells");
+    assert!(matches!(
+        cells.value(),
+        ReaderSupportValue::D8FlowAccumulationUnits(hfx::FlowAccumulationUnits::Cells)
+    ));
+
+    let km2 = &D8_METADATA_SUPPORT_CLAIMS[3];
+    assert_eq!(km2.id().as_str(), "core-d8-flow-acc-units-km2");
+    assert_eq!(km2.canonical_declaration(), "km2");
+    assert!(matches!(
+        km2.value(),
+        ReaderSupportValue::D8FlowAccumulationUnits(hfx::FlowAccumulationUnits::Km2)
+    ));
+
+    assert!(d8_pair_is_compatible("EPSG:4326", "cells"));
+    assert!(!d8_pair_is_compatible("EPSG:4326", "km2"));
+    assert!(d8_pair_is_compatible("EPSG:8857", "cells"));
+    assert!(d8_pair_is_compatible("EPSG:8857", "km2"));
+    assert!(!d8_pair_is_compatible("epsg:4326", "cells"));
+    assert!(!d8_pair_is_compatible("EPSG:8857", "KM2"));
+}
+
+#[test]
+fn geographic_d8_claims_have_shipped_cli_evidence() {
+    let source = Path::new("crates/core/tests/fixtures/parity/v021_synthetic_refined");
+    let source_refined = invoke_refined_delineate(source, "--lon=2.5", "--lat=-2.5");
+    let source_unrefined = invoke_unrefined_delineate(source, "--lon=2.5", "--lat=-2.5");
+    assert_ne!(
+        source_refined, source_unrefined,
+        "claimed geographic/cells declaration must refine through the shipped CLI"
+    );
+
+    assert_eq!(
+        D8_METADATA_SUPPORT_CLAIMS[0].id().as_str(),
+        "core-d8-crs-epsg-4326"
+    );
+    assert_eq!(
+        D8_METADATA_SUPPORT_CLAIMS[2].id().as_str(),
+        "core-d8-flow-acc-units-cells"
+    );
+    assert_eq!(
+        D8_METADATA_SUPPORT_CLAIMS[3].id().as_str(),
+        "core-d8-flow-acc-units-km2"
+    );
+
+    let directory = tempfile::tempdir().expect("temporary fixture directory should be created");
+    let copied = directory.path();
+    for name in [
+        "manifest.json",
+        "catchments.parquet",
+        "graph.parquet",
+        "flow_dir.tif",
+        "flow_acc.tif",
+    ] {
+        std::fs::copy(source.join(name), copied.join(name))
+            .unwrap_or_else(|error| panic!("fixture file {name} should copy: {error}"));
+    }
+
+    let source_flow_dir = std::fs::read(source.join("flow_dir.tif")).expect("source flow_dir");
+    let source_flow_acc = std::fs::read(source.join("flow_acc.tif")).expect("source flow_acc");
+    assert_eq!(
+        std::fs::read(copied.join("flow_dir.tif")).expect("copied flow_dir"),
+        source_flow_dir
+    );
+    assert_eq!(
+        std::fs::read(copied.join("flow_acc.tif")).expect("copied flow_acc"),
+        source_flow_acc
+    );
+
+    let source_manifest: Value = serde_json::from_slice(
+        &std::fs::read(source.join("manifest.json")).expect("source manifest should be readable"),
+    )
+    .expect("source manifest should be valid JSON");
+    let copied_manifest_path = copied.join("manifest.json");
+    let copied_manifest: Value = serde_json::from_slice(
+        &std::fs::read(&copied_manifest_path).expect("copied manifest should be readable"),
+    )
+    .expect("copied manifest should be valid JSON");
+    assert_eq!(
+        copied_manifest.pointer("/auxiliary/0/metadata/flow_acc_units"),
+        Some(&Value::String("cells".to_owned()))
+    );
+    std::fs::write(
+        &copied_manifest_path,
+        serde_json::to_vec(&copied_manifest).expect("copied manifest should serialize"),
+    )
+    .expect("copied manifest should be writable");
+    let round_tripped: Value = serde_json::from_slice(
+        &std::fs::read(&copied_manifest_path).expect("round-tripped manifest should be readable"),
+    )
+    .expect("round-tripped manifest should be valid JSON");
+    assert_eq!(round_tripped, source_manifest);
+
+    let copied_cells_refined = invoke_refined_delineate(copied, "--lon=2.5", "--lat=-2.5");
+    let copied_cells_unrefined = invoke_unrefined_delineate(copied, "--lon=2.5", "--lat=-2.5");
+    assert_ne!(
+        copied_cells_refined, copied_cells_unrefined,
+        "claimed geographic/cells declaration must refine through the shipped CLI"
+    );
+
+    let mut geographic_km2 = round_tripped;
+    *geographic_km2
+        .pointer_mut("/auxiliary/0/metadata/flow_acc_units")
+        .expect("flow_acc_units should exist") = Value::String("km2".to_owned());
+    std::fs::write(
+        &copied_manifest_path,
+        serde_json::to_vec(&geographic_km2).expect("edited manifest should serialize"),
+    )
+    .expect("edited manifest should be writable");
+    let reread_geographic_km2: Value = serde_json::from_slice(
+        &std::fs::read(&copied_manifest_path).expect("edited manifest should be readable"),
+    )
+    .expect("edited manifest should be valid JSON");
+    let mut expected = source_manifest;
+    *expected
+        .pointer_mut("/auxiliary/0/metadata/flow_acc_units")
+        .expect("flow_acc_units should exist") = Value::String("km2".to_owned());
+    assert_eq!(reread_geographic_km2, expected);
+    assert_eq!(
+        reread_geographic_km2.pointer("/auxiliary/0/metadata/flow_acc_units"),
+        Some(&Value::String("km2".to_owned()))
+    );
+    assert_eq!(
+        std::fs::read(copied.join("flow_dir.tif")).expect("copied flow_dir after writes"),
+        source_flow_dir
+    );
+    assert_eq!(
+        std::fs::read(copied.join("flow_acc.tif")).expect("copied flow_acc after writes"),
+        source_flow_acc
+    );
+
+    let rejected = invoke_refined_delineate(copied, "--lon=2.5", "--lat=-2.5");
+    assert_eq!(
+        rejected, copied_cells_unrefined,
+        "rejected geographic/km2 pair must match the no-refine control"
+    );
+    let diagnostic = RefinementError::GeographicKm2Unsupported {
+        epsg: 4326,
+        units: hfx::FlowAccumulationUnits::Km2,
+    };
+    assert_eq!(
+        diagnostic.to_string(),
+        "flow accumulation units km2 require projected pixel area, but EPSG:4326 is geographic"
+    );
+}
+
+#[test]
 fn taudem_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence() {
     assert_reference_outcomes_are_pairwise_distinct();
     let claim = &FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS[1];
@@ -308,4 +528,32 @@ fn esri_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence() 
         36922.8059387193,
         json!([25]),
     );
+}
+
+#[test]
+fn projected_d8_claims_have_shipped_cli_evidence() {
+    let source = Path::new("crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass");
+    assert_eq!(
+        D8_METADATA_SUPPORT_CLAIMS[1].id().as_str(),
+        "core-d8-crs-epsg-8857"
+    );
+    assert_eq!(
+        D8_METADATA_SUPPORT_CLAIMS[3].id().as_str(),
+        "core-d8-flow-acc-units-km2"
+    );
+    let refined = invoke_refined_delineate(
+        source,
+        "--lon=0.9833333333333333",
+        "--lat=0.4166666666666667",
+    );
+    let unrefined = invoke_unrefined_delineate(
+        source,
+        "--lon=0.9833333333333333",
+        "--lat=0.4166666666666667",
+    );
+    assert_ne!(
+        refined, unrefined,
+        "claimed projected/km2 declaration must refine through the shipped CLI"
+    );
+    assert_eq!(refined["successes"][0]["terminal_unit_id"], 4);
 }

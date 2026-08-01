@@ -67,6 +67,60 @@ behavior. Separate in-process assertions witness the IDs, canonical
 declarations, and typed HFX values. CLI behavior alone does not detect a
 typed-value-only catalog mutation.
 
+## D8 metadata inventory and compatibility
+
+D8 raster metadata has a separate bounded inventory in the same neutral
+vocabulary. It contains exactly these four rows, in order:
+
+| Claim ID | Canonical declaration | Typed value |
+|---|---|---|
+| `core-d8-crs-epsg-4326` | `EPSG:4326` | `algo::projection::Crs::Epsg4326` |
+| `core-d8-crs-epsg-8857` | `EPSG:8857` | `algo::projection::Crs::Epsg8857` |
+| `core-d8-flow-acc-units-cells` | `cells` | `hfx::FlowAccumulationUnits::Cells` |
+| `core-d8-flow-acc-units-km2` | `km2` | `hfx::FlowAccumulationUnits::Km2` |
+
+The D8 CRS and accumulation-unit lookups compare the complete caller-supplied
+declaration byte for byte with these canonical declarations. They perform no
+case folding, normalization, wildcard matching, defaulting, or fallback. The
+declaration-string compatibility policy resolves both sides through those
+lookups and implements this matrix:
+
+| D8 CRS | `cells` | `km2` |
+|---|---:|---:|
+| `EPSG:4326` | compatible | incompatible |
+| `EPSG:8857` | compatible | compatible |
+
+An unclaimed declaration on either side is incompatible. `DatasetSession`
+continues to parse the numeric EPSG identifier locally so out-of-range and
+unsupported identifiers retain distinct errors. D8 CRS admission is delegated
+to the claim lookup, while the original, unnormalized declaration is retained
+unchanged in caller-visible errors.
+
+Terminal refinement reconstructs canonical lookup keys from its typed inputs
+and asks the neutral compatibility policy about the pair. The rejection branch
+and `GeographicKm2Unsupported` error remain in `refine_terminal` before tile
+alignment, masking, and snapping. Thus the EPSG:4326/km2 diagnostic remains
+`flow accumulation units km2 require projected pixel area, but EPSG:4326 is geographic`.
+The checked layering command requires every file under `crates/core/src/algo/`
+to import no `crate::reader` module; algorithm code may depend on the neutral
+`crate::support_claims` module.
+
+The shipped CLI evidence uses two accepted witnesses and one rejected pair.
+The tracked `v021_synthetic_refined` fixture proves EPSG:4326/cells refinement.
+Its rejection arm copies only its five tracked files to a temporary directory,
+round-trips the manifest as `serde_json::Value`, proves the copied cells case
+still refines, and then changes only the copied `flow_acc_units` declaration to
+`km2`. Assertions compare both copied raster byte streams with their tracked
+sources before and after the manifest writes. The projected EPSG:8857/km2
+witness uses `tiny-with-aux-d8-projected-grass` directly and unmodified.
+
+Normal-refinement versus `--no-refine` CLI comparisons discriminate the four
+canonical declarations and the compatibility rejection branch. The
+in-process inventory assertion separately catches typed-value corruption; the
+shipped comparisons are not evidence for typed-value identity or refinement
+provenance beyond those observables. Global claim-to-evidence build enforcement
+remains outside this step.
+
 ## Topology exclusion trace
 
 Topology is excluded under the bounded rule “declared values the reader branches
