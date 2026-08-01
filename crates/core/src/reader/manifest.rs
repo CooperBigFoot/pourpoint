@@ -12,14 +12,15 @@ use std::path::Path;
 use std::str::FromStr;
 
 use hfx::{
-    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, D8RasterMetadataV2, Manifest,
-    ManifestBuilder, Topology, UnitCount,
+    AuxiliaryDecl, AuxiliarySchemaId, BoundingBox, D8RasterMetadataV2, Manifest, ManifestBuilder,
+    Topology, UnitCount,
 };
 use tracing::instrument;
 
 use crate::error::SessionError;
 use crate::support_claims::{
-    DATASET_CRS_EPSG_4326, FORMAT_VERSION_V0_3_0, claimed_dataset_crs, claimed_format_version,
+    AUXILIARY_SCHEMA_D8_RASTER_V1_UNSUPPORTED, DATASET_CRS_EPSG_4326, FORMAT_VERSION_V0_3_0,
+    ReaderSupportValue, claimed_auxiliary_schema, claimed_dataset_crs, claimed_format_version,
 };
 
 /// Parsed metadata for a blessed `hfx.aux.d8_raster.v2` declaration.
@@ -279,7 +280,7 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
         reason: "auxiliary entry is missing required \"schema\" field".to_string(),
     })?;
 
-    if schema_str == "hfx.aux.d8_raster.v1" {
+    if schema_str == AUXILIARY_SCHEMA_D8_RASTER_V1_UNSUPPORTED.canonical_declaration() {
         return Err(SessionError::UnsupportedD8RasterV1);
     }
 
@@ -303,20 +304,54 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<(AuxiliaryDecl, ClassifiedAux), 
         }
     })?;
 
-    let classified = match &schema_id {
-        AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV2) => ClassifiedAux::D8(
-            parse_d8_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
-        ),
-        AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV2) => ClassifiedAux::Snap(
-            parse_snap_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
-        ),
-        AuxiliarySchemaId::Provisional(_) | AuxiliarySchemaId::ThirdParty(_) => {
+    let claim = claimed_auxiliary_schema(&schema_id);
+    let classified = match claim.value() {
+        ReaderSupportValue::AuxiliarySchemaD8RasterV2
+            if schema_str == claim.canonical_declaration() =>
+        {
+            ClassifiedAux::D8(parse_d8_metadata(
+                &schema_str,
+                &raw.artifacts,
+                &raw.metadata,
+            )?)
+        }
+        ReaderSupportValue::AuxiliarySchemaSnapV2
+            if schema_str == claim.canonical_declaration() =>
+        {
+            ClassifiedAux::Snap(parse_snap_metadata(
+                &schema_str,
+                &raw.artifacts,
+                &raw.metadata,
+            )?)
+        }
+        ReaderSupportValue::AuxiliarySchemaGeneric => {
             // Generic handle: raw path + metadata only, no semantic parsing.
             ClassifiedAux::Generic(GenericAuxDecl {
                 schema: schema_str,
                 artifacts: raw.artifacts,
                 metadata: raw.metadata,
             })
+        }
+        ReaderSupportValue::AuxiliarySchemaD8RasterV2
+        | ReaderSupportValue::AuxiliarySchemaSnapV2 => {
+            return Err(SessionError::AuxiliaryDeclParse {
+                schema: schema_str,
+                reason: format!(
+                    "parsed auxiliary schema does not match support claim {:?}",
+                    claim.canonical_declaration()
+                ),
+            });
+        }
+        ReaderSupportValue::FormatVersion(_)
+        | ReaderSupportValue::DatasetCrs(_)
+        | ReaderSupportValue::FlowDirectionEncoding(_)
+        | ReaderSupportValue::D8Crs(_)
+        | ReaderSupportValue::D8FlowAccumulationUnits(_)
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported => {
+            return Err(SessionError::AuxiliaryDeclParse {
+                schema: schema_str,
+                reason: "auxiliary schema resolved to a non-routable support claim".to_string(),
+            });
         }
     };
 

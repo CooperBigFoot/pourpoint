@@ -4,7 +4,9 @@
 //! by production. Stable claim IDs are correspondence keys for independent
 //! shipped-path evidence.
 
-use hfx::{Crs, FlowAccumulationUnits, FlowDirEncoding, FormatVersion};
+use hfx::{
+    AuxiliarySchemaId, BlessedAuxSchema, Crs, FlowAccumulationUnits, FlowDirEncoding, FormatVersion,
+};
 
 use crate::algo::projection::Crs as D8Crs;
 
@@ -41,6 +43,14 @@ pub enum ReaderSupportValue {
     D8Crs(D8Crs),
     /// Implemented D8 flow-accumulation units.
     D8FlowAccumulationUnits(FlowAccumulationUnits),
+    /// The blessed D8 raster v2 auxiliary schema.
+    AuxiliarySchemaD8RasterV2,
+    /// The blessed snap v2 auxiliary schema.
+    AuxiliarySchemaSnapV2,
+    /// A provisional or third-party generic auxiliary schema.
+    AuxiliarySchemaGeneric,
+    /// The named non-support outcome for the de-blessed D8 raster v1 schema.
+    AuxiliarySchemaD8RasterV1Unsupported,
 }
 
 /// One exact on-disk declaration implemented by the reader.
@@ -123,6 +133,42 @@ pub const FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS: &[ReaderSupportClaim] = &[
     FLOW_DIR_ENCODING_GRASS,
 ];
 
+/// Support claim for the blessed D8 raster v2 auxiliary schema.
+pub const AUXILIARY_SCHEMA_D8_RASTER_V2: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("aux-schema-d8-raster-v2"),
+    "hfx.aux.d8_raster.v2",
+    ReaderSupportValue::AuxiliarySchemaD8RasterV2,
+);
+
+/// Support claim for the blessed snap v2 auxiliary schema.
+pub const AUXILIARY_SCHEMA_SNAP_V2: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("aux-schema-snap-v2"),
+    "hfx.aux.snap.v2",
+    ReaderSupportValue::AuxiliarySchemaSnapV2,
+);
+
+/// Support claim for generic provisional and third-party auxiliary schemas.
+pub const AUXILIARY_SCHEMA_GENERIC: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("aux-schema-generic"),
+    "hfx.x.experimental.v1",
+    ReaderSupportValue::AuxiliarySchemaGeneric,
+);
+
+/// Named non-support claim for the de-blessed D8 raster v1 auxiliary schema.
+pub const AUXILIARY_SCHEMA_D8_RASTER_V1_UNSUPPORTED: ReaderSupportClaim = ReaderSupportClaim::new(
+    ReaderSupportClaimId::new("aux-schema-d8-raster-v1-unsupported"),
+    "hfx.aux.d8_raster.v1",
+    ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported,
+);
+
+/// Auxiliary-schema classifications implemented by the manifest reader.
+pub const AUXILIARY_SCHEMA_SUPPORT_CLAIMS: &[ReaderSupportClaim] = &[
+    AUXILIARY_SCHEMA_D8_RASTER_V2,
+    AUXILIARY_SCHEMA_SNAP_V2,
+    AUXILIARY_SCHEMA_GENERIC,
+    AUXILIARY_SCHEMA_D8_RASTER_V1_UNSUPPORTED,
+];
+
 /// Implemented declarations that govern admission of the HFX core manifest.
 pub const CORE_MANIFEST_SUPPORT_CLAIMS: &[ReaderSupportClaim] =
     &[FORMAT_VERSION_V0_3_0, DATASET_CRS_EPSG_4326];
@@ -173,7 +219,11 @@ pub fn claimed_format_version(declaration: &str) -> Option<FormatVersion> {
         ReaderSupportValue::DatasetCrs(_)
         | ReaderSupportValue::FlowDirectionEncoding(_)
         | ReaderSupportValue::D8Crs(_)
-        | ReaderSupportValue::D8FlowAccumulationUnits(_) => None,
+        | ReaderSupportValue::D8FlowAccumulationUnits(_)
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV2
+        | ReaderSupportValue::AuxiliarySchemaSnapV2
+        | ReaderSupportValue::AuxiliarySchemaGeneric
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported => None,
     }
 }
 
@@ -187,7 +237,22 @@ pub fn claimed_dataset_crs(declaration: &str) -> Option<Crs> {
         ReaderSupportValue::FormatVersion(_)
         | ReaderSupportValue::FlowDirectionEncoding(_)
         | ReaderSupportValue::D8Crs(_)
-        | ReaderSupportValue::D8FlowAccumulationUnits(_) => None,
+        | ReaderSupportValue::D8FlowAccumulationUnits(_)
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV2
+        | ReaderSupportValue::AuxiliarySchemaSnapV2
+        | ReaderSupportValue::AuxiliarySchemaGeneric
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported => None,
+    }
+}
+
+/// Returns the auxiliary-schema support claim for a parsed HFX schema ID.
+pub fn claimed_auxiliary_schema(schema: &AuxiliarySchemaId) -> &'static ReaderSupportClaim {
+    match schema {
+        AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV2) => &AUXILIARY_SCHEMA_D8_RASTER_V2,
+        AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV2) => &AUXILIARY_SCHEMA_SNAP_V2,
+        AuxiliarySchemaId::Provisional(_) | AuxiliarySchemaId::ThirdParty(_) => {
+            &AUXILIARY_SCHEMA_GENERIC
+        }
     }
 }
 
@@ -205,7 +270,11 @@ pub fn claimed_d8_crs(declaration: &str) -> Option<D8Crs> {
         ReaderSupportValue::FormatVersion(_)
         | ReaderSupportValue::DatasetCrs(_)
         | ReaderSupportValue::FlowDirectionEncoding(_)
-        | ReaderSupportValue::D8FlowAccumulationUnits(_) => None,
+        | ReaderSupportValue::D8FlowAccumulationUnits(_)
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV2
+        | ReaderSupportValue::AuxiliarySchemaSnapV2
+        | ReaderSupportValue::AuxiliarySchemaGeneric
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported => None,
     }
 }
 
@@ -223,7 +292,11 @@ pub fn claimed_d8_flow_accumulation_units(declaration: &str) -> Option<FlowAccum
         ReaderSupportValue::FormatVersion(_)
         | ReaderSupportValue::DatasetCrs(_)
         | ReaderSupportValue::FlowDirectionEncoding(_)
-        | ReaderSupportValue::D8Crs(_) => None,
+        | ReaderSupportValue::D8Crs(_)
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV2
+        | ReaderSupportValue::AuxiliarySchemaSnapV2
+        | ReaderSupportValue::AuxiliarySchemaGeneric
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported => None,
     }
 }
 
