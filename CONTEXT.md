@@ -110,13 +110,14 @@ I8 window buffers now prefill every not-yet-written position with the parsed
 declared nodata byte. `direction_nodata_byte` runs unconditionally before
 allocation and before the tile loop, so an invalid or unrepresentable U8/I8
 declaration fails loudly even when later writes would cover every output cell.
-This prefill discriminates an unwritten cell only when the declared sentinel is
-not itself a legal direction code. A raster declaring nodata `1` through `8`
-would still erase the bounds fact because those bytes are legal GRASS
-directions. The shipped staged flow-direction raster uses `255`, and the U8
-fallback when the nodata tag is absent is also `255`, so the mechanism preserves
-the spatial fact for that fabric rather than establishing it for every possible
-declaration.
+This prefill alone discriminates an unwritten cell only when the declared
+sentinel is not itself a legal direction code, but it is not the last line of
+defense. `FlowDirectionTile::from_raw` rejects a tile whose header nodata byte
+decodes as a legal direction under the declared encoding, and the production
+`GdalRasterSource::load_flow_direction` goes through it, so a raster declaring
+nodata `1` through `8` fails loudly at tile construction rather than tracing a
+prefilled cell as a real direction. The shipped staged flow-direction raster
+declares `255`, as does the U8 fallback when the nodata tag is absent.
 _Avoid_: "nodata handling" (the sentinel is handled correctly; what is lost is
 the bounds fact), "off-by-one" (the arithmetic is right; its input is a cell
 that does not exist), "zero-initialized buffer" (names the mechanism, not the
