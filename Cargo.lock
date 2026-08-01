@@ -2036,6 +2036,7 @@ dependencies = [
  "clap",
  "csv",
  "geo",
+ "hfx",
  "pourpoint-core",
  "pourpoint-gdal",
  "serde",

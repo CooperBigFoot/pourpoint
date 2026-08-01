@@ -36,6 +36,7 @@ use crate::algo::snap_threshold::SnapThreshold;
 use crate::algo::tile_state::Raw;
 use crate::algo::trace::trace_upstream;
 use crate::algo::traits::{RasterSource, RasterSourceError};
+use crate::support_claims::d8_pair_is_compatible;
 
 /// Errors from terminal unit raster refinement.
 #[derive(Debug, thiserror::Error)]
@@ -203,7 +204,9 @@ pub fn refine_terminal(
     flow_accumulation_units: FlowAccumulationUnits,
     epsg: u32,
 ) -> Result<RefinementResult, RefinementError> {
-    if epsg == 4326 && flow_accumulation_units == FlowAccumulationUnits::Km2 {
+    let crs_declaration = format!("EPSG:{epsg}");
+    let flow_accumulation_units_declaration = flow_accumulation_units.to_string();
+    if !d8_pair_is_compatible(&crs_declaration, &flow_accumulation_units_declaration) {
         return Err(RefinementError::GeographicKm2Unsupported {
             epsg,
             units: flow_accumulation_units,

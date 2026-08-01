@@ -12,17 +12,16 @@ use std::path::Path;
 use std::str::FromStr;
 
 use hfx::{
-    AuxiliaryDecl, AuxiliarySchemaId, BlessedAuxSchema, BoundingBox, Crs, D8RasterMetadataV2,
-    FormatVersion, Manifest, ManifestBuilder, Topology, UnitCount,
+    AuxiliaryDecl, AuxiliarySchemaId, BoundingBox, D8RasterMetadataV2, Manifest, ManifestBuilder,
+    Topology, UnitCount,
 };
 use tracing::instrument;
 
 use crate::error::SessionError;
-
-/// The only HFX on-disk format version this engine reads.
-const SUPPORTED_FORMAT_VERSION: &str = "0.3.0";
-/// The only CRS this engine reads.
-const SUPPORTED_CRS: &str = "EPSG:4326";
+use crate::support_claims::{
+    DATASET_CRS_EPSG_4326, FORMAT_VERSION_V0_3_0, ReaderSupportValue, claimed_auxiliary_schema,
+    claimed_dataset_crs, claimed_format_version,
+};
 
 /// Parsed metadata for a blessed `hfx.aux.d8_raster.v2` declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,13 +171,12 @@ fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
         .ok_or(SessionError::ManifestFieldMissing {
             field: "format_version",
         })?;
-    if format_version_str != SUPPORTED_FORMAT_VERSION {
-        return Err(SessionError::UnsupportedFormatVersion {
+    let format_version = claimed_format_version(&format_version_str).ok_or_else(|| {
+        SessionError::UnsupportedFormatVersion {
             found: format_version_str,
-            expected: SUPPORTED_FORMAT_VERSION,
-        });
-    }
-    let format_version = FormatVersion::V0_3_0;
+            expected: FORMAT_VERSION_V0_3_0.canonical_declaration(),
+        }
+    })?;
 
     let fabric_name = raw.fabric_name.ok_or(SessionError::ManifestFieldMissing {
         field: "fabric_name",
@@ -187,13 +185,10 @@ fn build_manifest(raw: RawManifest) -> Result<ParsedManifest, SessionError> {
     let crs_str = raw
         .crs
         .ok_or(SessionError::ManifestFieldMissing { field: "crs" })?;
-    if crs_str != SUPPORTED_CRS {
-        return Err(SessionError::UnsupportedCrs {
-            found: crs_str,
-            expected: SUPPORTED_CRS,
-        });
-    }
-    let crs = Crs::Epsg4326;
+    let crs = claimed_dataset_crs(&crs_str).ok_or_else(|| SessionError::UnsupportedCrs {
+        found: crs_str,
+        expected: DATASET_CRS_EPSG_4326.canonical_declaration(),
+    })?;
 
     let topology_str = raw
         .topology
@@ -344,20 +339,54 @@ fn parse_auxiliary(raw: RawAuxiliary) -> Result<ParsedAuxiliary, SessionError> {
         }
     })?;
 
-    let classified = match &schema_id {
-        AuxiliarySchemaId::Blessed(BlessedAuxSchema::D8RasterV2) => ClassifiedAux::D8(
-            parse_d8_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
-        ),
-        AuxiliarySchemaId::Blessed(BlessedAuxSchema::SnapV2) => ClassifiedAux::Snap(
-            parse_snap_metadata(&schema_str, &raw.artifacts, &raw.metadata)?,
-        ),
-        AuxiliarySchemaId::Provisional(_) | AuxiliarySchemaId::ThirdParty(_) => {
+    let claim = claimed_auxiliary_schema(&schema_id);
+    let classified = match claim.value() {
+        ReaderSupportValue::AuxiliarySchemaD8RasterV2
+            if schema_str == claim.canonical_declaration() =>
+        {
+            ClassifiedAux::D8(parse_d8_metadata(
+                &schema_str,
+                &raw.artifacts,
+                &raw.metadata,
+            )?)
+        }
+        ReaderSupportValue::AuxiliarySchemaSnapV2
+            if schema_str == claim.canonical_declaration() =>
+        {
+            ClassifiedAux::Snap(parse_snap_metadata(
+                &schema_str,
+                &raw.artifacts,
+                &raw.metadata,
+            )?)
+        }
+        ReaderSupportValue::AuxiliarySchemaGeneric => {
             // Generic handle: raw path + metadata only, no semantic parsing.
             ClassifiedAux::Generic(GenericAuxDecl {
                 schema: schema_str,
                 artifacts: raw.artifacts,
                 metadata: raw.metadata,
             })
+        }
+        ReaderSupportValue::AuxiliarySchemaD8RasterV2
+        | ReaderSupportValue::AuxiliarySchemaSnapV2 => {
+            return Err(SessionError::AuxiliaryDeclParse {
+                schema: schema_str,
+                reason: format!(
+                    "parsed auxiliary schema does not match support claim {:?}",
+                    claim.canonical_declaration()
+                ),
+            });
+        }
+        ReaderSupportValue::FormatVersion(_)
+        | ReaderSupportValue::DatasetCrs(_)
+        | ReaderSupportValue::FlowDirectionEncoding(_)
+        | ReaderSupportValue::D8Crs(_)
+        | ReaderSupportValue::D8FlowAccumulationUnits(_)
+        | ReaderSupportValue::AuxiliarySchemaD8RasterV1Unsupported => {
+            return Err(SessionError::AuxiliaryDeclParse {
+                schema: schema_str,
+                reason: "auxiliary schema resolved to a non-routable support claim".to_string(),
+            });
         }
     };
 

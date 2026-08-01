@@ -35,6 +35,7 @@ use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
 use crate::source::{DatasetSource, pourpoint_get_ranges_concurrency};
 use crate::source_telemetry::{HttpStatsHandle, HttpStatsSnapshot};
+use crate::support_claims::claimed_d8_crs;
 use crate::telemetry::{Stage, StageGuard, record_bytes, record_path};
 
 /// Raster artifact selector for lazy localization.
@@ -886,9 +887,9 @@ fn d8_crs(declared: &EpsgCode) -> Result<(Crs, u32), SessionError> {
             declared_crs: declared_crs.to_string(),
             source,
         })?;
-    let crs = Crs::try_from(identifier).map_err(|source| SessionError::UnsupportedD8Crs {
+    let crs = claimed_d8_crs(declared_crs).ok_or_else(|| SessionError::UnsupportedD8Crs {
         declared_crs: declared_crs.to_string(),
-        source,
+        source: crate::algo::projection::ProjectionError::UnsupportedCrs { epsg: identifier },
     })?;
     Ok((crs, identifier))
 }

@@ -20,6 +20,7 @@ pub mod session;
 pub mod source;
 pub mod source_telemetry;
 pub mod staged;
+pub mod support_claims;
 pub mod telemetry;
 
 #[cfg(feature = "test-fixtures")]

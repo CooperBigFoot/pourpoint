@@ -25,6 +25,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 assert_cmd = "2"
+hfx.workspace = true
 tempfile = "3"
 serde_json = "1"
 pourpoint-core = { path = "crates/core", features = ["test-fixtures"] }
