@@ -209,6 +209,20 @@ pub const D8_METADATA_SUPPORT_CLAIMS: &[ReaderSupportClaim] = &[
     D8_FLOW_ACCUMULATION_UNITS_KM2,
 ];
 
+/// Every claim inventory in this module must use a mechanically covered
+/// `const` or `static` slice or array form and appear exactly once here.
+///
+/// The correspondence test mechanically covers only the documented token
+/// patterns, so this convention does not extend its source-level boundary.
+/// Topology and every other parse/store/expose/log-only field are outside the
+/// catalog, which is bounded to production behavior that branches on values.
+pub const READER_SUPPORT_CLAIM_INVENTORIES: &[&[ReaderSupportClaim]] = &[
+    CORE_MANIFEST_SUPPORT_CLAIMS,
+    FLOW_DIRECTION_ENCODING_SUPPORT_CLAIMS,
+    AUXILIARY_SCHEMA_SUPPORT_CLAIMS,
+    D8_METADATA_SUPPORT_CLAIMS,
+];
+
 /// Returns the typed format version for an implemented declaration.
 pub fn claimed_format_version(declaration: &str) -> Option<FormatVersion> {
     if declaration != FORMAT_VERSION_V0_3_0.canonical_declaration() {
