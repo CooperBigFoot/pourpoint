@@ -5,11 +5,14 @@ schema produced by pourpoint-core's DatasetBuilder test utility.
 """
 
 import json
+import importlib.metadata
 import struct
+from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet
 import pytest
+import pourpoint
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +36,11 @@ def make_wkb_polygon(minx: float, miny: float, maxx: float, maxy: float) -> byte
     return buf
 
 
+def make_wkb_point(lon: float, lat: float) -> bytes:
+    """Create a little-endian WKB Point."""
+    return struct.pack("<BIdd", 1, 1, lon, lat)
+
+
 # ---------------------------------------------------------------------------
 # Unit specifications
 # ---------------------------------------------------------------------------
@@ -46,10 +54,43 @@ _UNITS = [
     {"id": 3, "minx": 1.5, "miny": 0.0, "maxx": 1.9, "maxy": 0.4},
 ]
 
+_BBOX_FIELDS = [
+    pa.field(name, pa.float32(), nullable=False)
+    for name in ("xmin", "ymin", "xmax", "ymax")
+]
+
 
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session", autouse=True)
+def require_installed_wheel():
+    """Reject source-tree and editable imports for behavioral evidence."""
+    checkout_package = (Path(__file__).parents[1] / "python" / "pourpoint").resolve()
+    package_file = Path(pourpoint.__file__).resolve()
+    extension_file = Path(pourpoint._pourpoint.__file__).resolve()
+    try:
+        distribution = importlib.metadata.distribution("pourpoint")
+    except importlib.metadata.PackageNotFoundError as error:
+        raise AssertionError(
+            "pourpoint must be installed from a maturin-built wheel before testing"
+        ) from error
+
+    installed_package = Path(distribution.locate_file("pourpoint")).resolve()
+    assert not package_file.is_relative_to(checkout_package), (
+        "pourpoint imported from crates/python/python; force-install the built wheel"
+    )
+    assert not extension_file.is_relative_to(checkout_package), (
+        "pourpoint._pourpoint imported from the source tree; force-install the built wheel"
+    )
+    assert package_file.parent == installed_package, (
+        "imported pourpoint package does not match the installed distribution"
+    )
+    assert extension_file.parent == installed_package, (
+        "compiled extension is not under the installed distribution's pourpoint directory"
+    )
 
 
 @pytest.fixture
@@ -63,9 +104,63 @@ def hfx_dataset(tmp_path):
 
     Each unit has a rectangular catchment polygon spaced along the x-axis.
     """
-    _write_manifest(tmp_path)
+    _write_manifest(tmp_path, [])
     _write_graph(tmp_path)
     _write_catchments(tmp_path)
+    return str(tmp_path)
+
+
+@pytest.fixture
+def hfx_dataset_with_unreadable_auxiliary(tmp_path):
+    """Create a dataset with unreadable HFX auxiliary declarations and snap v2."""
+    auxiliary = [
+        {
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": {
+                "flow_dir": "missing/v1-dir.tif",
+                "flow_acc": "missing/v1-acc.tif",
+            },
+            "metadata": {
+                "flow_dir_encoding": "esri",
+                "producer": "legacy-v1",
+            },
+        },
+        {
+            "schema": "hfx.aux.d8_raster.v3",
+            "artifacts": {
+                "flow_dir": "missing/v3-dir.tif",
+                "flow_acc": "missing/v3-acc.tif",
+            },
+            "metadata": {
+                "purpose": "future-d8",
+            },
+        },
+        {
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": {
+                "flow_dir": "missing/duplicate-v1-dir.tif",
+                "flow_acc": "missing/duplicate-v1-acc.tif",
+            },
+            "metadata": {
+                "flow_dir_encoding": "grass",
+                "producer": "duplicate-v1",
+            },
+        },
+        {
+            "schema": "hfx.aux.snap.v2",
+            "artifacts": {"snap": "snap.parquet"},
+            "metadata": {
+                "name": "synthetic-outlet-snap",
+                "description": "Synthetic snap target at the unit 3 outlet.",
+                "weight_semantics": "higher is preferred",
+                "references_levels": [0],
+            },
+        },
+    ]
+    _write_manifest(tmp_path, auxiliary)
+    _write_graph(tmp_path)
+    _write_catchments(tmp_path)
+    _write_snap(tmp_path)
     return str(tmp_path)
 
 
@@ -74,9 +169,9 @@ def hfx_dataset(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _write_manifest(root):
+def _write_manifest(root, auxiliary):
     manifest = {
-        "format_version": "0.2.1",
+        "format_version": "0.3.0",
         "fabric_name": "testfabric",
         "fabric_version": "0.0.0",
         "crs": "EPSG:4326",
@@ -85,7 +180,7 @@ def _write_manifest(root):
         "unit_count": len(_UNITS),
         "created_at": "2026-01-01T00:00:00Z",
         "adapter_version": "test-v1",
-        "auxiliary": [],
+        "auxiliary": auxiliary,
     }
     (root / "manifest.json").write_text(json.dumps(manifest))
 
@@ -129,6 +224,33 @@ def _write_graph(root):
             writer.write_table(table)
 
 
+def _write_snap(root):
+    schema = pa.schema(
+        [
+            pa.field("id", pa.int64(), nullable=False),
+            pa.field("unit_id", pa.int64(), nullable=False),
+            pa.field("weight", pa.float32(), nullable=False),
+            pa.field("stem_role", pa.string(), nullable=True),
+            pa.field("geometry", pa.binary(), nullable=False),
+        ]
+    )
+    table = pa.table(
+        {
+            "id": pa.array([3001], type=pa.int64()),
+            "unit_id": pa.array([3], type=pa.int64()),
+            "weight": pa.array([1.0], type=pa.float32()),
+            "stem_role": pa.array(["mainstem"], type=pa.string()),
+            "geometry": pa.array(
+                [make_wkb_point(1.70, 0.20)], type=pa.binary()
+            ),
+        },
+        schema=schema,
+    )
+    with open(root / "snap.parquet", "wb") as fh:
+        with pa.parquet.ParquetWriter(fh, schema) as writer:
+            writer.write_table(table)
+
+
 def _write_catchments(root):
     schema = pa.schema(
         [
@@ -139,12 +261,28 @@ def _write_catchments(root):
             pa.field("up_area_km2", pa.float32(), nullable=True),
             pa.field("outlet_lon", pa.float64(), nullable=False),
             pa.field("outlet_lat", pa.float64(), nullable=False),
-            pa.field("bbox_minx", pa.float32(), nullable=False),
-            pa.field("bbox_miny", pa.float32(), nullable=False),
-            pa.field("bbox_maxx", pa.float32(), nullable=False),
-            pa.field("bbox_maxy", pa.float32(), nullable=False),
+            pa.field("bbox", pa.struct(_BBOX_FIELDS), nullable=False),
             pa.field("geometry", pa.binary(), nullable=False),
         ]
+    )
+    geo_metadata = {
+        "version": "1.1.0",
+        "primary_column": "geometry",
+        "columns": {
+            "geometry": {
+                "encoding": "WKB",
+                "geometry_types": ["Polygon", "MultiPolygon"],
+                "covering": {
+                    "bbox": {
+                        name: ["bbox", name]
+                        for name in ("xmin", "ymin", "xmax", "ymax")
+                    }
+                },
+            }
+        },
+    }
+    schema = schema.with_metadata(
+        {b"geo": json.dumps(geo_metadata).encode("utf-8")}
     )
 
     ids = []
@@ -185,10 +323,15 @@ def _write_catchments(root):
             "up_area_km2": pa.array(up_areas, type=pa.float32()),
             "outlet_lon": pa.array(outlet_lons, type=pa.float64()),
             "outlet_lat": pa.array(outlet_lats, type=pa.float64()),
-            "bbox_minx": pa.array(bbox_minx, type=pa.float32()),
-            "bbox_miny": pa.array(bbox_miny, type=pa.float32()),
-            "bbox_maxx": pa.array(bbox_maxx, type=pa.float32()),
-            "bbox_maxy": pa.array(bbox_maxy, type=pa.float32()),
+            "bbox": pa.StructArray.from_arrays(
+                [
+                    pa.array(bbox_minx, type=pa.float32()),
+                    pa.array(bbox_miny, type=pa.float32()),
+                    pa.array(bbox_maxx, type=pa.float32()),
+                    pa.array(bbox_maxy, type=pa.float32()),
+                ],
+                fields=_BBOX_FIELDS,
+            ),
             "geometry": pa.array(geometries, type=pa.binary()),
         },
         schema=schema,

@@ -276,6 +276,9 @@ class Engine:
         parquet_cache_max_mb: int = 512,
     ) -> None: ...
 
+    @property
+    def unreadable_auxiliary_schemas(self) -> list[str]: ...
+
     @overload
     def delineate(
         self, *, lat: float, lon: float, geometry: Literal[True] = ...

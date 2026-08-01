@@ -1009,6 +1009,8 @@ fn validate_local_aux_paths(root: &Path, aux: &AuxDeclarations) -> Result<(), Se
             validate_local_aux_artifact(root, &decl.schema, artifact, path)?;
         }
     }
+    // `aux.unreadable` is deliberately excluded: its raw paths are diagnostic
+    // data, not required local artifacts.
     Ok(())
 }
 
@@ -1049,6 +1051,8 @@ fn validate_remote_aux_paths(root: &ObjectPath, aux: &AuxDeclarations) -> Result
             validate_remote_aux_artifact(root, &decl.schema, artifact, path)?;
         }
     }
+    // `aux.unreadable` is deliberately excluded: its raw paths are diagnostic
+    // data, not remote fetch candidates.
     Ok(())
 }
 
