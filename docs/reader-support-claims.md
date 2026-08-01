@@ -38,6 +38,35 @@ the ID, declaration, and typed value of both rows. m3-s5 will compare the
 complete catalog with independent evidence and make an unwitnessed claim fail
 the build; this step deliberately does not perform that global comparison.
 
+The separate flow-direction encoding sub-inventory contains these rows, in
+order:
+
+| Claim ID | Canonical declaration | Typed HFX value |
+|---|---|---|
+| `core-flow-dir-encoding-esri` | `esri` | `hfx::FlowDirEncoding::Esri` |
+| `core-flow-dir-encoding-taudem` | `taudem` | `hfx::FlowDirEncoding::Taudem` |
+| `core-flow-dir-encoding-grass` | `grass` | `hfx::FlowDirEncoding::Grass` |
+
+Each row has discriminating evidence from the compiled `pourpoint` binary:
+
+| Claim ID | Reference outcome `(refinement, area_km2, ring_vertex_counts)` | Exact test name |
+|---|---|---|
+| `core-flow-dir-encoding-esri` | `("best_effort_skipped(BestEffortSkipped { strategy: BestEffortD8IfPresent, why: MisDeclaration { source: RasterLoad, diagnostic: \"flow-direction nodata byte 128 decodes as a legal direction under Esri encoding\" } })", 36922.8059387193, [25])` | `esri_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence` |
+| `core-flow-dir-encoding-taudem` | `("applied(lon=0.986445, lat=0.416385)", 24613.14053443639, [13, 13])` | `taudem_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence` |
+| `core-flow-dir-encoding-grass` | `("applied(lon=0.986445, lat=0.416385)", 24986.140564067347, [13, 1289])` | `grass_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence` |
+
+Refinement strings and ordered ring counts use exact equality. Area uses
+`(actual_area_km2 - expected_area_km2).abs() <= 0.025_f64`. GRASS and TauDEM
+share the formatted refined outlet, but the ordered ring counts alone
+discriminate all three encodings. The area tolerance is far narrower than the
+smallest inter-encoding area gap. ESRI is additionally distinguished by its
+full invalid-nodata best-effort diagnostic.
+
+The CLI rows witness independent declaration literals through production
+behavior. Separate in-process assertions witness the IDs, canonical
+declarations, and typed HFX values. CLI behavior alone does not detect a
+typed-value-only catalog mutation.
+
 ## Topology exclusion trace
 
 Topology is excluded under the bounded rule “declared values the reader branches
