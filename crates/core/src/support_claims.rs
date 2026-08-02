@@ -1,4 +1,5 @@
-//! reader support claims : declared reader values -> production support obligations.
+//! reader support claims : declared reader values -> production support obligations and retained
+//! unreadable schema names -> D8-family routing decisions.
 //!
 //! Claims pair canonical on-disk declarations with the HFX domain values used
 //! by production. Stable claim IDs are correspondence keys for independent
@@ -9,6 +10,12 @@ use hfx::{
 };
 
 use crate::algo::projection::Crs as D8Crs;
+
+pub(crate) const D8_AUXILIARY_SCHEMA_FAMILY_PREFIX: &str = "hfx.aux.d8_raster.";
+
+pub(crate) fn is_unreadable_d8_auxiliary_schema(schema: &str) -> bool {
+    schema.starts_with(D8_AUXILIARY_SCHEMA_FAMILY_PREFIX)
+}
 
 /// Stable correspondence key for a reader support claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -328,4 +335,18 @@ pub fn d8_pair_is_compatible(
             | (Some(D8Crs::Epsg8857), Some(FlowAccumulationUnits::Cells))
             | (Some(D8Crs::Epsg8857), Some(FlowAccumulationUnits::Km2))
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_unreadable_d8_auxiliary_schema;
+
+    #[test]
+    fn unreadable_d8_routing_uses_the_exact_family_prefix() {
+        assert!(is_unreadable_d8_auxiliary_schema("hfx.aux.d8_raster.v1"));
+        assert!(is_unreadable_d8_auxiliary_schema("hfx.aux.d8_raster.v99"));
+        assert!(!is_unreadable_d8_auxiliary_schema("hfx.aux.snap.v99"));
+        assert!(!is_unreadable_d8_auxiliary_schema("hfx.aux.bogus.v9"));
+        assert!(!is_unreadable_d8_auxiliary_schema("hfx.aux.d8-raster.v1"));
+    }
 }

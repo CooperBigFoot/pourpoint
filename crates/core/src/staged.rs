@@ -375,6 +375,11 @@ impl TerminalRefinement {
         }
     }
 
+    /// Construct a visible best-effort skip for a retained unreadable D8 declaration.
+    pub fn best_effort_unreadable_d8_aux_declared(schema: String) -> Self {
+        Self::best_effort_skipped(BestEffortSkipReason::UnreadableD8AuxDeclared { schema })
+    }
+
     /// Construct a visible best-effort skip for a missing raster source.
     pub fn best_effort_no_raster_source_provided() -> Self {
         Self::BestEffortSkipped {

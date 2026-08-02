@@ -23,7 +23,6 @@ fn pourpoint() -> Command {
 enum EvidenceStrength {
     DeclarationDiscriminatingCompiledCli,
     ShippedCliBehaviorWithCatalogLiteralCorrespondence,
-    CompiledCliAcceptanceWithInstalledWheelRetentionNaming,
 }
 
 #[derive(Clone, Copy)]
@@ -76,7 +75,7 @@ const WITNESS_AUX_GENERIC: ReaderSupportWitness = ReaderSupportWitness {
 const WITNESS_AUX_D8_V1: ReaderSupportWitness = ReaderSupportWitness {
     claim_id: ReaderSupportClaimId::new("aux-schema-d8-raster-v1-unsupported"),
     evidence_test: "auxiliary_schema_claims_have_shipped_cli_evidence",
-    strength: EvidenceStrength::CompiledCliAcceptanceWithInstalledWheelRetentionNaming,
+    strength: EvidenceStrength::DeclarationDiscriminatingCompiledCli,
 };
 const WITNESS_D8_CRS_4326: ReaderSupportWitness = ReaderSupportWitness {
     claim_id: ReaderSupportClaimId::new("core-d8-crs-epsg-4326"),
@@ -449,15 +448,17 @@ fn invoke_delineate(root: &Path, lat: &str, lon: &str) -> (bool, Value) {
 }
 
 fn invoke_flow_encoding_refined_delineate(root: &Path) -> Value {
+    invoke_refinement_feature_collection(root, "0.4166666666666667", "0.9833333333333333")
+}
+
+fn invoke_refinement_feature_collection(root: &Path, lat: &str, lon: &str) -> Value {
     let output = pourpoint()
         .args([
             "delineate",
             "--dataset",
             root.to_str().unwrap(),
-            "--lat",
-            "0.4166666666666667",
-            "--lon",
-            "0.9833333333333333",
+            &format!("--lat={lat}"),
+            &format!("--lon={lon}"),
             "--snap-radius",
             "1000",
             "--snap-threshold",
@@ -470,8 +471,10 @@ fn invoke_flow_encoding_refined_delineate(root: &Path) -> Value {
         output.status.success(),
         "refined delineation should succeed: {stdout}"
     );
-    serde_json::from_str(&stdout)
-        .unwrap_or_else(|error| panic!("CLI stdout should be JSON: {error}\nstdout={stdout}"))
+    let json: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("CLI stdout should be JSON: {error}\nstdout={stdout}"));
+    assert_eq!(json["features"].as_array().map(Vec::len), Some(1));
+    json
 }
 
 fn copy_directory(source: &Path, destination: &Path) {
@@ -658,6 +661,22 @@ fn replace_manifest_auxiliary(root: &Path, auxiliary: Value) {
     .expect("edited fixture manifest should be writable");
 }
 
+fn append_manifest_auxiliary(root: &Path, declaration: Value) {
+    let path = root.join("manifest.json");
+    let bytes = std::fs::read(&path).expect("fixture manifest should be readable");
+    let mut manifest: Value =
+        serde_json::from_slice(&bytes).expect("fixture manifest should be valid JSON");
+    manifest["auxiliary"]
+        .as_array_mut()
+        .expect("fixture auxiliary should be an array")
+        .push(declaration);
+    std::fs::write(
+        path,
+        serde_json::to_vec(&manifest).expect("edited manifest should serialize"),
+    )
+    .expect("edited fixture manifest should be writable");
+}
+
 fn copy_tracked_fixture(source: &Path) -> (TempDir, PathBuf) {
     fn copy_directory(source: &Path, destination: &Path) {
         std::fs::create_dir_all(destination).expect("fixture directory should be created");
@@ -782,7 +801,7 @@ fn mechanically_declared_reader_support_inventories_have_witness_correspondence(
                 EvidenceStrength::ShippedCliBehaviorWithCatalogLiteralCorrespondence
             }
             "aux-schema-d8-raster-v1-unsupported" => {
-                EvidenceStrength::CompiledCliAcceptanceWithInstalledWheelRetentionNaming
+                EvidenceStrength::DeclarationDiscriminatingCompiledCli
             }
             _ => EvidenceStrength::DeclarationDiscriminatingCompiledCli,
         };
@@ -1296,15 +1315,16 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("crates/python/tests/fixtures/merit-hfx-global-unreadable-v1");
-    let (succeeded, json) = invoke_delineate(&root, "47.37", "8.54");
+    let json = invoke_refinement_feature_collection(&root, "47.37", "8.54");
     calls_completed += 1;
-    assert!(
-        succeeded,
-        "dataset with retained D8-v1 declarations should open and delineate: {json}"
+    assert_eq!(
+        json["features"][0]["properties"]["terminal_unit_id"],
+        23017694
     );
-    assert_eq!(json["succeeded"], 1);
-    assert_eq!(json["failed"], 0);
-    assert_eq!(json["successes"][0]["terminal_unit_id"], 23017694);
+    let retained_v1_refinement = json["features"][0]["properties"]["refinement"]
+        .as_str()
+        .expect("refinement should be a string")
+        .to_owned();
 
     let (_directory, root) = DatasetBuilder::new(3).build();
     replace_manifest_auxiliary(
@@ -1324,7 +1344,45 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
     assert_eq!(json["succeeded"], 1);
     assert_eq!(json["failed"], 0);
 
-    assert_eq!(calls_completed, 9, "all shipped CLI calls must complete");
+    let (_directory, root) = DatasetBuilder::new(3).build();
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
+            "schema": "hfx.aux.snap.v99",
+            "artifacts": { "snap": "missing/snap.parquet" },
+            "metadata": { "purpose": "future-snap" }
+        }]),
+    );
+    let json = invoke_refinement_feature_collection(&root, "0.20", "1.70");
+    calls_completed += 1;
+    let snap_v99_refinement = json["features"][0]["properties"]["refinement"]
+        .as_str()
+        .expect("refinement should be a string")
+        .to_owned();
+    assert!(snap_v99_refinement.contains("why: NoD8AuxDeclared"));
+    assert!(!snap_v99_refinement.contains("UnreadableD8AuxDeclared"));
+    assert!(!snap_v99_refinement.contains("hfx.aux.snap.v99"));
+
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass");
+    let (_directory, root) = copy_tracked_fixture(&fixture);
+    append_manifest_auxiliary(
+        &root,
+        json!({
+            "schema": "hfx.aux.snap.v99",
+            "artifacts": { "snap": "missing/snap.parquet" },
+            "metadata": { "purpose": "future-snap" }
+        }),
+    );
+    let json =
+        invoke_refinement_feature_collection(&root, "0.4166666666666667", "0.9833333333333333");
+    calls_completed += 1;
+    assert_eq!(
+        json["features"][0]["properties"]["refinement"],
+        "applied(lon=0.986445, lat=0.416385)"
+    );
+
+    assert_eq!(calls_completed, 11, "all shipped CLI calls must complete");
     assert_eq!(
         auxiliary_schema_support_claims().len(),
         4,
@@ -1335,4 +1393,10 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
         "hfx.x.experimental.v1",
         "the generic claim representative must correspond to shipped evidence"
     );
+    assert!(
+        retained_v1_refinement.contains("why: UnreadableD8AuxDeclared"),
+        "retained D8-v1 refinement should disclose its typed reason: {retained_v1_refinement}; non-D8 control: {snap_v99_refinement}"
+    );
+    assert!(retained_v1_refinement.contains("schema: \"hfx.aux.d8_raster.v1\""));
+    assert_ne!(retained_v1_refinement, snap_v99_refinement);
 }

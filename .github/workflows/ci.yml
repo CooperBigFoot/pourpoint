@@ -151,4 +151,4 @@ jobs:
         run: |
           python -m pytest -vv \
             crates/python/tests/test_behavioral.py::TestUnreadableAuxiliaryDeclarations::test_unreadable_auxiliary_declarations_are_retained_through_installed_wheel \
-            crates/python/tests/test_unreadable_auxiliary.py::test_merit_reduction_survives_sixty_unreadable_v1_declarations
+            crates/python/tests/test_unreadable_auxiliary.py

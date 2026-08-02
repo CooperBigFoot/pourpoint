@@ -52,6 +52,30 @@ class LevelSelection:
     def __eq__(self, other: object) -> bool: ...
 
 
+class BestEffortSkipReason:
+    @property
+    def kind(
+        self,
+    ) -> Literal[
+        "unreadable_d8_aux_declared",
+        "no_d8_aux_declared",
+        "no_raster_source_provided",
+        "availability",
+        "mis_declaration",
+        "data_geometry_integrity",
+    ]: ...
+
+    @property
+    def category(
+        self,
+    ) -> Literal["availability", "mis_declaration", "data_geometry_integrity"]: ...
+
+    @property
+    def schema(self) -> str | None: ...
+
+    def __repr__(self) -> str: ...
+
+
 class DelineationResult:
     @property
     def terminal_unit_id(self) -> int: ...
@@ -64,6 +88,9 @@ class DelineationResult:
 
     @property
     def refined_outlet(self) -> tuple[float, float] | None: ...
+
+    @property
+    def refinement_skip_reason(self) -> BestEffortSkipReason | None: ...
 
     @property
     def resolution_method(self) -> str: ...
