@@ -156,7 +156,6 @@ def test_non_d8_unreadable_declaration_reports_no_d8(
     assert reason.kind == "no_d8_aux_declared"
     assert reason.category == "availability"
     assert reason.schema is None
-    assert "hfx.aux.snap.v99" not in (reason.kind, reason.category, reason.schema)
 
 
 def test_readable_d8_takes_precedence_over_non_d8_unreadable(
