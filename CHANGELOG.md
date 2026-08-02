@@ -15,6 +15,10 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Best-effort refinement now distinguishes and carries the first retained
+  unreadable D8-family schema. The new public, exhaustive
+  `BestEffortSkipReason::UnreadableD8AuxDeclared` variant is a breaking Rust
+  source change for downstream exhaustive matches.
 - Read out-of-line TIFF ASCII metadata through the remote COG reader with a
   fixed 256-byte ceiling, enabling GDAL nodata values such as `-128` and
   `-2147483648`.

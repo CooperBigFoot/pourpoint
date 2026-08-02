@@ -130,6 +130,7 @@ fn _pourpoint(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<export::PyBasinGeoParquetWriter>()?;
     m.add_class::<export::PyUnitBundleGeoParquetWriter>()?;
     m.add_class::<result::PyDelineationResult>()?;
+    m.add_class::<result::PyBestEffortSkipReason>()?;
     m.add_class::<result::PyAreaOnlyResult>()?;
     m.add_class::<result::PyDelineationUnitMetadata>()?;
     m.add_class::<staged::PyLevelSelection>()?;

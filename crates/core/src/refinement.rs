@@ -458,6 +458,16 @@ pub enum BestEffortSkipSource {
 pub enum BestEffortSkipReason {
     /// The dataset declares no blessed D8 auxiliary raster pair.
     NoD8AuxDeclared,
+    /// An unreadable declaration names the D8 auxiliary family.
+    ///
+    /// Eligibility is determined only by the declared name starting with
+    /// `hfx.aux.d8_raster.`; no code verified that the referenced artifact is a
+    /// D8 raster. `schema` is the first matching unreadable declaration in
+    /// manifest order.
+    UnreadableD8AuxDeclared {
+        /// First matching unreadable schema name in manifest order.
+        schema: String,
+    },
     /// The engine has no raster source attached.
     NoRasterSourceProvided,
     /// A required declaration, artifact, cache object, or reader capability was unavailable.
@@ -490,9 +500,31 @@ impl BestEffortSkipReason {
             Self::NoD8AuxDeclared | Self::NoRasterSourceProvided | Self::Availability { .. } => {
                 BestEffortSkipCategory::Availability
             }
-            Self::MisDeclaration { .. } => BestEffortSkipCategory::MisDeclaration,
+            Self::UnreadableD8AuxDeclared { .. } | Self::MisDeclaration { .. } => {
+                BestEffortSkipCategory::MisDeclaration
+            }
             Self::DataGeometryIntegrity { .. } => BestEffortSkipCategory::DataGeometryIntegrity,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BestEffortSkipCategory, BestEffortSkipReason};
+
+    #[test]
+    fn best_effort_skip_categories_distinguish_unreadable_d8_from_absence() {
+        assert_eq!(
+            BestEffortSkipReason::UnreadableD8AuxDeclared {
+                schema: "hfx.aux.d8_raster.v1".to_owned(),
+            }
+            .category(),
+            BestEffortSkipCategory::MisDeclaration
+        );
+        assert_eq!(
+            BestEffortSkipReason::NoD8AuxDeclared.category(),
+            BestEffortSkipCategory::Availability
+        );
     }
 }
 
