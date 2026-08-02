@@ -82,8 +82,11 @@ it under its own defaults, yielding a wrong result rather than a rejection.
 Distinct from the case a frozen prefix protects against: moving an entry to a
 successor prefix shields the reader that stays put, but a straggler that follows
 the successor prefix is not shielded by anything the prefix discipline provides.
-Released 0.2.x is a straggler for a declared-`grass` D8 entry — it parses
-`flow_dir_encoding` and then decodes ESRI anyway.
+Released 0.2.1 is the straggler for a declared-`grass` D8 entry — it parses
+`flow_dir_encoding` and then decodes ESRI anyway, and #63 taught it to open the
+planetary COGs while the encoding fix did not ship until 0.3.0. 0.2.0 shares the
+decode defect but cannot open those COGs at all, so it fails loudly and is not
+the hazard; "0.2.x" blurs the two.
 _Avoid_: "old client", "unsupported reader" (it is not unsupported; it accepts);
 "straggler" unqualified (the Map uses it for the affected user population, not
 for the failure mode)
@@ -173,6 +176,79 @@ indistinguishable from an undeclared one.
 _Avoid_: "default encoding" (a reader default is the defect, not a fallback);
 "honors the declaration" on parse alone (`flow_dir_encoding()` was parsed and
 exposed on the handle for two releases without any decode path reading it)
+
+**Support claim**:
+A reader's assertion that it implements a declared contract — a schema name, a
+flow-direction encoding, a CRS, an accumulation unit. The assertion does not
+validate itself. Pourpoint 0.2.0 claimed `hfx.aux.d8_raster.v2`, shipped a
+passing projected-GRASS golden, and still decoded GRASS as ESRI in production:
+the golden records its source as
+`LocalTiffRasterSource::with_encoding(hfx::FlowDirEncoding::Grass) ->
+EncodedLocalTiffRasterSource` (tag `pourpoint-v0.2.0`:
+`crates/core/tests/parity_golden_artifacts.rs:354`), while both shipped entry
+points construct `GdalRasterSource::new()`, whose default was
+`FlowDirEncoding::Esri` (`crates/gdal/src/raster_reader.rs:41`,
+`crates/python/src/engine.rs:214`, `src/main.rs:185`, all at tag
+`pourpoint-v0.2.0`). A support claim counts
+only when its evidence runs through the construction path shipped code takes;
+evidence through a hand-configured object proves a component nobody runs. That
+particular hole is closed — #62 made the declared encoding a required argument
+of `RasterSource::load_flow_direction` and deleted both
+`EncodedLocalTiffRasterSource` and the encoding constructors — but the rule
+generalizes past that one field, and a naming discipline does not reach it: on
+2026-07-24 every version token in play was correct. #100 turned the rule into a
+catalog: every declared value the reader branches on carries a row in
+`crates/core/src/support_claims.rs`, and a source-derived gate requires each row
+to name a shipped-CLI witness (ADR:
+`docs/decisions/2026-08-01-support-claims-not-schema-names.md`).
+_Avoid_: "supports GRASS" on the strength of a passing test (name the
+construction path the evidence ran through); "conformance matrix" unqualified
+(hfx's `conformance/` corpus validates datasets, not readers)
+
+**Evidence strength**:
+How much a support claim's witness actually proves, as distinct from the claim
+it is attached to. Two properties are routinely collapsed and are not the same.
+*Declaration-discriminating* means a different declared value produces a
+different observed outcome through the compiled CLI or an installed wheel;
+twelve of the thirteen catalogued witnesses carry that strength. *Typed-value
+discrimination through the shipped path* means the reader's own typed value is
+what the evidence separates — no witness carries it, because "Typed inventory
+only" marks an in-process assertion, not a shipped-path one
+(`docs/reader-support-claims.md:31-34`). A recorded strength is itself a claim
+and can overstate: the `crs` and `flow_acc_units` witnesses carry the
+declaration-discriminating label without a mutation control proving a wrong
+value turns them red.
+_Avoid_: "discriminating" unqualified (say which property); "the gate proves the
+claim" (the correspondence gate proves a named test *exists*, not that it
+exercises the claim, and it does not scan `crates/python/tests/`)
+
+**Declaration erasure**:
+Answering that a dataset lacks a capability where the truthful answer is that
+the capability was declared under a name the reader could not read — **bounds
+erasure** one level up, with a manifest entry in place of a cell. Two sites were
+open through pourpoint 0.3.0 and #100 closed both. First,
+`AuxiliarySchemaId::parse` returned `MalformedSchemaId` for any unblessed
+`hfx.aux.*` name, which pourpoint raised as `SessionError::AuxiliaryDeclParse`,
+so an unrecognised *optional* auxiliary destroyed the mandatory core; a
+stranger's reverse-DNS name was treated more gently, classifying as `Generic`
+and leaving the dataset openable. Second, a tolerated unrecognised declaration
+landed in `AuxDeclarations::generic` and refinement then asked
+`d8_rasters.is_empty()`, which could not separate "this dataset declares no D8
+raster" from "this dataset declares one under a schema I do not implement". The
+shipped rule: an unrecognised auxiliary costs its own entry and nothing more,
+retained on `AuxDeclarations::unreadable`, and best-effort refinement reports
+`BestEffortSkipReason::UnreadableD8AuxDeclared` naming the schema it could not
+read. Two cases remain uncovered — a readable D8 pair alongside an unreadable
+D8 declaration produces no typed skip, and `RequireD8` names the schema it
+wanted rather than the one it found. The witness is `merit-hfx-global`, written
+2026-07-16 by adapter 0.2.0 — 2,876,771 units, one still-blessed
+`hfx.aux.snap.v2`, and 60 `hfx.aux.d8_raster.v1` entries retired four days later
+— which `hfx-cli` calls malformed and released pourpoint 0.3.0 refuses to open
+at all; a 43-unit committed cut of it opens and delineates on `main` (hfx ADR:
+`docs/decisions/2026-08-01-unrecognised-auxiliary-costs-its-entry.md`).
+_Avoid_: "unsupported auxiliary" (the dataset is well-formed; the reader is
+what lacks support); "ignore unknown entries" (names only the tolerant half —
+retention is what keeps the skip diagnosable)
 
 **Best-effort totality**:
 The property that `RefinementMode::BestEffort` has no failing outcome: every
