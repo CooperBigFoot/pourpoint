@@ -23,6 +23,7 @@ fn pourpoint() -> Command {
 enum EvidenceStrength {
     DeclarationDiscriminatingCompiledCli,
     ShippedCliBehaviorWithCatalogLiteralCorrespondence,
+    CompiledCliAcceptanceWithInstalledWheelRetentionNaming,
 }
 
 #[derive(Clone, Copy)]
@@ -75,7 +76,7 @@ const WITNESS_AUX_GENERIC: ReaderSupportWitness = ReaderSupportWitness {
 const WITNESS_AUX_D8_V1: ReaderSupportWitness = ReaderSupportWitness {
     claim_id: ReaderSupportClaimId::new("aux-schema-d8-raster-v1-unsupported"),
     evidence_test: "auxiliary_schema_claims_have_shipped_cli_evidence",
-    strength: EvidenceStrength::DeclarationDiscriminatingCompiledCli,
+    strength: EvidenceStrength::CompiledCliAcceptanceWithInstalledWheelRetentionNaming,
 };
 const WITNESS_D8_CRS_4326: ReaderSupportWitness = ReaderSupportWitness {
     claim_id: ReaderSupportClaimId::new("core-d8-crs-epsg-4326"),
@@ -776,10 +777,14 @@ fn mechanically_declared_reader_support_inventories_have_witness_correspondence(
             is_identifier_token(witness.evidence_test),
             "evidence-test name must be one Rust identifier"
         );
-        let expected_strength = if witness.claim_id.as_str() == "aux-schema-generic" {
-            EvidenceStrength::ShippedCliBehaviorWithCatalogLiteralCorrespondence
-        } else {
-            EvidenceStrength::DeclarationDiscriminatingCompiledCli
+        let expected_strength = match witness.claim_id.as_str() {
+            "aux-schema-generic" => {
+                EvidenceStrength::ShippedCliBehaviorWithCatalogLiteralCorrespondence
+            }
+            "aux-schema-d8-raster-v1-unsupported" => {
+                EvidenceStrength::CompiledCliAcceptanceWithInstalledWheelRetentionNaming
+            }
+            _ => EvidenceStrength::DeclarationDiscriminatingCompiledCli,
         };
         assert_eq!(
             witness.strength,
@@ -1198,6 +1203,25 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
     replace_manifest_auxiliary(
         &root,
         json!([{
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": { "x": "graph.parquet" },
+            "metadata": { "literal": true }
+        }]),
+    );
+    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    calls_completed += 1;
+    assert!(
+        succeeded,
+        "dataset declaring D8-v1 should open and delineate through the compiled CLI: {json}"
+    );
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
+    assert_eq!(json["successes"].as_array().map(Vec::len), Some(1));
+
+    let (_directory, root) = DatasetBuilder::new(3).build();
+    replace_manifest_auxiliary(
+        &root,
+        json!([{
             "schema": "hfx.x.experimental.v1",
             "artifacts": { "x": "graph.parquet" },
             "metadata": { "literal": true }
@@ -1270,22 +1294,17 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
         )
     );
 
-    let (_directory, root) = DatasetBuilder::new(3).build();
-    replace_manifest_auxiliary(
-        &root,
-        json!([{
-            "schema": "hfx.aux.d8_raster.v1",
-            "artifacts": { "x": "missing.bin" },
-            "metadata": { "literal": true }
-        }]),
-    );
-    let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/python/tests/fixtures/merit-hfx-global-unreadable-v1");
+    let (succeeded, json) = invoke_delineate(&root, "47.37", "8.54");
     calls_completed += 1;
-    assert!(!succeeded, "D8-v1 declaration should fail");
-    assert_eq!(
-        json["error"],
-        "failed to open HFX dataset session: auxiliary schema \"hfx.aux.d8_raster.v1\" is no longer supported; recompile the dataset with a v2-emitting adapter that declares \"hfx.aux.d8_raster.v2\""
+    assert!(
+        succeeded,
+        "dataset with retained D8-v1 declarations should open and delineate: {json}"
     );
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
+    assert_eq!(json["successes"][0]["terminal_unit_id"], 23017694);
 
     let (_directory, root) = DatasetBuilder::new(3).build();
     replace_manifest_auxiliary(
@@ -1298,13 +1317,14 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
     );
     let (succeeded, json) = invoke_delineate(&root, "0.20", "1.70");
     calls_completed += 1;
-    assert!(!succeeded, "unblessed HFX declaration should fail");
-    assert_eq!(
-        json["error"],
-        "failed to open HFX dataset session: auxiliary declaration for schema \"hfx.aux.bogus.v9\" is invalid: malformed auxiliary schema id: \"hfx.aux.bogus.v9\""
+    assert!(
+        succeeded,
+        "unreadable HFX declaration should be retained without blocking the dataset: {json}"
     );
+    assert_eq!(json["succeeded"], 1);
+    assert_eq!(json["failed"], 0);
 
-    assert_eq!(calls_completed, 8, "all shipped CLI calls must complete");
+    assert_eq!(calls_completed, 9, "all shipped CLI calls must complete");
     assert_eq!(
         auxiliary_schema_support_claims().len(),
         4,

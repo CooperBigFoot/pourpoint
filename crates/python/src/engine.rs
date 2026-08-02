@@ -85,6 +85,7 @@ pub struct PyEngine {
     engine: Arc<Engine>,
     pub(crate) config: EngineConfig,
     pub(crate) fabric_identity: FabricIdentity,
+    unreadable_auxiliary_schemas: Vec<String>,
 }
 
 #[pymethods]
@@ -210,6 +211,12 @@ impl PyEngine {
             })
             .map_err(crate::error::dataset_err)?;
         let fabric_identity = FabricIdentity::from_manifest(session.manifest());
+        let unreadable_auxiliary_schemas = session
+            .auxiliary_declarations()
+            .unreadable
+            .iter()
+            .map(|decl| decl.schema.clone())
+            .collect();
 
         let mut builder = Engine::builder(session).with_raster_source(GdalRasterSource::new());
         if config.requests_gdal_geometry_repair() {
@@ -221,7 +228,14 @@ impl PyEngine {
             engine: Arc::new(engine),
             config,
             fabric_identity,
+            unreadable_auxiliary_schemas,
         })
+    }
+
+    /// Return unreadable HFX auxiliary schema occurrences in manifest order.
+    #[getter]
+    fn unreadable_auxiliary_schemas(&self) -> Vec<String> {
+        self.unreadable_auxiliary_schemas.clone()
     }
 
     /// Select an HFX drainage-unit level for a staged delineation run.

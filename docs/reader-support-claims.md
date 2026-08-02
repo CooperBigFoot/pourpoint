@@ -42,8 +42,8 @@ HFX 0.5.0 has only that `Crs` variant.
 | `core-flow-dir-encoding-grass` | `grass_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence` | The unchanged tracked GRASS declaration yields its expected refinement, area, and ordered ring counts; changing only that declaration to TauDEM makes the test red. | Typed inventory only. | Declaration-discriminating compiled-CLI evidence. |
 | `aux-schema-d8-raster-v2` | `auxiliary_schema_claims_have_shipped_cli_evidence` | An unmodified tracked D8-v2 fixture succeeds through the compiled CLI. | Typed inventory only; no shipped-path typed-value discrimination. | Declaration-discriminating compiled-CLI behavior. |
 | `aux-schema-snap-v2` | `auxiliary_schema_claims_have_shipped_cli_evidence` | A builder-created snap-v2 dataset succeeds through the compiled CLI. | Typed inventory only; no shipped-path typed-value discrimination. | Declaration-discriminating compiled-CLI behavior. |
-| `aux-schema-generic` | `auxiliary_schema_claims_have_shipped_cli_evidence` | Present/missing provisional and third-party artifacts exercise generic behavior; the representative literal is checked against the catalog after all eight CLI calls. | Typed inventory only. | Shipped-CLI behavior coupled only to independent catalog-literal correspondence, not representative-declaration discrimination. |
-| `aux-schema-d8-raster-v1-unsupported` | `auxiliary_schema_claims_have_shipped_cli_evidence` | A D8-v1 declaration returns the exact de-blessing error before artifact presence validation. | Typed inventory only; `claimed_auxiliary_schema` cannot return this row, so the typed variant is structurally inert on the CLI path. | Declaration-discriminating compiled-CLI evidence. |
+| `aux-schema-generic` | `auxiliary_schema_claims_have_shipped_cli_evidence` | Present/missing provisional and third-party artifacts exercise generic behavior; the representative literal is checked against the catalog after all nine CLI calls. | Typed inventory only. | Shipped-CLI behavior coupled only to independent catalog-literal correspondence, not representative-declaration discrimination. |
+| `aux-schema-d8-raster-v1-unsupported` | `auxiliary_schema_claims_have_shipped_cli_evidence` | A builder-created manifest changed to D8-v1 opens and delineates through the compiled CLI; the shipped MERIT reduction with 60 D8-v1 declarations does the same. The installed-wheel test `test_merit_reduction_survives_sixty_unreadable_v1_declarations` asserts that `Engine.unreadable_auxiliary_schemas` retains and names all 60 declarations in manifest order. | Typed inventory only; `claimed_auxiliary_schema` cannot return this row, so D8-v1 remains unsupported for decoding and is retained outside the typed manifest. | Declaration-discriminating compiled-CLI acceptance plus installed-wheel retention naming; the CLI does not expose retained schema names. |
 | `core-d8-crs-epsg-4326` | `geographic_d8_claims_have_shipped_cli_evidence` | The tracked geographic/cells dataset refines through the compiled CLI. | Typed inventory only. | Declaration-discriminating compiled-CLI behavior. |
 | `core-d8-crs-epsg-8857` | `projected_d8_claims_have_shipped_cli_evidence` | The unchanged projected/km2 fixture refines through the compiled CLI. | Typed inventory only. | Declaration-discriminating compiled-CLI behavior. |
 | `core-d8-flow-acc-units-cells` | `geographic_d8_claims_have_shipped_cli_evidence` | Geographic/cells refinement succeeds, then a copied manifest changed only to `km2` follows the rejection behavior with raster bytes unchanged. | Typed inventory only. | Declaration-discriminating compiled-CLI behavior. |
@@ -53,8 +53,11 @@ The generic representative is deliberately weaker than declaration-discriminatin
 evidence: its provisional and third-party CLI outcomes do not discriminate
 `hfx.x.experimental.v1`; catalog equality after shipped behavior does. Typed-value
 only mutations can remain CLI-green and are caught by separate in-process
-inventory assertions. This is also the boundary for D8-v2, snap-v2, and D8-v1:
-their witnesses do not prove their typed variants through the shipped path.
+inventory assertions. This is also the boundary for D8-v2 and snap-v2: their
+witnesses do not prove their typed variants through the shipped path. D8-v1 has
+a different named non-support outcome: the reader retains each unreadable
+declaration outside the typed manifest, the dataset remains openable, and the
+Python `Engine` reports the retained schema names to callers.
 
 The removed flow-direction pairwise-distinctness helper was a decorative fourth
 copy of outcomes and supplied no protection. The consumed production cases and
@@ -90,6 +93,10 @@ convention. These forms are known, unenforced limitations:
   module and test may be compiled out without failing the gate.
 - An `ignore` or `cfg` introduced indirectly through `cfg_attr` on a
   witness-named test.
+- Evidence in `crates/python/tests/` is not scanned by the structural gate. A
+  witness row can name a Rust test while a substantive assertion, such as the
+  retained D8-v1 schema naming assertion, lives only in an installed-wheel
+  Python test.
 
 The same lexer scans `tests/reader_support_claims.rs` for attribute runs followed
 by `fn <IDENT>(`. A run must contain `#[test]` and must not contain `#[ignore]` or
@@ -102,7 +109,10 @@ The check does not inspect test bodies, prove that a named test still invokes th
 CLI, validate evidence semantics, or evaluate `ignore` or `cfg` introduced
 indirectly through `cfg_attr`. The current compiled-CLI bodies, the full focused
 suite, and mutation controls establish those properties for the current
-implementation.
+implementation. In particular, the D8-v1 Rust witness proves compiled-CLI
+acceptance and delineation, but the CLI cannot distinguish named retention from
+silently ignoring the declaration. That naming property is established only by
+the installed-wheel Python test and is outside the structural scan.
 
 ## Independence and anti-circularity
 

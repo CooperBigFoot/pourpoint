@@ -124,7 +124,10 @@ jobs:
 
       - name: Install wheel
         working-directory: crates/python
-        run: python -m pip install dist/*.whl
+        run: python -m pip install --force-reinstall dist/*.whl
+
+      - name: Install behavioral test dependencies
+        run: python -m pip install pytest pyarrow
 
       - name: Import smoke test
         run: |
@@ -143,3 +146,9 @@ jobs:
           pourpoint._pourpoint._self_test_proj()
           print("pourpoint import smoke passed; version=" + pourpoint.__version__)
           PY
+
+      - name: Test unreadable auxiliary retention through installed wheel
+        run: |
+          python -m pytest -vv \
+            crates/python/tests/test_behavioral.py::TestUnreadableAuxiliaryDeclarations::test_unreadable_auxiliary_declarations_are_retained_through_installed_wheel \
+            crates/python/tests/test_unreadable_auxiliary.py::test_merit_reduction_survives_sixty_unreadable_v1_declarations

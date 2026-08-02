@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use arrow::array::{
@@ -15,6 +15,7 @@ use parquet::arrow::ProjectionMask;
 use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStreamBuilder};
 use parquet::file::statistics::Statistics;
 use pourpoint_core::error::SessionError;
+use pourpoint_core::reader::manifest::UnreadableAuxDecl;
 use pourpoint_core::reader::manifest::read_manifest_from_bytes;
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::source::DatasetSource;
@@ -176,27 +177,105 @@ fn auxiliary_d8_v2_opens_through_session_path() {
 }
 
 #[test]
-fn auxiliary_d8_v1_is_rejected_during_session_open() {
-    let (_dir, root) = DatasetBuilder::new(3).build();
-    replace_auxiliary(
-        &root,
-        json!({
+fn auxiliary_unreadable_hfx_schemas_open_without_artifact_presence() {
+    let (_dir, root) = DatasetBuilder::new(3).with_snap().build();
+    let mut manifest = read_manifest(&root);
+    manifest["auxiliary"] = json!([
+        {
             "schema": "hfx.aux.d8_raster.v1",
             "artifacts": {
-                "flow_dir": "flow_dir.tif",
-                "flow_acc": "flow_acc.tif"
+                "flow_dir": "missing/v1-dir.tif",
+                "flow_acc": "missing/v1-acc.tif"
             },
             "metadata": {
-                "flow_dir_encoding": "esri"
+                "flow_dir_encoding": "esri",
+                "producer": "legacy-v1"
             }
-        }),
-    );
+        },
+        {
+            "schema": "hfx.aux.d8_raster.v3",
+            "artifacts": {
+                "flow_dir": "missing/v3-dir.tif",
+                "flow_acc": "missing/v3-acc.tif"
+            },
+            "metadata": {
+                "purpose": "future-d8"
+            }
+        },
+        {
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": {
+                "flow_dir": "missing/duplicate-v1-dir.tif",
+                "flow_acc": "missing/duplicate-v1-acc.tif"
+            },
+            "metadata": {
+                "flow_dir_encoding": "grass",
+                "producer": "duplicate-v1"
+            }
+        },
+        {
+            "schema": "hfx.aux.snap.v2",
+            "artifacts": {"snap": "snap.parquet"},
+            "metadata": {
+                "name": "synthetic-outlet-snap",
+                "description": "Synthetic snap target at the unit 3 outlet.",
+                "weight_semantics": "higher is preferred",
+                "references_levels": [0]
+            }
+        }
+    ]);
+    write_manifest(&root, &manifest);
 
-    let error = DatasetSession::open_path(&root).expect_err("v1 D8 declaration should be rejected");
-    assert!(matches!(&error, SessionError::UnsupportedD8RasterV1));
-    let rendered = error.to_string();
-    assert!(rendered.contains("hfx.aux.d8_raster.v1"));
-    assert!(rendered.contains("recompile the dataset with a v2-emitting adapter"));
+    let session = DatasetSession::open_path(&root).unwrap_or_else(|error| panic!("{error}"));
+    let aux = session.auxiliary_declarations();
+    assert!(!session.has_d8_aux());
+    assert!(aux.d8_rasters.is_empty());
+    assert!(aux.generic.is_empty());
+    assert_eq!(aux.snaps.len(), 1);
+    assert_eq!(aux.snaps[0].name, "synthetic-outlet-snap");
+    assert_eq!(aux.snaps[0].snap, "snap.parquet");
+    assert_eq!(aux.snaps[0].references_levels, vec![0]);
+    assert_eq!(
+        aux.unreadable,
+        vec![
+            UnreadableAuxDecl {
+                schema: "hfx.aux.d8_raster.v1".to_string(),
+                artifacts: BTreeMap::from([
+                    ("flow_acc".to_string(), "missing/v1-acc.tif".to_string()),
+                    ("flow_dir".to_string(), "missing/v1-dir.tif".to_string()),
+                ]),
+                metadata: json!({
+                    "flow_dir_encoding": "esri",
+                    "producer": "legacy-v1"
+                }),
+            },
+            UnreadableAuxDecl {
+                schema: "hfx.aux.d8_raster.v3".to_string(),
+                artifacts: BTreeMap::from([
+                    ("flow_acc".to_string(), "missing/v3-acc.tif".to_string()),
+                    ("flow_dir".to_string(), "missing/v3-dir.tif".to_string()),
+                ]),
+                metadata: json!({"purpose": "future-d8"}),
+            },
+            UnreadableAuxDecl {
+                schema: "hfx.aux.d8_raster.v1".to_string(),
+                artifacts: BTreeMap::from([
+                    (
+                        "flow_acc".to_string(),
+                        "missing/duplicate-v1-acc.tif".to_string(),
+                    ),
+                    (
+                        "flow_dir".to_string(),
+                        "missing/duplicate-v1-dir.tif".to_string(),
+                    ),
+                ]),
+                metadata: json!({
+                    "flow_dir_encoding": "grass",
+                    "producer": "duplicate-v1"
+                }),
+            },
+        ]
+    );
 }
 
 #[test]
