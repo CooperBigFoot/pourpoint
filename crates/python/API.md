@@ -11,6 +11,7 @@ The `pourpoint` package exports these names:
 
 - `Engine`
 - `DelineationResult`
+- `BestEffortSkipReason`
 - `DelineationUnitMetadata`
 - `AreaOnlyResult`
 - `LevelSelection`
@@ -284,6 +285,7 @@ Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 | `input_outlet` | `tuple[float, float]` | Original outlet as `(lon, lat)` |
 | `resolved_outlet` | `tuple[float, float]` | Outlet used for resolution as `(lon, lat)` |
 | `refined_outlet` | `tuple[float, float] \| None` | Raster-refined outlet as `(lon, lat)`, or `None` if refinement was not applied |
+| `refinement_skip_reason` | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
 | `resolution_method` | `str` | Debug/provenance string describing how outlet resolution happened |
 | `upstream_unit_ids` | `list[int]` | Upstream unit IDs including the terminal unit |
 | `upstream_units` | `list[DelineationUnitMetadata]` | Light per-unit metadata without per-unit geometry |
@@ -308,6 +310,23 @@ and upstream unit count.
 
 `DelineationResult` intentionally does not expose per-unit WKB. Use the
 `pre_merge_units()` staged output when whole-unit geometries are required.
+
+### BestEffortSkipReason
+
+`refinement_skip_reason` is a separate typed accessor. It does not relabel the
+staged `TerminalRefinement.status` and does not replace the compatible Debug
+string emitted by `to_geojson()`.
+
+The `kind` property is one of `unreadable_d8_aux_declared`,
+`no_d8_aux_declared`, `no_raster_source_provided`, `availability`,
+`mis_declaration`, or `data_geometry_integrity`. The `category` property is one
+of `availability`, `mis_declaration`, or `data_geometry_integrity`. `schema` is
+non-`None` only when `kind == "unreadable_d8_aux_declared"`.
+
+Unreadable-D8 eligibility uses only the exact `hfx.aux.d8_raster.` name prefix;
+it does not verify that a referenced artifact is a D8 raster. When multiple
+different unreadable D8-family schemas exist, the accessor reports only the
+first matching declaration in manifest order.
 
 ## DelineationUnitMetadata
 

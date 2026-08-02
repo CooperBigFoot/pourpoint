@@ -42,8 +42,8 @@ HFX 0.5.0 has only that `Crs` variant.
 | `core-flow-dir-encoding-grass` | `grass_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence` | The unchanged tracked GRASS declaration yields its expected refinement, area, and ordered ring counts; changing only that declaration to TauDEM makes the test red. | Typed inventory only. | Declaration-discriminating compiled-CLI evidence. |
 | `aux-schema-d8-raster-v2` | `auxiliary_schema_claims_have_shipped_cli_evidence` | An unmodified tracked D8-v2 fixture succeeds through the compiled CLI. | Typed inventory only; no shipped-path typed-value discrimination. | Declaration-discriminating compiled-CLI behavior. |
 | `aux-schema-snap-v2` | `auxiliary_schema_claims_have_shipped_cli_evidence` | A builder-created snap-v2 dataset succeeds through the compiled CLI. | Typed inventory only; no shipped-path typed-value discrimination. | Declaration-discriminating compiled-CLI behavior. |
-| `aux-schema-generic` | `auxiliary_schema_claims_have_shipped_cli_evidence` | Present/missing provisional and third-party artifacts exercise generic behavior; the representative literal is checked against the catalog after all nine CLI calls. | Typed inventory only. | Shipped-CLI behavior coupled only to independent catalog-literal correspondence, not representative-declaration discrimination. |
-| `aux-schema-d8-raster-v1-unsupported` | `auxiliary_schema_claims_have_shipped_cli_evidence` | A builder-created manifest changed to D8-v1 opens and delineates through the compiled CLI; the shipped MERIT reduction with 60 D8-v1 declarations does the same. The installed-wheel test `test_merit_reduction_survives_sixty_unreadable_v1_declarations` asserts that `Engine.unreadable_auxiliary_schemas` retains and names all 60 declarations in manifest order. | Typed inventory only; `claimed_auxiliary_schema` cannot return this row, so D8-v1 remains unsupported for decoding and is retained outside the typed manifest. | Declaration-discriminating compiled-CLI acceptance plus installed-wheel retention naming; the CLI does not expose retained schema names. |
+| `aux-schema-generic` | `auxiliary_schema_claims_have_shipped_cli_evidence` | Present/missing provisional and third-party artifacts exercise generic behavior; the representative literal is checked against the catalog after all eleven CLI calls. | Typed inventory only. | Shipped-CLI behavior coupled only to independent catalog-literal correspondence, not representative-declaration discrimination. |
+| `aux-schema-d8-raster-v1-unsupported` | `auxiliary_schema_claims_have_shipped_cli_evidence` | A builder-created manifest changed to D8-v1 opens and delineates through the compiled CLI; the shipped MERIT reduction with 60 D8-v1 declarations does the same and refined GeoJSON names the exact first unreadable D8-family schema. The installed-wheel test separately asserts `DelineationResult.refinement_skip_reason` and that `Engine.unreadable_auxiliary_schemas` retains all 60 declarations in manifest order. | Typed inventory only; `claimed_auxiliary_schema` cannot return this row, so D8-v1 remains unsupported for decoding and is retained outside the typed manifest. | Declaration-discriminating compiled-CLI evidence plus separate typed installed-wheel evidence. |
 | `core-d8-crs-epsg-4326` | `geographic_d8_claims_have_shipped_cli_evidence` | The tracked geographic/cells dataset refines through the compiled CLI. | Typed inventory only. | Declaration-discriminating compiled-CLI behavior. |
 | `core-d8-crs-epsg-8857` | `projected_d8_claims_have_shipped_cli_evidence` | The unchanged projected/km2 fixture refines through the compiled CLI. | Typed inventory only. | Declaration-discriminating compiled-CLI behavior. |
 | `core-d8-flow-acc-units-cells` | `geographic_d8_claims_have_shipped_cli_evidence` | Geographic/cells refinement succeeds, then a copied manifest changed only to `km2` follows the rejection behavior with raster bytes unchanged. | Typed inventory only. | Declaration-discriminating compiled-CLI behavior. |
@@ -57,7 +57,10 @@ inventory assertions. This is also the boundary for D8-v2 and snap-v2: their
 witnesses do not prove their typed variants through the shipped path. D8-v1 has
 a different named non-support outcome: the reader retains each unreadable
 declaration outside the typed manifest, the dataset remains openable, and the
-Python `Engine` reports the retained schema names to callers.
+Python `Engine` reports the retained schema names to callers. Best-effort
+refinement reports only the first unreadable declaration whose name begins with
+the exact `hfx.aux.d8_raster.` prefix, in manifest order. This routing
+classification does not verify that a referenced artifact is a D8 raster.
 
 The removed flow-direction pairwise-distinctness helper was a decorative fourth
 copy of outcomes and supplied no protection. The consumed production cases and
@@ -95,8 +98,7 @@ convention. These forms are known, unenforced limitations:
   witness-named test.
 - Evidence in `crates/python/tests/` is not scanned by the structural gate. A
   witness row can name a Rust test while a substantive assertion, such as the
-  retained D8-v1 schema naming assertion, lives only in an installed-wheel
-  Python test.
+  typed installed-wheel accessor assertion, lives only in a Python test.
 
 The same lexer scans `tests/reader_support_claims.rs` for attribute runs followed
 by `fn <IDENT>(`. A run must contain `#[test]` and must not contain `#[ignore]` or
@@ -110,9 +112,9 @@ CLI, validate evidence semantics, or evaluate `ignore` or `cfg` introduced
 indirectly through `cfg_attr`. The current compiled-CLI bodies, the full focused
 suite, and mutation controls establish those properties for the current
 implementation. In particular, the D8-v1 Rust witness proves compiled-CLI
-acceptance and delineation, but the CLI cannot distinguish named retention from
-silently ignoring the declaration. That naming property is established only by
-the installed-wheel Python test and is outside the structural scan.
+acceptance, delineation, and exact first-schema disclosure in refined GeoJSON.
+The installed-wheel Python test separately proves the public typed accessor and
+is outside the structural scan.
 
 ## Independence and anti-circularity
 

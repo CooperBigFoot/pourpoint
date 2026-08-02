@@ -164,6 +164,36 @@ def hfx_dataset_with_unreadable_auxiliary(tmp_path):
     return str(tmp_path)
 
 
+@pytest.fixture
+def hfx_dataset_with_ordered_unreadable_d8_auxiliary(tmp_path):
+    """Create a dataset with distinguishable unreadable D8 declarations."""
+    auxiliary = [
+        {
+            "schema": "hfx.aux.d8_raster.v3",
+            "artifacts": {
+                "flow_dir": "missing/v3-dir.tif",
+                "flow_acc": "missing/v3-acc.tif",
+            },
+            "metadata": {"purpose": "first-future-d8"},
+        },
+        {
+            "schema": "hfx.aux.d8_raster.v1",
+            "artifacts": {
+                "flow_dir": "missing/v1-dir.tif",
+                "flow_acc": "missing/v1-acc.tif",
+            },
+            "metadata": {
+                "flow_dir_encoding": "esri",
+                "producer": "last-legacy-v1",
+            },
+        },
+    ]
+    _write_manifest(tmp_path, auxiliary)
+    _write_graph(tmp_path)
+    _write_catchments(tmp_path)
+    return str(tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # Artifact writers
 # ---------------------------------------------------------------------------

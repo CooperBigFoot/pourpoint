@@ -5,6 +5,9 @@ use std::sync::OnceLock;
 use geo::BoundingRect;
 use pourpoint_core::algo::encode_wkb_multi_polygon;
 use pourpoint_core::engine::DelineationAreaOnlyResult;
+use pourpoint_core::refinement::{
+    BestEffortSkipCategory, BestEffortSkipReason, RefinementProvenance,
+};
 use pourpoint_core::{DelineationResult, RefinementOutcome};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -16,6 +19,72 @@ use crate::geojson::result_to_geojson_feature;
 pub struct PyDelineationResult {
     inner: DelineationResult,
     geometry_wkb: OnceLock<Vec<u8>>,
+}
+
+/// Typed Python view of a best-effort refinement skip reason.
+#[pyclass(name = "BestEffortSkipReason", frozen)]
+pub struct PyBestEffortSkipReason {
+    inner: BestEffortSkipReason,
+}
+
+impl PyBestEffortSkipReason {
+    fn from_reason(reason: BestEffortSkipReason) -> Self {
+        Self { inner: reason }
+    }
+}
+
+#[pymethods]
+impl PyBestEffortSkipReason {
+    /// Stable machine-readable reason kind.
+    #[getter]
+    fn kind(&self) -> &'static str {
+        match &self.inner {
+            BestEffortSkipReason::UnreadableD8AuxDeclared { .. } => "unreadable_d8_aux_declared",
+            BestEffortSkipReason::NoD8AuxDeclared => "no_d8_aux_declared",
+            BestEffortSkipReason::NoRasterSourceProvided => "no_raster_source_provided",
+            BestEffortSkipReason::Availability { .. } => "availability",
+            BestEffortSkipReason::MisDeclaration { .. } => "mis_declaration",
+            BestEffortSkipReason::DataGeometryIntegrity { .. } => "data_geometry_integrity",
+        }
+    }
+
+    /// Stable operator-facing category.
+    #[getter]
+    fn category(&self) -> &'static str {
+        match self.inner.category() {
+            BestEffortSkipCategory::Availability => "availability",
+            BestEffortSkipCategory::MisDeclaration => "mis_declaration",
+            BestEffortSkipCategory::DataGeometryIntegrity => "data_geometry_integrity",
+        }
+    }
+
+    /// Retained unreadable schema, when this is an unreadable-D8 reason.
+    #[getter]
+    fn schema(&self) -> Option<String> {
+        match &self.inner {
+            BestEffortSkipReason::UnreadableD8AuxDeclared { schema } => Some(schema.clone()),
+            BestEffortSkipReason::NoD8AuxDeclared
+            | BestEffortSkipReason::NoRasterSourceProvided
+            | BestEffortSkipReason::Availability { .. }
+            | BestEffortSkipReason::MisDeclaration { .. }
+            | BestEffortSkipReason::DataGeometryIntegrity { .. } => None,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match self.schema() {
+            Some(schema) => format!(
+                "BestEffortSkipReason(kind='{}', category='{}', schema='{schema}')",
+                self.kind(),
+                self.category()
+            ),
+            None => format!(
+                "BestEffortSkipReason(kind='{}', category='{}', schema=None)",
+                self.kind(),
+                self.category()
+            ),
+        }
+    }
 }
 
 impl PyDelineationResult {
@@ -84,6 +153,19 @@ impl PyDelineationResult {
     #[getter]
     fn refined_outlet(&self) -> Option<(f64, f64)> {
         refined_outlet_tuple(self.inner.refinement())
+    }
+
+    /// Typed best-effort refinement skip reason, if refinement was skipped.
+    #[getter]
+    fn refinement_skip_reason(&self) -> Option<PyBestEffortSkipReason> {
+        match self.inner.refinement() {
+            RefinementOutcome::BestEffortSkipped {
+                provenance: RefinementProvenance::BestEffortSkipped { why, .. },
+            } => Some(PyBestEffortSkipReason::from_reason(why.clone())),
+            RefinementOutcome::Applied { .. }
+            | RefinementOutcome::Disabled
+            | RefinementOutcome::BestEffortSkipped { .. } => None,
+        }
     }
 
     /// Debug string representation of the resolution method.

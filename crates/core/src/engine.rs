@@ -739,6 +739,11 @@ impl Engine {
         match options.refinement_mode {
             RefinementMode::Disabled => return Ok(TerminalRefinement::Disabled),
             RefinementMode::BestEffort if !self.session.has_d8_aux() => {
+                if let Some(schema) = self.session.first_unreadable_d8_auxiliary_schema() {
+                    return Ok(TerminalRefinement::best_effort_unreadable_d8_aux_declared(
+                        schema.to_owned(),
+                    ));
+                }
                 return Ok(TerminalRefinement::best_effort_no_d8_aux_declared());
             }
             RefinementMode::RequireD8 if !self.session.has_d8_aux() => {

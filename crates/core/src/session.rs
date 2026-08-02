@@ -35,7 +35,7 @@ use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
 use crate::source::{DatasetSource, pourpoint_get_ranges_concurrency};
 use crate::source_telemetry::{HttpStatsHandle, HttpStatsSnapshot};
-use crate::support_claims::claimed_d8_crs;
+use crate::support_claims::{claimed_d8_crs, is_unreadable_d8_auxiliary_schema};
 use crate::telemetry::{Stage, StageGuard, record_bytes, record_path};
 
 /// Raster artifact selector for lazy localization.
@@ -607,6 +607,15 @@ impl DatasetSession {
     /// Return the parsed auxiliary declarations.
     pub fn auxiliary_declarations(&self) -> &AuxDeclarations {
         &self.aux_declarations
+    }
+
+    /// Return the first retained unreadable D8-family schema in manifest order.
+    pub fn first_unreadable_d8_auxiliary_schema(&self) -> Option<&str> {
+        self.aux_declarations
+            .unreadable
+            .iter()
+            .find(|decl| is_unreadable_d8_auxiliary_schema(&decl.schema))
+            .map(|decl| decl.schema.as_str())
     }
 
     /// Return the graph topology declared in the manifest.
