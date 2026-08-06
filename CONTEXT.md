@@ -71,10 +71,39 @@ invalidated without the reader changing); do not extend that condemnation to a
 A live dataset prefix whose manifest never gains an entry that a deployed
 released reader rejects; such an entry ships under a successor prefix instead,
 leaving the frozen prefix byte-stable for the readers already pointing at it.
-`grit/hfx-v0.3.0` is frozen; the planetary D8 entry ships under a successor
-prefix.
+Freezing buys exactly one thing — protection for readers already pointing at
+the prefix — so its value is proportional to that population and is zero when
+the population is empty. On 2026-08-06 the repository owner attested that
+pourpoint has no third-party installs, superseding the freeze of
+`grit/hfx-v0.3.0` and the successor prefix `grit/hfx-v0.3.1` by decision: the
+planetary D8 entry is to be declared in place once released 0.2.0 and 0.2.1 are
+yanked, and no successor prefix is minted. Neither the yank nor the in-place
+declaration has been performed; until they are, the freeze still describes the
+live prefix. The underlying rule — never change data under a reader already
+reading it — is unchanged; what replaces enacting it by immobilising the data is
+stating a **reader floor**. The attestation is owner recollection, not a
+measurement: the 2026-08-01 BigQuery counts (37 and 36 installer-attributed
+downloads) were never attributed to a person, in either direction.
 _Avoid_: "re-fire" (amending the frozen prefix in place), "additive
-amendment"
+amendment"; "the freeze was wrong" (it was correct for the population it was
+believed to protect; the population is what changed)
+
+**Reader floor**:
+The lowest released pourpoint version that reads a given dataset address
+correctly, published as a fact beside every address the repository hands out,
+rather than reasoned out from context each time an address is shared. It
+replaces immobilising data with declaring who may read it, and it is the
+general form of the three protections this Program reached for in sequence —
+frozen prefix, support claims, and the straggler question. A floor is a
+**support claim** and inherits that term's evidence discipline: the floor for
+the GRIT address is 0.3.0 because the declaration-authority and window-assembly
+fixes landed there, which is a derivation from the claim catalog and not an
+observation of a reader reading that address. Only a page that hands an address
+to a user carries a floor; test fixtures, goldens, and dated evidence records
+cite addresses as evidence and are not offers.
+_Avoid_: "minimum version" unqualified (says nothing about which address);
+"supported version" (a floor is the reader side of one address, not a support
+policy for the package)
 
 **Straggler reader**:
 A deployed released reader that *accepts* a declaration it predates and decodes
@@ -86,7 +115,15 @@ Released 0.2.1 is the straggler for a declared-`grass` D8 entry — it parses
 `flow_dir_encoding` and then decodes ESRI anyway, and #63 taught it to open the
 planetary COGs while the encoding fix did not ship until 0.3.0. 0.2.0 shares the
 decode defect but cannot open those COGs at all, so it fails loudly and is not
-the hazard; "0.2.x" blurs the two.
+the hazard *for those particular files*; against a smaller GRASS-declared D8
+raster it lies as quietly as 0.2.1, so its loudness is a property of the file
+size and not of the release. "0.2.x" blurs the two failure modes. A straggler is
+removed, not protected: on 2026-08-06 the owner decided to yank both 0.2.0 and
+0.2.1, which ends the category here because a yank leaves no default resolution
+path to either. A yank is not a deletion — it changes what a version range
+resolves to and leaves an exact pin installable — so it reaches future installs
+and never an install already on disk; it is sufficient here only because the
+owner attests the installed base is his own.
 _Avoid_: "old client", "unsupported reader" (it is not unsupported; it accepts);
 "straggler" unqualified (the Map uses it for the affected user population, not
 for the failure mode)
