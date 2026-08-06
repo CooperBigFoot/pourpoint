@@ -122,7 +122,28 @@ exception to it, not a revision of it. Any future agent reading this file must
 treat tag creation, Release publication, and PyPI publication as human-only
 unless it holds the same explicit, per-release instruction.
 
-## pourpoint 0.2.x publication decision and 0.3.0 successor mechanism
+## 2026-08-06 stream-status decision: reader floor replaces successor mechanism
+
+On 2026-08-06 the repository owner attested that pourpoint has no third-party
+installs and no GitHub stars. This is repository-owner attestation and
+recollection, not a measurement. The 2026-08-01 BigQuery rows of 37 and 36
+installer-attributed downloads remain unattributed and are not the basis for
+the reversal.
+
+On that attested basis, the 2026-08-01 keep-published and successor-mechanism
+decision is reversed. Released pourpoint 0.2.0 and 0.2.1 are to be yanked before
+the planetary D8 entry is declared in place in `grit/hfx-v0.3.0`. No successor
+prefix is to be minted, `grit/hfx-v0.3.1` is abandoned as a name, and no
+server-side copy to it is to be performed. These are ordered decisions; this
+record does not claim that the yank or the in-place declaration has occurred.
+
+The following dated section records the state and decision as of 2026-08-01.
+Its keep-published, frozen-prefix, successor-prefix, server-side-copy, and
+live-straggler claims predate this reversal and no longer govern current work.
+This stream-status statement supersedes those historical status claims without
+rewriting the packet that carries them.
+
+## 2026-08-01 pourpoint 0.2.x publication decision and 0.3.0 successor mechanism
 
 The prior premise was that pourpoint 0.2.0 and 0.2.1 had an empty installed
 base and could be yanked. BigQuery measurements from
