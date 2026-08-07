@@ -86,7 +86,7 @@ Supported dataset path forms:
 | Local file URL | `file:///data/hfx/rhine` |
 | Amazon S3 URL | `s3://bucket/path/to/hfx/rhine` |
 | Cloudflare R2 HTTPS URL | `https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine` |
-| Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` |
+| Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/`<br>Reader floor: pourpoint 0.3.0 |
 
 For remote datasets, `pourpoint` reads only the parts needed for each watershed, so
 you never download the whole dataset. It keeps a small cache on disk so repeat
@@ -100,6 +100,7 @@ The canonical public dataset for examples is GRIT (Global River Topology) 2.0.0,
 
 ```text
 https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
+Reader floor: pourpoint 0.3.0
 ```
 
 CLI example:
@@ -107,7 +108,7 @@ CLI example:
 ```bash
 ./target/release/pourpoint delineate \
     --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ \
-    --lat 47.3769 --lon 8.5417
+    --lat 47.3769 --lon 8.5417 # Reader floor: pourpoint 0.3.0
 ```
 
 Python example:
@@ -116,7 +117,7 @@ Python example:
 import pourpoint
 
 engine = pourpoint.Engine(
-    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"  # Reader floor: pourpoint 0.3.0
 )
 result = engine.delineate(lat=47.3769, lon=8.5417)
 print(result.terminal_unit_id, result.area_km2)
@@ -170,12 +171,9 @@ wheel contributions (Linux / Intel macOS / Windows) live in
 
 ## Acknowledgments
 
-Public hosting of the canonical GRIT HFX dataset at
-`https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` is sponsored by
-[Upstream Tech](https://www.upstream.tech/), who provide the hosting
-infrastructure as an in-kind contribution to the open HFX ecosystem. Upstream
-Tech is an infrastructure sponsor: `pourpoint` is independent open-source software,
-and this acknowledgment implies no commercial relationship or endorsement.
+Public hosting of the canonical GRIT HFX dataset at `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` is sponsored by [Upstream Tech](https://www.upstream.tech/), who provide the hosting infrastructure as an in-kind contribution to the open HFX ecosystem.
+Reader floor: pourpoint 0.3.0.
+Upstream Tech is an infrastructure sponsor: `pourpoint` is independent open-source software, and this acknowledgment implies no commercial relationship or endorsement.
 
 ## License
 

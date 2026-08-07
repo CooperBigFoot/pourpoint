@@ -47,6 +47,7 @@ import pourpoint
 
 # Open the engine against the hosted GRIT hydrofabric (read over the network;
 # nothing is copied to disk).
+# Reader floor: pourpoint 0.3.0
 engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 
 # Delineate the watershed draining to an outlet near Zurich, Switzerland.
