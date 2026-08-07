@@ -33,6 +33,7 @@ Use the hosted public GRIT (Global River Topology) dataset without downloading i
 import pourpoint
 
 # No local dataset: this reads the hosted GRIT dataset over the network.
+# Reader floor: pourpoint 0.3.0
 engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 result = engine.delineate(lat=47.3769, lon=8.5417)
 print(result.area_km2)
