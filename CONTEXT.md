@@ -77,13 +77,20 @@ the population is empty. On 2026-08-06 the repository owner attested that
 pourpoint has no third-party installs, superseding the freeze of
 `grit/hfx-v0.3.0` and the successor prefix `grit/hfx-v0.3.1` by decision: the
 planetary D8 entry is to be declared in place once released 0.2.0 and 0.2.1 are
-yanked, and no successor prefix is minted. Neither the yank nor the in-place
-declaration has been performed; until they are, the freeze still describes the
-live prefix. The underlying rule — never change data under a reader already
-reading it — is unchanged; what replaces enacting it by immobilising the data is
-stating a **reader floor**. The attestation is owner recollection, not a
-measurement: the 2026-08-01 BigQuery counts (37 and 36 installer-attributed
-downloads) were never attributed to a person, in either direction.
+yanked, and no successor prefix is minted. The yank was performed on 2026-08-07
+under explicit owner instruction and verified: exact pins remain installable
+because no release was deleted. The yank has taken effect: plain installs now
+resolve to 0.3.0, a `>=0.2,<0.3` range reports no matching distribution, and all
+twelve 0.2.0 and 0.2.1 files are flagged yanked on the PyPI simple index. Its
+basis is that instruction plus the measured decode difference recorded at
+`docs/evidence/2026-08-06-released-reader-mutation-control.json`. The in-place
+declaration remains out of scope and has not been performed; until it is, the
+freeze still describes the live prefix. The underlying rule — never change
+data under a reader already reading it — is unchanged; what replaces enacting
+it by immobilising the data is stating a **reader floor**. The attestation is
+owner recollection, not a measurement: the 2026-08-01 BigQuery counts (37 and
+36 installer-attributed downloads) were never attributed to a person, in
+either direction.
 _Avoid_: "re-fire" (amending the frozen prefix in place), "additive
 amendment"; "the freeze was wrong" (it was correct for the population it was
 believed to protect; the population is what changed)
@@ -120,10 +127,11 @@ raster it lies as quietly as 0.2.1, so its loudness is a property of the file
 size and not of the release. "0.2.x" blurs the two failure modes. A straggler is
 removed, not protected: on 2026-08-06 the owner decided to yank both 0.2.0 and
 0.2.1, which ends the category here because a yank leaves no default resolution
-path to either. A yank is not a deletion — it changes what a version range
-resolves to and leaves an exact pin installable — so it reaches future installs
-and never an install already on disk; it is sufficient here only because the
-owner attests the installed base is his own.
+path to either. Both releases are now yanked; the 2026-08-07 action is verified.
+A yank is not a deletion — it changes what a version range resolves to and
+leaves an exact pin installable — so it reaches future installs and never an
+install already on disk; it is sufficient here only because the owner attests
+the installed base is his own.
 _Avoid_: "old client", "unsupported reader" (it is not unsupported; it accepts);
 "straggler" unqualified (the Map uses it for the affected user population, not
 for the failure mode)
