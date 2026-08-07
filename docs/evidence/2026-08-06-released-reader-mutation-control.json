@@ -1,0 +1,1701 @@
+{
+  "base_commit": "98ca87122f6b06d923d0cef9b113cef7dc19e485",
+  "classification": {
+    "carved_terminal_comparison_field": "result.geometry_wkb_hex",
+    "causal_hypothesis": {
+      "label": "CAUSAL HYPOTHESIS; not itself measured and not the basis of classification",
+      "statement": "The 0.2.1 reader's ESRI decoding of the manifest-declared GRASS flow-direction bytes maps illegal directions to None and silently truncates trace_upstream at the snapped seed cell; the 0.3.0 reader honors GRASS decoding and traces the full 374-cell terminal carve.",
+      "corroboration": "crates/gdal/tests/raster_decode_parity.rs:1044-1060 requires the ESRI differential to polygonize at least its snapped seed cell and the GRASS carve to contain at least 100 times as many cells."
+    },
+    "classification_basis": "The measured traced terminal polygons differ, the 0.3.0 area is byte-identical to the committed GRASS golden, and the measured area delta and terminal rings cross-check a 374-cell GRASS carve versus a one-cell 0.2.1 carve.",
+    "correction": {
+      "evidence_overturning_prior_classification": [
+        "The measured 0.2.1 terminal part is a 5-point one-cell rectangle, while the measured 0.3.0 terminal part is a 221-point traced ring.",
+        "The measured 0.3.0 area_km2 is byte-identical to the committed GRASS golden whose derived carved cell count is 374.",
+        "The 0.3.0-minus-0.2.1 measured area delta is 373.000001 km2, cross-checking 374 cells versus one cell.",
+        "Shipped source establishes that refined_outlet is selected from accumulation without a flow-direction argument, whereas the replacement terminal polygon is produced from the decoded flow-direction trace."
+      ],
+      "prior_escalate_to_owner": true,
+      "prior_outcome": "inconclusive-carves-agree-on-refined-outlet",
+      "prior_rule": "absent or raised refinement is inconclusive; equal WKB falsifies; differing WKB confirms only when refined_outlet also differs; differing WKB with equal refined_outlet is inconclusive",
+      "prior_stop_vision": true,
+      "reason_prior_classification_was_wrong": "It treated result.refined_outlet as decode-sensitive. snap_pour_point takes only the masked AccumulationTile and no flow-direction argument, so the refined_outlet value is encoding-independent by construction whenever refinement runs; equality there has zero power to discriminate ESRI from GRASS decoding.",
+      "status": "superseded by this corrected classification"
+    },
+    "decode_sensitive_observables": [
+      "traced terminal polygon",
+      "result geometry",
+      "result.geometry_wkb_hex",
+      "result.geometry_bbox",
+      "result.area_km2"
+    ],
+    "difference_evidence": {
+      "area_km2": true,
+      "geometry_bbox": true,
+      "geometry_wkb_hex": true,
+      "refined_outlet": false,
+      "resolved_outlet": false,
+      "terminal_unit_id": false
+    },
+    "escalate_to_owner": false,
+    "golden_cross_check": {
+      "area_km2": 24986.140539144857,
+      "area_matches_observed_0_3_0_byte_for_byte": true,
+      "derived_carved_cell_count": 374,
+      "path": "crates/core/tests/fixtures/parity/goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined.json",
+      "pixel_area_m2": 1000000
+    },
+    "not_refined_reasons": {},
+    "not_refined_releases": [],
+    "outcome": "confirmed-different-by-decode",
+    "refined_outlet_decode_sensitivity": {
+      "citation": "crates/core/src/algo/snap.rs:112-118",
+      "status": "encoding-independent by construction",
+      "why": "snap_pour_point accepts a masked AccumulationTile and no flow-direction argument; its selection reads accumulation values and pixel distance only. It can show that refinement ran, but its value cannot discriminate flow-direction encodings."
+    },
+    "refined_outlet_window_assembly_exclusion_argument": {
+      "argument_status": "Source-grounded exclusion argument applied to the already-recorded observations; not a new measurement and not evidence that confirms a decode difference.",
+      "confirmatory_power": "ZERO: refined_outlet equality cannot confirm a decode difference because snap_pour_point reads only accumulation, as shown by crates/core/src/algo/snap.rs:112-118.",
+      "exclusion_power": "SUBSTANTIAL: snap_pour_point runs on the masked accumulation tile after the terminal polygon is rasterized to a CatchmentMask and both the flow-direction and accumulation tiles are masked. The snapped outlet recorded for 0.2.1 and 0.3.0 also agrees with the committed GRASS golden to one ulp. That agreement implies that the loaded window, geotransform, rasterized mask, and accumulation values agreed between the releases, excluding an upstream windowing or window-assembly difference such as #86 and confining the observed terminal-carve difference to decoded flow-direction content."
+    },
+    "rule": "absent or raised refinement is inconclusive; equal traced terminal geometry falsifies; differing traced terminal geometry confirms this released-reader decode difference when the expected GRASS carve is identified by the committed golden cross-check and the measured polygon and cell-area evidence agree",
+    "satisfies_vision_acceptance_criterion_3": true,
+    "source_citations_for_decode_sensitivity": {
+      "decode_failure_truncates_trace": "crates/core/src/algo/flow_direction_tile.rs:226-231 maps a byte illegal under the selected encoding to None via unwrap_or_default",
+      "refined_terminal_replaces_vector_terminal": "crates/core/src/engine.rs:812-827 replaces the vector terminal unit polygon with TerminalRefinement::Applied geometry",
+      "refined_outlet_is_not_decode_sensitive": "crates/core/src/algo/snap.rs:112-118 shows snap_pour_point accepts accumulation and no flow-direction argument",
+      "terminal_carve_comes_from_flow_direction_trace": "crates/core/src/algo/refine.rs:285-288 passes the masked flow-direction tile to trace_upstream and polygonizes the trace mask",
+      "test_corroboration_for_causal_hypothesis": "crates/gdal/tests/raster_decode_parity.rs:1044-1060 asserts that the ESRI differential contains at least its seed cell and the GRASS carve contains at least 100 times as many cells"
+    },
+    "stop_vision": false,
+    "terminal_carve_arithmetic": {
+      "area_delta_km2_0_3_0_minus_0_2_1": 373.00000100584293,
+      "area_delta_km2_rounded_to_six_decimals": 373.000001,
+      "expected_cell_difference": 373,
+      "grass_carved_cell_count_from_golden": 374,
+      "observed_0_2_1_terminal_cell_count_from_one_cell_rectangle": 1,
+      "subtraction": "374 - 1 = 373 cells"
+    },
+    "wkb_geometry_repair_confounder": {
+      "disposition": "Explicitly identified, considered, and set aside. The classification does not rest on this part; it rests on the terminal-part cell count and committed-GRASS-golden congruence.",
+      "identification_status": "Post hoc inspection of the already-recorded lossless geometry WKB; argument and provenance only, not a new measurement run.",
+      "magnitude_argument": "A 6.07e-11 degree latitude shift of a 2-degree-by-1-degree equatorial band changes geodesic area by order 1e-09 km2, roughly four orders of magnitude below the 373.000001 km2 delta and far below the 1.0000000027 km2 per-cell cross-check.",
+      "part_0_latitude_range_0_2_1": [
+        1.0000000007371614,
+        2.0000000007371614
+      ],
+      "part_0_latitude_range_0_3_0": [
+        0.999999999939288,
+        1.9999999999392881
+      ],
+      "why_raw_wkb_alone_is_unsound": "This is the warned-about failure mode of differing WKB from geometry repair with identical hydrology, and it genuinely occurs outside the terminal carve. Comparing raw geometry_wkb_hex alone therefore would have been an unsound basis for the classification."
+    },
+    "traced_terminal_geometry_evidence": {
+      "0.2.1": {
+        "interpretation": "one cell at the snapped outlet",
+        "latitude_span": [
+          0.4124933078806112,
+          0.4202762700538347
+        ],
+        "longitude_span": [
+          0.981225224211812,
+          0.9916642531752586
+        ],
+        "ring_point_count": 5
+      },
+      "0.3.0": {
+        "interpretation": "traced terminal carve",
+        "latitude_span": [
+          -6.071199099011437e-11,
+          0.4358422047782792
+        ],
+        "longitude_span": [
+          0.41753752529621124,
+          1.002102356404066
+        ],
+        "ring_point_count": 221
+      }
+    }
+  },
+  "common_refinement_signal": "DelineationResult.refined_outlet; refinement_skip_reason shipped in neither release",
+  "fixture": {
+    "absolute_path_used": "/Users/nicolaslazaro/Desktop/work/pourpoint-wt/m1-s1/crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass",
+    "base_commit": "98ca87122f6b06d923d0cef9b113cef7dc19e485",
+    "enumeration": "git ls-tree -r --name-only <base_commit> -- crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass",
+    "file_count": 7,
+    "files": [
+      {
+        "path": "README.md",
+        "sha256": "939093e14ee15334dc1b822e7ed29fd151106d2335c42363e77390d9e5f11f6f",
+        "size_bytes": 291
+      },
+      {
+        "path": "manifest.json",
+        "sha256": "ef341491630bdfb2350add137d3f0ff8332989e15f2f74b9815318e28667a7a8",
+        "size_bytes": 646
+      },
+      {
+        "path": "catchments.parquet",
+        "sha256": "c0a6a6641f0fce3d1e7e8ce7d7749e2a1a6dc020d02a436fcb8d64b8f9e15411",
+        "size_bytes": 5102
+      },
+      {
+        "path": "graph.parquet",
+        "sha256": "359827468df9bfca4c87b4200240a1e6bbf41d15a00bb477fe29eba5286d9b79",
+        "size_bytes": 2227
+      },
+      {
+        "path": "aux/d8/projected/flow_dir.tif",
+        "sha256": "fece90b5cafc5ff00b988674a2c859c29d67c45927091de23dd394a4af78a7da",
+        "size_bytes": 1232
+      },
+      {
+        "path": "aux/d8/projected/flow_acc.tif",
+        "sha256": "1d3334214e9ae575fe4e56e468302fa59d515d183dfa3c1568979210a2d6a917",
+        "size_bytes": 1895
+      },
+      {
+        "path": "aux/d8/projected/flow_dir_nodata_minus_one.tif",
+        "sha256": "5fd34870b59491edf5bab2426c1c7134a51e559603a94454119f1d98e694ac87",
+        "size_bytes": 2358
+      }
+    ],
+    "golden_fixture_provenance_file_count": 6,
+    "golden_fixture_provenance_files": [
+      "README.md",
+      "manifest.json",
+      "catchments.parquet",
+      "graph.parquet",
+      "aux/d8/projected/flow_dir.tif",
+      "aux/d8/projected/flow_acc.tif"
+    ],
+    "integrity_set_note": "The seven-file tracked integrity set deliberately is a superset of the six-entry fixture_provenance.files list in the committed golden. The additional tracked flow_dir_nodata_minus_one.tif and unequal set sizes are not evidence of fixture drift.",
+    "manifest_flow_dir_encoding": "grass",
+    "path_at_base_commit": "crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass"
+  },
+  "invocation": {
+    "expression": "Engine(fixture, snap_radius=1000.0, snap_threshold=500, refine=True).delineate(lat=0.4166666666666667, lon=0.9833333333333333)",
+    "fixture_argument": "/Users/nicolaslazaro/Desktop/work/pourpoint-wt/m1-s1/crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass",
+    "input_outlet": {
+      "lat": 0.4166666666666667,
+      "lon": 0.9833333333333333
+    },
+    "refine": true,
+    "snap_radius": 1000.0,
+    "snap_threshold": 500
+  },
+  "not_touched": [
+    "PyPI project state: no yank, upload, deletion, or other mutation",
+    "reader-floor pages and mechanical reader-floor check",
+    "RELEASING.md",
+    "CONTEXT.md",
+    "../hfx",
+    "live grit/hfx-v0.3.0 manifest D8 declaration",
+    "branches, tags, remotes, and pull requests"
+  ],
+  "observations": {
+    "0.2.1": {
+      "distribution_root": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.2.1/lib/python3.13/site-packages",
+      "distribution_version": "0.2.1",
+      "exception": null,
+      "import_isolation": {
+        "cwd": "/private/tmp",
+        "environment_root": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.2.1",
+        "python_no_user_site": "1",
+        "pythonpath": "",
+        "repository_root": "/Users/nicolaslazaro/Desktop/work/pourpoint-wt/m1-s1",
+        "sys_path": [
+          "",
+          "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/lib/python313.zip",
+          "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13",
+          "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.2.1/lib/python3.13/site-packages"
+        ]
+      },
+      "imported_module_path": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.2.1/lib/python3.13/site-packages/pourpoint/__init__.py",
+      "imported_native_module_path": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.2.1/lib/python3.13/site-packages/pourpoint/_pourpoint.abi3.so",
+      "installation_report": {
+        "environment": {
+          "implementation_name": "cpython",
+          "implementation_version": "3.13.14",
+          "os_name": "posix",
+          "platform_machine": "arm64",
+          "platform_python_implementation": "CPython",
+          "platform_release": "24.6.0",
+          "platform_system": "Darwin",
+          "platform_version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+          "python_full_version": "3.13.14",
+          "python_version": "3.13",
+          "sys_platform": "darwin"
+        },
+        "install": [
+          {
+            "download_info": {
+              "archive_info": {
+                "hash": "sha256=44aa555a8ed1239c30e1821ce331cf639899e7dbaacb58192fd50964da2b70f9",
+                "hashes": {
+                  "sha256": "44aa555a8ed1239c30e1821ce331cf639899e7dbaacb58192fd50964da2b70f9"
+                }
+              },
+              "url": "file:///private/tmp/pourpoint-m1-s1-provision/wheels-0.2.1/pourpoint-0.2.1-cp39-abi3-macosx_11_0_arm64.whl"
+            },
+            "is_direct": false,
+            "is_yanked": false,
+            "metadata": {
+              "author_email": "Nicolas Lazaro <business.coopernick@gmail.com>",
+              "classifier": [
+                "Development Status :: 4 - Beta",
+                "Intended Audience :: Science/Research",
+                "Intended Audience :: Developers",
+                "License :: OSI Approved :: MIT License",
+                "Operating System :: MacOS :: MacOS X",
+                "Operating System :: Microsoft :: Windows",
+                "Operating System :: POSIX :: Linux",
+                "Programming Language :: Python :: 3",
+                "Programming Language :: Python :: 3.9",
+                "Programming Language :: Python :: 3.10",
+                "Programming Language :: Python :: 3.11",
+                "Programming Language :: Python :: 3.12",
+                "Programming Language :: Python :: 3.13",
+                "Programming Language :: Rust",
+                "Topic :: Scientific/Engineering :: GIS",
+                "Topic :: Scientific/Engineering :: Hydrology"
+              ],
+              "description": "# pourpoint\n\n`pourpoint` is the Python package for the `pourpoint` watershed delineation engine.\nGive it a point on a river and it returns the whole upstream watershed as a\npolygon. It reads HFX datasets, which are folders of pre-built river-network\nfiles. Only HFX v0.3.0 datasets load; older versions report a clear unsupported\nformat error.\n\nThe wheel bundles the full native stack, including GDAL, PROJ, GEOS, libtiff,\nSQLite, and more, so no system GDAL install is needed.\n\n## Install\n\n```bash\nuv add pourpoint\n```\n\n(or `pip install pourpoint`)\n\nPrebuilt wheels are published for:\n\n- macOS (Apple Silicon + Intel)\n- Linux (x86_64 + aarch64)\n- Windows (x86_64)\n\nas `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.\n\n## Zero-download quickstart\n\nUse the hosted public GRIT (Global River Topology) dataset without downloading it first:\n\n```python\nimport pourpoint\n\n# No local dataset: this reads the hosted GRIT dataset over the network.\nengine = pourpoint.Engine(\"https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/\")\nresult = engine.delineate(lat=47.3769, lon=8.5417)\nprint(result.area_km2)\n```\n\nThe engine fetches only the pieces of the dataset it needs, so the full dataset\nnever lands on your machine. The one public dataset hosted today is GRIT 2.0.0\n(the source river network), compiled to HFX v0.3.0 (the format version). To use a\ndifferent HFX dataset, change the URL and nothing else in your code changes.\n\n## Local quickstart\n\n```python\nimport pourpoint\n\nengine = pourpoint.Engine(\"/path/to/hfx/dataset\")\nresult = engine.delineate(lat=47.3769, lon=8.5417)\nprint(result.area_km2)\n```\n\n`Engine` accepts local paths and remote dataset URLs such as `s3://` and\n`https://`. For constructor options such as snap search radius and geometry\nrepair, see the\n[Tuning Knobs](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md#tuning-knobs)\nsection of `API.md`.\n\n## Reuse the Engine\n\nThe first open fetches dataset metadata over the network and is slower, so keep\nthe engine around and reuse it. Repeated delineations in the same session reuse\ndata already fetched, so overlapping watersheds are faster.\n\n## Going further\n\nLogging and verbose output, batch delineation with a progress callback, the\nstaged step-by-step API, and GeoParquet export are documented in\n[`API.md`](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md)\nand on the docs site at https://cooperbigfoot.github.io/pourpoint/.\n\n## What it does\n\n- Finds the catchment your point sits in.\n- Gathers every catchment upstream.\n- Merges them into one watershed polygon.\n- Returns the geometry plus geodesic area in km\u00b2.\n\n## API Reference\n\nFor the full developer-oriented API surface, including argument types, return\ntypes, and the exception hierarchy, see\n[API.md](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md).\n\n## Links\n\n- **Source & issues:** https://github.com/CooperBigFoot/pourpoint\n- **HFX dataset spec:** https://github.com/CooperBigFoot/hfx\n- **License:** MIT for `pourpoint`; bundled native libraries retain their own\n  licenses. See\n  [`LICENSES/`](https://github.com/CooperBigFoot/pourpoint/tree/main/LICENSES).\n\n",
+              "description_content_type": "text/markdown; charset=UTF-8; variant=GFM",
+              "home_page": "https://github.com/CooperBigFoot/pourpoint",
+              "keywords": [
+                "gis",
+                "hydrology",
+                "watershed",
+                "delineation",
+                "hfx",
+                "gdal"
+              ],
+              "license_expression": "MIT",
+              "license_file": [
+                "LICENSE",
+                "LICENSES/GDAL.txt",
+                "LICENSES/GEOS.txt",
+                "LICENSES/PROJ.txt",
+                "LICENSES/README.md",
+                "LICENSES/curl.txt",
+                "LICENSES/jpeg-turbo.txt",
+                "LICENSES/libdeflate.txt",
+                "LICENSES/libpng.txt",
+                "LICENSES/libtiff.txt",
+                "LICENSES/nghttp2.txt",
+                "LICENSES/openssl.txt",
+                "LICENSES/sqlite.txt",
+                "LICENSES/xz.txt",
+                "LICENSES/zlib.txt",
+                "LICENSES/zstd.txt"
+              ],
+              "metadata_version": "2.4",
+              "name": "pourpoint",
+              "project_url": [
+                "Changelog, https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/CHANGELOG.md",
+                "Documentation, https://cooperbigfoot.github.io/pourpoint/",
+                "Homepage, https://github.com/CooperBigFoot/pourpoint",
+                "Issues, https://github.com/CooperBigFoot/pourpoint/issues",
+                "Repository, https://github.com/CooperBigFoot/pourpoint"
+              ],
+              "provides_extra": [
+                "dev",
+                "test"
+              ],
+              "requires_dist": [
+                "pourpoint[test] ; extra == 'dev'",
+                "ruff ; extra == 'dev'",
+                "maturin>=1.7,<2 ; extra == 'dev'",
+                "pytest>=8 ; extra == 'test'",
+                "pyarrow>=15 ; extra == 'test'"
+              ],
+              "requires_python": ">=3.9",
+              "summary": "Python bindings for the pourpoint watershed delineation engine",
+              "version": "0.2.1"
+            },
+            "requested": true
+          }
+        ],
+        "pip_version": "26.1.2",
+        "version": "1"
+      },
+      "invocation": "Engine(fixture, snap_radius=1000.0, snap_threshold=500, refine=True).delineate(lat=0.4166666666666667, lon=0.9833333333333333)",
+      "module_version": "0.2.1",
+      "pip_list": [
+        {
+          "name": "pip",
+          "version": "26.1.2"
+        },
+        {
+          "name": "pourpoint",
+          "version": "0.2.1"
+        }
+      ],
+      "platform": {
+        "machine": "arm64",
+        "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "release": "24.6.0",
+        "system": "Darwin"
+      },
+      "python": {
+        "base_interpreter_used_to_create_venv": "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/bin/python3.13",
+        "executable": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.2.1/bin/python",
+        "implementation": "CPython",
+        "version": "3.13.14 (main, Jul 23 2026, 14:48:16) [Clang 22.1.3 ]",
+        "version_info": [
+          3,
+          13,
+          14,
+          "final",
+          0
+        ]
+      },
+      "requested_release": "0.2.1",
+      "result": {
+        "area_km2": 24613.140538139014,
+        "geojson": {
+          "geometry": {
+            "coordinates": [
+              [
+                [
+                  [
+                    0.0,
+                    1.0000000007371614
+                  ],
+                  [
+                    2.0,
+                    1.0000000007371614
+                  ],
+                  [
+                    2.0,
+                    2.0000000007371614
+                  ],
+                  [
+                    0.0,
+                    2.0000000007371614
+                  ],
+                  [
+                    0.0,
+                    1.0000000007371614
+                  ]
+                ]
+              ],
+              [
+                [
+                  [
+                    0.981225224211812,
+                    0.4124933078806112
+                  ],
+                  [
+                    0.9916637893766165,
+                    0.4124933078806112
+                  ],
+                  [
+                    0.9916642531752586,
+                    0.4202762700538347
+                  ],
+                  [
+                    0.9812256824225187,
+                    0.4202762700538347
+                  ],
+                  [
+                    0.981225224211812,
+                    0.4124933078806112
+                  ]
+                ]
+              ]
+            ],
+            "type": "MultiPolygon"
+          },
+          "properties": {
+            "area_km2": 24613.140538139014,
+            "input_lat": 0.4166666666666667,
+            "input_lon": 0.9833333333333333,
+            "refinement": "applied(lon=0.986445, lat=0.416385)",
+            "resolution_method": "pip(candidates=1)",
+            "resolved_lat": 0.4166666666666667,
+            "resolved_lon": 0.9833333333333333,
+            "terminal_unit_id": 4,
+            "upstream_unit_count": 3
+          },
+          "type": "Feature"
+        },
+        "geometry_bbox": [
+          0.0,
+          0.4124933078806112,
+          2.0,
+          2.0000000007371614
+        ],
+        "geometry_wkb_hex": "01060000000200000001030000000100000005000000000000000000000048a832000000f03f000000000000004048a832000000f03f0000000000000040245419000000004000000000000000002454190000000040000000000000000048a832000000f03f01030000000100000005000000000000713266ef3f20a1ca544a66da3f000000b3b5bbef3f20a1ca544a66da3f000000acb6bbef3f20a1ca70cee5da3f000000673366ef3f20a1ca70cee5da3f000000713266ef3f20a1ca544a66da3f",
+        "geometry_wkb_sha256": "21a17ca8589ebf6c9a6032896aa4d1ba853378649958d5c2e78860be9271952a",
+        "input_outlet": [
+          0.9833333333333333,
+          0.4166666666666667
+        ],
+        "refined_outlet": [
+          0.9864447364836885,
+          0.4163847890060862
+        ],
+        "resolution_method": "PointInPolygon { candidates_considered: 1, tie_break: None }",
+        "resolved_outlet": [
+          0.9833333333333333,
+          0.4166666666666667
+        ],
+        "terminal_unit_id": 4,
+        "upstream_unit_ids": [
+          4,
+          2,
+          3
+        ],
+        "upstream_units": [
+          {
+            "area_km2": 1.0,
+            "id": 4,
+            "level": 1,
+            "outlet": [
+              0.5,
+              0.0
+            ],
+            "up_area_km2": null
+          },
+          {
+            "area_km2": 1.0,
+            "id": 2,
+            "level": 1,
+            "outlet": [
+              0.5,
+              1.0
+            ],
+            "up_area_km2": null
+          },
+          {
+            "area_km2": 1.0,
+            "id": 3,
+            "level": 1,
+            "outlet": [
+              1.5,
+              1.0
+            ],
+            "up_area_km2": null
+          }
+        ]
+      },
+      "status": "ok",
+      "wheel": {
+        "download_constraints": [
+          "pip download --only-binary=:all:",
+          "--no-deps",
+          "default PyPI index",
+          "provisioned outside sandbox"
+        ],
+        "expected_sha256": "44aa555a8ed1239c30e1821ce331cf639899e7dbaacb58192fd50964da2b70f9",
+        "filename": "pourpoint-0.2.1-cp39-abi3-macosx_11_0_arm64.whl",
+        "install_constraints": [
+          "--no-index",
+          "--find-links provisioned release directory",
+          "--no-deps",
+          "--only-binary=:all:",
+          "pinned release requirement"
+        ],
+        "provisioned_wheel_directory": "/private/tmp/pourpoint-m1-s1-provision/wheels-0.2.1",
+        "sha256": "44aa555a8ed1239c30e1821ce331cf639899e7dbaacb58192fd50964da2b70f9",
+        "sha256_verification": "observed with shasum -a 256 before environment creation and installation; observed equals expected",
+        "size_bytes": 22289798,
+        "source": "Provisioned outside the network-disabled sandbox from the default PyPI index; provenance at /private/tmp/pourpoint-m1-s1-provision/PROVENANCE.txt"
+      }
+    },
+    "0.3.0": {
+      "distribution_root": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.3.0/lib/python3.13/site-packages",
+      "distribution_version": "0.3.0",
+      "exception": null,
+      "import_isolation": {
+        "cwd": "/private/tmp",
+        "environment_root": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.3.0",
+        "python_no_user_site": "1",
+        "pythonpath": "",
+        "repository_root": "/Users/nicolaslazaro/Desktop/work/pourpoint-wt/m1-s1",
+        "sys_path": [
+          "",
+          "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/lib/python313.zip",
+          "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13",
+          "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.3.0/lib/python3.13/site-packages"
+        ]
+      },
+      "imported_module_path": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.3.0/lib/python3.13/site-packages/pourpoint/__init__.py",
+      "imported_native_module_path": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.3.0/lib/python3.13/site-packages/pourpoint/_pourpoint.abi3.so",
+      "installation_report": {
+        "environment": {
+          "implementation_name": "cpython",
+          "implementation_version": "3.13.14",
+          "os_name": "posix",
+          "platform_machine": "arm64",
+          "platform_python_implementation": "CPython",
+          "platform_release": "24.6.0",
+          "platform_system": "Darwin",
+          "platform_version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+          "python_full_version": "3.13.14",
+          "python_version": "3.13",
+          "sys_platform": "darwin"
+        },
+        "install": [
+          {
+            "download_info": {
+              "archive_info": {
+                "hash": "sha256=a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe",
+                "hashes": {
+                  "sha256": "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe"
+                }
+              },
+              "url": "file:///private/tmp/pourpoint-m1-s1-provision/wheels-0.3.0/pourpoint-0.3.0-cp39-abi3-macosx_11_0_arm64.whl"
+            },
+            "is_direct": false,
+            "is_yanked": false,
+            "metadata": {
+              "author_email": "Nicolas Lazaro <business.coopernick@gmail.com>",
+              "classifier": [
+                "Development Status :: 4 - Beta",
+                "Intended Audience :: Science/Research",
+                "Intended Audience :: Developers",
+                "License :: OSI Approved :: MIT License",
+                "Operating System :: MacOS :: MacOS X",
+                "Operating System :: Microsoft :: Windows",
+                "Operating System :: POSIX :: Linux",
+                "Programming Language :: Python :: 3",
+                "Programming Language :: Python :: 3.9",
+                "Programming Language :: Python :: 3.10",
+                "Programming Language :: Python :: 3.11",
+                "Programming Language :: Python :: 3.12",
+                "Programming Language :: Python :: 3.13",
+                "Programming Language :: Rust",
+                "Topic :: Scientific/Engineering :: GIS",
+                "Topic :: Scientific/Engineering :: Hydrology"
+              ],
+              "description": "# pourpoint\n\n`pourpoint` is the Python package for the `pourpoint` watershed delineation engine.\nGive it a point on a river and it returns the whole upstream watershed as a\npolygon. It reads HFX datasets, which are folders of pre-built river-network\nfiles. Only HFX v0.3.0 datasets load; older versions report a clear unsupported\nformat error.\n\nThe wheel bundles the full native stack, including GDAL, PROJ, GEOS, libtiff,\nSQLite, and more, so no system GDAL install is needed.\n\n## Install\n\n```bash\nuv add pourpoint\n```\n\n(or `pip install pourpoint`)\n\nPrebuilt wheels are published for:\n\n- macOS (Apple Silicon + Intel)\n- Linux (x86_64 + aarch64)\n- Windows (x86_64)\n\nas `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.\n\n## Zero-download quickstart\n\nUse the hosted public GRIT (Global River Topology) dataset without downloading it first:\n\n```python\nimport pourpoint\n\n# No local dataset: this reads the hosted GRIT dataset over the network.\nengine = pourpoint.Engine(\"https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/\")\nresult = engine.delineate(lat=47.3769, lon=8.5417)\nprint(result.area_km2)\n```\n\nThe engine fetches only the pieces of the dataset it needs, so the full dataset\nnever lands on your machine. The one public dataset hosted today is GRIT 2.0.0\n(the source river network), compiled to HFX v0.3.0 (the format version). To use a\ndifferent HFX dataset, change the URL and nothing else in your code changes.\n\n## Local quickstart\n\n```python\nimport pourpoint\n\nengine = pourpoint.Engine(\"/path/to/hfx/dataset\")\nresult = engine.delineate(lat=47.3769, lon=8.5417)\nprint(result.area_km2)\n```\n\n`Engine` accepts local paths and remote dataset URLs such as `s3://` and\n`https://`. For constructor options such as snap search radius and geometry\nrepair, see the\n[Tuning Knobs](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md#tuning-knobs)\nsection of `API.md`.\n\n## Reuse the Engine\n\nThe first open fetches dataset metadata over the network and is slower, so keep\nthe engine around and reuse it. Repeated delineations in the same session reuse\ndata already fetched, so overlapping watersheds are faster.\n\n## Going further\n\nLogging and verbose output, batch delineation with a progress callback, the\nstaged step-by-step API, and GeoParquet export are documented in\n[`API.md`](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md)\nand on the docs site at https://cooperbigfoot.github.io/pourpoint/.\n\n## What it does\n\n- Finds the catchment your point sits in.\n- Gathers every catchment upstream.\n- Merges them into one watershed polygon.\n- Returns the geometry plus geodesic area in km\u00b2.\n\n## API Reference\n\nFor the full developer-oriented API surface, including argument types, return\ntypes, and the exception hierarchy, see\n[API.md](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md).\n\n## Links\n\n- **Source & issues:** https://github.com/CooperBigFoot/pourpoint\n- **HFX dataset spec:** https://github.com/CooperBigFoot/hfx\n- **License:** MIT for `pourpoint`; bundled native libraries retain their own\n  licenses. See\n  [`LICENSES/`](https://github.com/CooperBigFoot/pourpoint/tree/main/LICENSES).\n\n",
+              "description_content_type": "text/markdown; charset=UTF-8; variant=GFM",
+              "home_page": "https://github.com/CooperBigFoot/pourpoint",
+              "keywords": [
+                "gis",
+                "hydrology",
+                "watershed",
+                "delineation",
+                "hfx",
+                "gdal"
+              ],
+              "license_expression": "MIT",
+              "license_file": [
+                "LICENSE",
+                "LICENSES/GDAL.txt",
+                "LICENSES/GEOS.txt",
+                "LICENSES/PROJ.txt",
+                "LICENSES/README.md",
+                "LICENSES/curl.txt",
+                "LICENSES/jpeg-turbo.txt",
+                "LICENSES/libdeflate.txt",
+                "LICENSES/libpng.txt",
+                "LICENSES/libtiff.txt",
+                "LICENSES/nghttp2.txt",
+                "LICENSES/openssl.txt",
+                "LICENSES/sqlite.txt",
+                "LICENSES/xz.txt",
+                "LICENSES/zlib.txt",
+                "LICENSES/zstd.txt"
+              ],
+              "metadata_version": "2.4",
+              "name": "pourpoint",
+              "project_url": [
+                "Changelog, https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/CHANGELOG.md",
+                "Documentation, https://cooperbigfoot.github.io/pourpoint/",
+                "Homepage, https://github.com/CooperBigFoot/pourpoint",
+                "Issues, https://github.com/CooperBigFoot/pourpoint/issues",
+                "Repository, https://github.com/CooperBigFoot/pourpoint"
+              ],
+              "provides_extra": [
+                "dev",
+                "test"
+              ],
+              "requires_dist": [
+                "pourpoint[test] ; extra == 'dev'",
+                "ruff ; extra == 'dev'",
+                "maturin>=1.7,<2 ; extra == 'dev'",
+                "pytest>=8 ; extra == 'test'",
+                "pyarrow>=15 ; extra == 'test'"
+              ],
+              "requires_python": ">=3.9",
+              "summary": "Python bindings for the pourpoint watershed delineation engine",
+              "version": "0.3.0"
+            },
+            "requested": true
+          }
+        ],
+        "pip_version": "26.1.2",
+        "version": "1"
+      },
+      "invocation": "Engine(fixture, snap_radius=1000.0, snap_threshold=500, refine=True).delineate(lat=0.4166666666666667, lon=0.9833333333333333)",
+      "module_version": "0.3.0",
+      "pip_list": [
+        {
+          "name": "pip",
+          "version": "26.1.2"
+        },
+        {
+          "name": "pourpoint",
+          "version": "0.3.0"
+        }
+      ],
+      "platform": {
+        "machine": "arm64",
+        "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "release": "24.6.0",
+        "system": "Darwin"
+      },
+      "python": {
+        "base_interpreter_used_to_create_venv": "/private/tmp/pourpoint-m1-s1-provision/python/cpython-3.13.14-macos-aarch64-none/bin/python3.13",
+        "executable": "/private/tmp/pourpoint-m1-s1.CoTQxf/venv-0.3.0/bin/python",
+        "implementation": "CPython",
+        "version": "3.13.14 (main, Jul 23 2026, 14:48:16) [Clang 22.1.3 ]",
+        "version_info": [
+          3,
+          13,
+          14,
+          "final",
+          0
+        ]
+      },
+      "requested_release": "0.3.0",
+      "result": {
+        "area_km2": 24986.140539144857,
+        "geojson": {
+          "geometry": {
+            "coordinates": [
+              [
+                [
+                  [
+                    0.0,
+                    0.999999999939288
+                  ],
+                  [
+                    2.0,
+                    0.999999999939288
+                  ],
+                  [
+                    2.0,
+                    1.9999999999392881
+                  ],
+                  [
+                    0.0,
+                    1.9999999999392881
+                  ],
+                  [
+                    0.0,
+                    0.999999999939288
+                  ]
+                ]
+              ],
+              [
+                [
+                  [
+                    0.41753752529621124,
+                    -6.071199099011437e-11
+                  ],
+                  [
+                    0.46972971595823765,
+                    -6.071199099011437e-11
+                  ],
+                  [
+                    0.4697297178208828,
+                    0.007782859667028297
+                  ],
+                  [
+                    0.4801681563258171,
+                    0.007782859667028297
+                  ],
+                  [
+                    0.4801681637763977,
+                    0.015565717532123435
+                  ],
+                  [
+                    0.49060660041868687,
+                    0.015565717532123435
+                  ],
+                  [
+                    0.49060661159455776,
+                    0.023348577259863723
+                  ],
+                  [
+                    0.5010450500994921,
+                    0.023348577259863723
+                  ],
+                  [
+                    0.5010450650006533,
+                    0.03113143698760401
+                  ],
+                  [
+                    0.5114835053682327,
+                    0.03113143698760401
+                  ],
+                  [
+                    0.5114835239946842,
+                    0.0389142967153443
+                  ],
+                  [
+                    0.5219219643622637,
+                    0.0389142967153443
+                  ],
+                  [
+                    0.5219219885766506,
+                    0.046697156443084586
+                  ],
+                  [
+                    0.5323604289442301,
+                    0.046697156443084586
+                  ],
+                  [
+                    0.5323604587465525,
+                    0.054480016170824874
+                  ],
+                  [
+                    0.5427988991141319,
+                    0.054480016170824874
+                  ],
+                  [
+                    0.5427989345043898,
+                    0.06226287776121031
+                  ],
+                  [
+                    0.5532373767346144,
+                    0.06226287776121031
+                  ],
+                  [
+                    0.5532374177128077,
+                    0.07004573935159575
+                  ],
+                  [
+                    0.5636758599430323,
+                    0.07004573935159575
+                  ],
+                  [
+                    0.563675906509161,
+                    0.07782860280462633
+                  ],
+                  [
+                    0.5741143487393856,
+                    0.07782860280462633
+                  ],
+                  [
+                    0.5741144008934498,
+                    0.08561146439501177
+                  ],
+                  [
+                    0.5845528449863195,
+                    0.08561146439501177
+                  ],
+                  [
+                    0.5845529045909643,
+                    0.09339432784804236
+                  ],
+                  [
+                    0.5949913486838341,
+                    0.09339432784804236
+                  ],
+                  [
+                    0.5949914138764143,
+                    0.1011771931637181
+                  ],
+                  [
+                    0.6054298598319292,
+                    0.1011771931637181
+                  ],
+                  [
+                    0.6054299306124449,
+                    0.10896005847939383
+                  ],
+                  [
+                    0.6158683784306049,
+                    0.10896005847939383
+                  ],
+                  [
+                    0.615868454799056,
+                    0.11674292565771471
+                  ],
+                  [
+                    0.6263069044798613,
+                    0.11674292565771471
+                  ],
+                  [
+                    0.626306988298893,
+                    0.1245257928360356
+                  ],
+                  [
+                    0.6367454379796982,
+                    0.1245257928360356
+                  ],
+                  [
+                    0.6367455311119556,
+                    0.13230866187700163
+                  ],
+                  [
+                    0.647183982655406,
+                    0.13230866187700163
+                  ],
+                  [
+                    0.6471840813755989,
+                    0.14009153091796767
+                  ],
+                  [
+                    0.6576225329190493,
+                    0.14009153091796767
+                  ],
+                  [
+                    0.6576226390898228,
+                    0.147874403684224
+                  ],
+                  [
+                    0.6680610943585634,
+                    0.147874403684224
+                  ],
+                  [
+                    0.6680612079799175,
+                    0.15565727645048033
+                  ],
+                  [
+                    0.6784996651113033,
+                    0.15565727645048033
+                  ],
+                  [
+                    0.678499786183238,
+                    0.16344014921673666
+                  ],
+                  [
+                    0.688938245177269,
+                    0.16344014921673666
+                  ],
+                  [
+                    0.6889383736997843,
+                    0.1712230257082833
+                  ],
+                  [
+                    0.6993768345564604,
+                    0.1712230257082833
+                  ],
+                  [
+                    0.6993769723922014,
+                    0.17900590219982992
+                  ],
+                  [
+                    0.7098154332488775,
+                    0.17900590219982992
+                  ],
+                  [
+                    0.7098155803978443,
+                    0.18678878241666685
+                  ],
+                  [
+                    0.7202540431171656,
+                    0.18678878241666685
+                  ],
+                  [
+                    0.720254197716713,
+                    0.19457166263350378
+                  ],
+                  [
+                    0.7306926641613245,
+                    0.19457166263350378
+                  ],
+                  [
+                    0.7306928280740976,
+                    0.20235454471298586
+                  ],
+                  [
+                    0.7411312963813543,
+                    0.20235454471298586
+                  ],
+                  [
+                    0.7411314677447081,
+                    0.2101374286551131
+                  ],
+                  [
+                    0.7515699397772551,
+                    0.2101374286551131
+                  ],
+                  [
+                    0.7515701204538345,
+                    0.21792031445988547
+                  ],
+                  [
+                    0.7620085943490267,
+                    0.21792031445988547
+                  ],
+                  [
+                    0.7620087843388319,
+                    0.225703202127303
+                  ],
+                  [
+                    0.7724472600966692,
+                    0.225703202127303
+                  ],
+                  [
+                    0.7724474593997002,
+                    0.23348609352001082
+                  ],
+                  [
+                    0.7828859388828278,
+                    0.23348609352001082
+                  ],
+                  [
+                    0.7828861474990845,
+                    0.24126898491271864
+                  ],
+                  [
+                    0.7933246288448572,
+                    0.24126898491271864
+                  ],
+                  [
+                    0.7933248467743397,
+                    0.24905188003071677
+                  ],
+                  [
+                    0.8037633318454027,
+                    0.24905188003071677
+                  ],
+                  [
+                    0.8037635609507561,
+                    0.25683477701136004
+                  ],
+                  [
+                    0.8142020478844643,
+                    0.25683477701136004
+                  ],
+                  [
+                    0.8142022863030434,
+                    0.26461767585464846
+                  ],
+                  [
+                    0.8246407769620419,
+                    0.26461767585464846
+                  ],
+                  [
+                    0.8246410246938467,
+                    0.2724005784232272
+                  ],
+                  [
+                    0.8350795190781355,
+                    0.2724005784232272
+                  ],
+                  [
+                    0.8350797779858112,
+                    0.28018348285445105
+                  ],
+                  [
+                    0.8455182760953903,
+                    0.28018348285445105
+                  ],
+                  [
+                    0.845518546178937,
+                    0.28796638914832007
+                  ],
+                  [
+                    0.8559570461511612,
+                    0.28796638914832007
+                  ],
+                  [
+                    0.8559573255479336,
+                    0.2957492991674794
+                  ],
+                  [
+                    0.8663958311080933,
+                    0.2957492991674794
+                  ],
+                  [
+                    0.8663961216807365,
+                    0.30353221104928385
+                  ],
+                  [
+                    0.8768346291035414,
+                    0.30353221104928385
+                  ],
+                  [
+                    0.8768349308520555,
+                    0.3113151266563786
+                  ],
+                  [
+                    0.8872734420001507,
+                    0.3113151266563786
+                  ],
+                  [
+                    0.8872737567871809,
+                    0.31909804412611853
+                  ],
+                  [
+                    0.8977122716605663,
+                    0.31909804412611853
+                  ],
+                  [
+                    0.8977125976234674,
+                    0.32688096532114874
+                  ],
+                  [
+                    0.9081511162221432,
+                    0.32688096532114874
+                  ],
+                  [
+                    0.9081514533609152,
+                    0.3346638883788241
+                  ],
+                  [
+                    0.9185899756848812,
+                    0.3346638883788241
+                  ],
+                  [
+                    0.9185903239995241,
+                    0.34244681516178976
+                  ],
+                  [
+                    0.9290288500487804,
+                    0.34244681516178976
+                  ],
+                  [
+                    0.9290292114019394,
+                    0.3502297456700457
+                  ],
+                  [
+                    0.939467741176486,
+                    0.3502297456700457
+                  ],
+                  [
+                    0.939468115568161,
+                    0.35801267804094683
+                  ],
+                  [
+                    0.9499066509306431,
+                    0.35801267804094683
+                  ],
+                  [
+                    0.949907036498189,
+                    0.3657956159997834
+                  ],
+                  [
+                    0.9603455755859613,
+                    0.3657956159997834
+                  ],
+                  [
+                    0.9603459741920233,
+                    0.3735785558212651
+                  ],
+                  [
+                    0.970784517005086,
+                    0.3735785558212651
+                  ],
+                  [
+                    0.9707849286496639,
+                    0.3813614993680371
+                  ],
+                  [
+                    0.9812234751880169,
+                    0.3813614993680371
+                  ],
+                  [
+                    0.9812238998711109,
+                    0.3891444466400994
+                  ],
+                  [
+                    0.9916624519973993,
+                    0.3891444466400994
+                  ],
+                  [
+                    0.9916628897190094,
+                    0.39692739577480685
+                  ],
+                  [
+                    1.0021014455705881,
+                    0.39692739577480685
+                  ],
+                  [
+                    1.0021018963307142,
+                    0.40471035049744974
+                  ],
+                  [
+                    1.002102356404066,
+                    0.41249330894538294
+                  ],
+                  [
+                    0.9916637893766165,
+                    0.41249330894538294
+                  ],
+                  [
+                    0.9916642531752586,
+                    0.4202762692559613
+                  ],
+                  [
+                    0.9812256824225187,
+                    0.4202762692559613
+                  ],
+                  [
+                    0.9812261499464512,
+                    0.4280592351544751
+                  ],
+                  [
+                    0.9812266249209642,
+                    0.4358422047782792
+                  ],
+                  [
+                    0.9707880448549986,
+                    0.4358422047782792
+                  ],
+                  [
+                    0.9707875736057758,
+                    0.4280592351544751
+                  ],
+                  [
+                    0.9603489972651005,
+                    0.4280592351544751
+                  ],
+                  [
+                    0.9603485409170389,
+                    0.4202762692559613
+                  ],
+                  [
+                    0.949909970164299,
+                    0.4202762692559613
+                  ],
+                  [
+                    0.9499095249921083,
+                    0.41249330894538294
+                  ],
+                  [
+                    0.9394709598273039,
+                    0.41249330894538294
+                  ],
+                  [
+                    0.9394705276936293,
+                    0.40471035049744974
+                  ],
+                  [
+                    0.9290319662541151,
+                    0.40471035049744974
+                  ],
+                  [
+                    0.9290315490216017,
+                    0.39692739577480685
+                  ],
+                  [
+                    0.9185929913073778,
+                    0.39692739577480685
+                  ],
+                  [
+                    0.9185925871133804,
+                    0.3891444466400994
+                  ],
+                  [
+                    0.908154034987092,
+                    0.3891444466400994
+                  ],
+                  [
+                    0.9081536419689655,
+                    0.3813614993680371
+                  ],
+                  [
+                    0.8977150954306126,
+                    0.3813614993680371
+                  ],
+                  [
+                    0.897714713588357,
+                    0.3735785558212651
+                  ],
+                  [
+                    0.8872761707752943,
+                    0.3735785558212651
+                  ],
+                  [
+                    0.8872758019715548,
+                    0.3657956159997834
+                  ],
+                  [
+                    0.8768372647464275,
+                    0.3657956159997834
+                  ],
+                  [
+                    0.8768369071185589,
+                    0.35801267804094683
+                  ],
+                  [
+                    0.866398373618722,
+                    0.35801267804094683
+                  ],
+                  [
+                    0.8663980290293694,
+                    0.3502297456700457
+                  ],
+                  [
+                    0.8559594992548227,
+                    0.3502297456700457
+                  ],
+                  [
+                    0.855959165841341,
+                    0.34244681516178976
+                  ],
+                  [
+                    0.8455206397920847,
+                    0.34244681516178976
+                  ],
+                  [
+                    0.8455203175544739,
+                    0.3346638883788241
+                  ],
+                  [
+                    0.8350817952305079,
+                    0.3346638883788241
+                  ],
+                  [
+                    0.8350814860314131,
+                    0.32688096532114874
+                  ],
+                  [
+                    0.8246429674327374,
+                    0.32688096532114874
+                  ],
+                  [
+                    0.8246426675468683,
+                    0.31909804412611853
+                  ],
+                  [
+                    0.8142041526734829,
+                    0.31909804412611853
+                  ],
+                  [
+                    0.8142038658261299,
+                    0.3113151266563786
+                  ],
+                  [
+                    0.8037653546780348,
+                    0.3113151266563786
+                  ],
+                  [
+                    0.8037650771439075,
+                    0.30353221104928385
+                  ],
+                  [
+                    0.7933265697211027,
+                    0.30353221104928385
+                  ],
+                  [
+                    0.7933263015002012,
+                    0.2957492991674794
+                  ],
+                  [
+                    0.7828877978026867,
+                    0.2957492991674794
+                  ],
+                  [
+                    0.7828875426203012,
+                    0.28796638914832007
+                  ],
+                  [
+                    0.7724490407854319,
+                    0.28796638914832007
+                  ],
+                  [
+                    0.7724487949162722,
+                    0.28018348285445105
+                  ],
+                  [
+                    0.7620102986693382,
+                    0.28018348285445105
+                  ],
+                  [
+                    0.7620100621134043,
+                    0.2724005784232272
+                  ],
+                  [
+                    0.7515715677291155,
+                    0.2724005784232272
+                  ],
+                  [
+                    0.7515713404864073,
+                    0.26461767585464846
+                  ],
+                  [
+                    0.7411328498274088,
+                    0.26461767585464846
+                  ],
+                  [
+                    0.7411326337605715,
+                    0.25683477701136004
+                  ],
+                  [
+                    0.7306941449642181,
+                    0.25683477701136004
+                  ],
+                  [
+                    0.7306939382106066,
+                    0.24905188003071677
+                  ],
+                  [
+                    0.7202554531395435,
+                    0.24905188003071677
+                  ],
+                  [
+                    0.7202552556991577,
+                    0.24126898491271864
+                  ],
+                  [
+                    0.7098167724907398,
+                    0.24126898491271864
+                  ],
+                  [
+                    0.7098165843635798,
+                    0.23348609352001082
+                  ],
+                  [
+                    0.6993781048804522,
+                    0.23348609352001082
+                  ],
+                  [
+                    0.6993779242038727,
+                    0.225703202127303
+                  ],
+                  [
+                    0.6889394484460354,
+                    0.225703202127303
+                  ],
+                  [
+                    0.6889392770826817,
+                    0.21792031445988547
+                  ],
+                  [
+                    0.6785008031874895,
+                    0.21792031445988547
+                  ],
+                  [
+                    0.6785006392747164,
+                    0.2101374286551131
+                  ],
+                  [
+                    0.6680621691048145,
+                    0.2101374286551131
+                  ],
+                  [
+                    0.6680620145052671,
+                    0.20235454471298586
+                  ],
+                  [
+                    0.6576235443353653,
+                    0.20235454471298586
+                  ],
+                  [
+                    0.6576233990490437,
+                    0.19457166263350378
+                  ],
+                  [
+                    0.647184930741787,
+                    0.19457166263350378
+                  ],
+                  [
+                    0.6471847929060459,
+                    0.18678878241666685
+                  ],
+                  [
+                    0.6367463283240795,
+                    0.18678878241666685
+                  ],
+                  [
+                    0.6367461979389191,
+                    0.17900590219982992
+                  ],
+                  [
+                    0.6263077352195978,
+                    0.17900590219982992
+                  ],
+                  [
+                    0.626307612285018,
+                    0.1712230257082833
+                  ],
+                  [
+                    0.615869153290987,
+                    0.1712230257082833
+                  ],
+                  [
+                    0.6158690359443426,
+                    0.16344014921673666
+                  ],
+                  [
+                    0.6054305788129568,
+                    0.16344014921673666
+                  ],
+                  [
+                    0.6054304707795382,
+                    0.15565727645048033
+                  ],
+                  [
+                    0.5949920136481524,
+                    0.15565727645048033
+                  ],
+                  [
+                    0.5949919130653143,
+                    0.147874403684224
+                  ],
+                  [
+                    0.5845534577965736,
+                    0.147874403684224
+                  ],
+                  [
+                    0.584553362801671,
+                    0.14009153091796767
+                  ],
+                  [
+                    0.5741149112582207,
+                    0.14009153091796767
+                  ],
+                  [
+                    0.5741148218512535,
+                    0.13230866187700163
+                  ],
+                  [
+                    0.5636763721704483,
+                    0.13230866187700163
+                  ],
+                  [
+                    0.5636762902140617,
+                    0.1245257928360356
+                  ],
+                  [
+                    0.5532378405332565,
+                    0.1245257928360356
+                  ],
+                  [
+                    0.5532377660274506,
+                    0.11674292565771471
+                  ],
+                  [
+                    0.5427993163466454,
+                    0.11674292565771471
+                  ],
+                  [
+                    0.5427992474287748,
+                    0.10896005847939383
+                  ],
+                  [
+                    0.5323608014732599,
+                    0.10896005847939383
+                  ],
+                  [
+                    0.5323607381433249,
+                    0.1011771931637181
+                  ],
+                  [
+                    0.5219222921878099,
+                    0.1011771931637181
+                  ],
+                  [
+                    0.5219222363084555,
+                    0.09339432784804236
+                  ],
+                  [
+                    0.5114837903529406,
+                    0.09339432784804236
+                  ],
+                  [
+                    0.5114837400615215,
+                    0.08561146439501177
+                  ],
+                  [
+                    0.5010452959686518,
+                    0.08561146439501177
+                  ],
+                  [
+                    0.501045249402523,
+                    0.07782860280462633
+                  ],
+                  [
+                    0.49060680717229843,
+                    0.07782860280462633
+                  ],
+                  [
+                    0.49060676619410515,
+                    0.07004573935159575
+                  ],
+                  [
+                    0.48016832396388054,
+                    0.07004573935159575
+                  ],
+                  [
+                    0.4801682885736227,
+                    0.06226287776121031
+                  ],
+                  [
+                    0.46972984820604324,
+                    0.06226287776121031
+                  ],
+                  [
+                    0.4697298165410757,
+                    0.054480016170824874
+                  ],
+                  [
+                    0.45929137617349625,
+                    0.054480016170824874
+                  ],
+                  [
+                    0.45929135009646416,
+                    0.046697156443084586
+                  ],
+                  [
+                    0.44885291159152985,
+                    0.046697156443084586
+                  ],
+                  [
+                    0.44885288923978806,
+                    0.0389142967153443
+                  ],
+                  [
+                    0.43841445073485374,
+                    0.0389142967153443
+                  ],
+                  [
+                    0.43841443210840225,
+                    0.03113143698760401
+                  ],
+                  [
+                    0.42797599360346794,
+                    0.03113143698760401
+                  ],
+                  [
+                    0.4279759805649519,
+                    0.023348577259863723
+                  ],
+                  [
+                    0.4175375420600176,
+                    0.023348577259863723
+                  ],
+                  [
+                    0.41753753274679184,
+                    0.015565717532123435
+                  ],
+                  [
+                    0.4175375271588564,
+                    0.007782859667028297
+                  ],
+                  [
+                    0.41753752529621124,
+                    -6.071199099011437e-11
+                  ]
+                ]
+              ]
+            ],
+            "type": "MultiPolygon"
+          },
+          "properties": {
+            "area_km2": 24986.140539144857,
+            "input_lat": 0.4166666666666667,
+            "input_lon": 0.9833333333333333,
+            "refinement": "applied(lon=0.986445, lat=0.416385)",
+            "resolution_method": "pip(candidates=1)",
+            "resolved_lat": 0.4166666666666667,
+            "resolved_lon": 0.9833333333333333,
+            "terminal_unit_id": 4,
+            "upstream_unit_count": 3
+          },
+          "type": "Feature"
+        },
+        "geometry_bbox": [
+          0.0,
+          -6.071199099011437e-11,
+          2.0,
+          1.9999999999392881
+        ],
+        "geometry_wkb_hex": "010600000002000000010300000001000000050000000000000000000000e3a7f7ffffffef3f0000000000000040e3a7f7ffffffef3f0000000000000040f2d3fbffffffff3f0000000000000000f2d3fbffffffff3f0000000000000000e3a7f7ffffffef3f010300000001000000dd00000000000050efb8da3f000000003ab0d0bd0000003a0d10de3f000000003ab0d0bd0000003c0d10de3f80f1d37bebe07f3f0000003813bbde3f80f1d37bebe07f3f0000004013bbde3fc0f8e93debe08f3f0000003a1966df3fc0f8e93debe08f3f000000461966df3f60fcf47eb0e8973f000000a18f08e03f60fcf47eb0e8973f000000a98f08e03f60fcf45eebe09f3f000000a8125ee03f60fcf45eebe09f3f000000b2125ee03f307e7a1f93eca33f000000b195b3e03f307e7a1f93eca33f000000be95b3e03f307e7a8fb0e8a73f000000bd1809e13f307e7a8fb0e8a73f000000cd1809e13f307e7affcde4ab3f000000cc9b5ee13f307e7affcde4ab3f000000df9b5ee13f307e7a7febe0af3f000000df1eb4e13f307e7a7febe0af3f000000f51eb4e13f183fbd7f84eeb13f000000f5a109e23f183fbd7f84eeb13f0000000ea209e23f183fbd4793ecb33f0000000e255fe23f183fbd4793ecb33f0000002a255fe23f183fbd07a2eab53f0000002ba8b4e23f183fbd07a2eab53f0000004ba8b4e23f183fbdcfb0e8b73f0000004c2b0ae33f183fbdcfb0e8b73f0000006f2b0ae33f183fbd9fbfe6b93f00000071ae5fe33f183fbd9fbfe6b93f00000097ae5fe33f183fbd6fcee4bb3f0000009a31b5e33f183fbd6fcee4bb3f000000c331b5e33f183fbd47dde2bd3f000000c7b40ae43f183fbd47dde2bd3f000000f4b40ae43f183fbd1fece0bf3f000000f83760e43f183fbd1fece0bf3f0000002a3860e43f8c9fde7f7defc03f0000002fbbb5e43f8c9fde7f7defc03f00000064bbb5e43f8c9fdeef84eec13f000000693e0be53f8c9fdeef84eec13f000000a23e0be53f8c9fde678cedc23f000000a9c160e53f8c9fde678cedc23f000000e6c160e53f8c9fdedf93ecc33f000000ee44b6e53f8c9fdedf93ecc33f0000002f45b6e53f8c9fde579bebc43f00000038c80be63f8c9fde579bebc43f0000007dc80be63f8c9fded7a2eac53f000000874b61e63f8c9fded7a2eac53f000000d14b61e63f8c9fde57aae9c63f000000dbceb6e63f8c9fde57aae9c63f0000002acfb6e63f8c9fdedfb1e8c73f00000035520ce73f8c9fdedfb1e8c73f00000088520ce73f8c9fde67b9e7c83f00000095d561e73f8c9fde67b9e7c83f000000edd561e73f8c9fdef3c0e6c93f000000fb58b7e73f8c9fdef3c0e6c93f0000005759b7e73f8c9fde83c8e5ca3f00000067dc0ce83f8c9fde83c8e5ca3f000000c8dc0ce83f8c9fde17d0e4cb3f000000d95f62e83f8c9fde17d0e4cb3f0000003f6062e83f8c9fdeafd7e3cc3f00000051e3b7e83f8c9fdeafd7e3cc3f000000bce3b7e83f8c9fde4fdfe2cd3f000000d0660de93f8c9fde4fdfe2cd3f00000040670de93f8c9fdeefe6e1ce3f00000055ea62e93f8c9fdeefe6e1ce3f000000caea62e93f8c9fde97eee0cf3f000000e16db8e93f8c9fde97eee0cf3f0000005c6eb8e93fc64fef21fb6fd03f00000074f10dea3fc64fef21fb6fd03f000000f4f10dea3fc64feff97eefd03f0000000e7563ea3fc64feff97eefd03f000000937563ea3fc64fefd5026fd13f000000aff8b8ea3fc64fefd5026fd13f0000003af9b8ea3fc64fefb386eed13f000000587c0eeb3fc64fefb386eed13f000000e97c0eeb3fc64fef930a6ed23f000000080064eb3fc64fef930a6ed23f0000009e0064eb3fc64fef778eedd23f000000c083b9eb3fc64fef778eedd23f0000005c84b9eb3fc64fef5d126dd33f0000007f070fec3fc64fef5d126dd33f00000021080fec3fc64fef4796ecd33f000000468b64ec3fc64fef4796ecd33f000000ef8b64ec3fc64fef331a6cd43f000000160fbaec3fc64fef331a6cd43f000000c50fbaec3fc64fef239eebd43f000000ee920fed3fc64fef239eebd43f000000a3930fed3fc64fef15226bd53f000000ce1665ed3fc64fef15226bd53f000000891765ed3fc64fef0ba6ead53f000000b69abaed3fc64fef0ba6ead53f000000789bbaed3fc64fef052a6ad63f000000a71e10ee3fc64fef052a6ad63f000000701f10ee3fc64fef01aee9d63f000000a2a265ee3fc64fef01aee9d63f00000071a365ee3fc64fef033269d73f000000a526bbee3fc64fef033269d73f0000007b27bbee3fc64fef07b6e8d73f000000b1aa10ef3fc64fef07b6e8d73f0000008eab10ef3fc64fef0f3a68d83f000000c62e66ef3fc64fef0f3a68d83f000000aa2f66ef3fc64fef1bbee7d83f000000e5b2bbef3fc64fef1bbee7d83f000000d0b3bbef3fc64fef294267d93f000080869b08f03fc64fef294267d93f000080ff9b08f03fc64fef3dc6e6d93f0000007b9c08f03fc64fef554a66da3f000000b3b5bbef3fc64fef554a66da3f000000acb6bbef3fc64fef6fcee5da3f000000673366ef3fc64fef6fcee5da3f000000623466ef3fc64fef8f5265db3f000000613566ef3fc64fefb3d6e4db3f00000017b210ef3fc64fefb3d6e4db3f0000001ab110ef3fc64fef8f5265db3f000000d22dbbee3fc64fef8f5265db3f000000dd2cbbee3fc64fef6fcee5da3f00000098a965ee3fc64fef6fcee5da3f000000a9a865ee3fc64fef554a66da3f000000672510ee3fc64fef554a66da3f0000007f2410ee3fc64fef3dc6e6d93f0000003fa1baed3fc64fef3dc6e6d93f0000005fa0baed3fc64fef294267d93f000000211d65ed3fc64fef294267d93f000000481c65ed3fc64fef1bbee7d83f0000000d990fed3fc64fef1bbee7d83f0000003a980fed3fc64fef0f3a68d83f0000000215baec3fc64fef0f3a68d83f0000003514baec3fc64fef07b6e8d73f000000ff9064ec3fc64fef07b6e8d73f000000399064ec3fc64fef033269d73f000000060d0fec3fc64fef033269d73f000000460c0fec3fc64fef01aee9d63f0000001589b9eb3fc64fef01aee9d63f0000005c88b9eb3fc64fef052a6ad63f0000002d0564eb3fc64fef052a6ad63f0000007a0464eb3fc64fef0ba6ead53f0000004d810eeb3fc64fef0ba6ead53f000000a0800eeb3fc64fef15226bd53f00000075fdb8ea3fc64fef15226bd53f000000cffcb8ea3fc64fef239eebd43f000000a67963ea3fc64fef239eebd43f000000057963ea3fc64fef331a6cd43f000000def50dea3fc64fef331a6cd43f00000044f50dea3fc64fef4796ecd33f0000001f72b8e93fc64fef4796ecd33f0000008a71b8e93fc64fef5d126dd33f00000067ee62e93fc64fef5d126dd33f000000d7ed62e93fc64fef778eedd23f000000b66a0de93fc64fef778eedd23f0000002d6a0de93fc64fef930a6ed23f0000000de7b7e83fc64fef930a6ed23f00000089e6b7e83fc64fefb386eed13f0000006c6362e83fc64fefb386eed13f000000ed6262e83fc64fefd5026fd13f000000d1df0ce83fc64fefd5026fd13f00000057df0ce83fc64feff97eefd03f0000003d5cb7e73fc64feff97eefd03f000000c95bb7e73fc64fef21fb6fd03f000000b0d861e73fc64fef21fb6fd03f00000041d861e73f8c9fde97eee0cf3f0000002a550ce73f8c9fde97eee0cf3f000000c0540ce73f8c9fdeefe6e1ce3f000000aad1b6e63f8c9fdeefe6e1ce3f00000045d1b6e63f8c9fde4fdfe2cd3f000000314e61e63f8c9fde4fdfe2cd3f000000d04d61e63f8c9fdeafd7e3cc3f000000beca0be63f8c9fdeafd7e3cc3f00000062ca0be63f8c9fde17d0e4cb3f0000005147b6e53f8c9fde17d0e4cb3f000000f946b6e53f8c9fde83c8e5ca3f000000eac360e53f8c9fde83c8e5ca3f00000097c360e53f8c9fdef3c0e6c93f00000088400be53f8c9fdef3c0e6c93f0000003a400be53f8c9fde67b9e7c83f0000002cbdb5e43f8c9fde67b9e7c83f000000e2bcb5e43f8c9fdedfb1e8c73f000000d63960e43f8c9fdedfb1e8c73f000000903960e43f8c9fde57aae9c63f00000085b60ae43f8c9fde57aae9c63f00000043b60ae43f8c9fded7a2eac53f0000003a33b5e33f8c9fded7a2eac53f000000fb32b5e33f8c9fde579bebc43f000000f3af5fe33f8c9fde579bebc43f000000b9af5fe33f8c9fdedf93ecc33f000000b12c0ae33f8c9fdedf93ecc33f0000007b2c0ae33f8c9fde678cedc23f00000074a9b4e23f8c9fde678cedc23f00000041a9b4e23f8c9fdeef84eec13f0000003c265fe23f8c9fdeef84eec13f0000000c265fe23f8c9fde7f7defc03f00000008a309e23f8c9fde7f7defc03f000000dca209e23f183fbd1fece0bf3f000000d81fb4e13f183fbd1fece0bf3f000000b01fb4e13f183fbd47dde2bd3f000000ac9c5ee13f183fbd47dde2bd3f000000879c5ee13f183fbd6fcee4bb3f000000851909e13f183fbd6fcee4bb3f000000631909e13f183fbd9fbfe6b93f0000006196b3e03f183fbd9fbfe6b93f0000004396b3e03f183fbdcfb0e8b73f00000041135ee03f183fbdcfb0e8b73f00000026135ee03f183fbd07a2eab53f000000259008e03f183fbd07a2eab53f0000000c9008e03f183fbd4793ecb33f000000181a66df3f183fbd4793ecb33f000000ec1966df3f183fbd7f84eeb13f000000ec13bbde3f183fbd7f84eeb13f000000c613bbde3f307e7a7febe0af3f000000c80d10de3f307e7a7febe0af3f000000a60d10de3f307e7affcde4ab3f000000a80765dd3f307e7affcde4ab3f0000008c0765dd3f307e7a8fb0e8a73f0000009001badc3f307e7a8fb0e8a73f0000007801badc3f307e7a1f93eca33f0000007cfb0edc3f307e7a1f93eca33f00000068fb0edc3f60fcf45eebe09f3f0000006cf563db3f60fcf45eebe09f3f0000005ef563db3f60fcf47eb0e8973f00000062efb8da3f60fcf47eb0e8973f00000058efb8da3fc0f8e93debe08f3f00000052efb8da3f80f1d37bebe07f3f00000050efb8da3f000000003ab0d0bd",
+        "geometry_wkb_sha256": "eb53514b89028ebb1b7e04e88e6afa95fb3702c6d02b885e0a7999c648150454",
+        "input_outlet": [
+          0.9833333333333333,
+          0.4166666666666667
+        ],
+        "refined_outlet": [
+          0.9864447364836885,
+          0.4163847890060862
+        ],
+        "resolution_method": "PointInPolygon { candidates_considered: 1, tie_break: None }",
+        "resolved_outlet": [
+          0.9833333333333333,
+          0.4166666666666667
+        ],
+        "terminal_unit_id": 4,
+        "upstream_unit_ids": [
+          4,
+          2,
+          3
+        ],
+        "upstream_units": [
+          {
+            "area_km2": 1.0,
+            "id": 4,
+            "level": 1,
+            "outlet": [
+              0.5,
+              0.0
+            ],
+            "up_area_km2": null
+          },
+          {
+            "area_km2": 1.0,
+            "id": 2,
+            "level": 1,
+            "outlet": [
+              0.5,
+              1.0
+            ],
+            "up_area_km2": null
+          },
+          {
+            "area_km2": 1.0,
+            "id": 3,
+            "level": 1,
+            "outlet": [
+              1.5,
+              1.0
+            ],
+            "up_area_km2": null
+          }
+        ]
+      },
+      "status": "ok",
+      "wheel": {
+        "download_constraints": [
+          "pip download --only-binary=:all:",
+          "--no-deps",
+          "default PyPI index",
+          "provisioned outside sandbox"
+        ],
+        "expected_sha256": "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe",
+        "filename": "pourpoint-0.3.0-cp39-abi3-macosx_11_0_arm64.whl",
+        "install_constraints": [
+          "--no-index",
+          "--find-links provisioned release directory",
+          "--no-deps",
+          "--only-binary=:all:",
+          "pinned release requirement"
+        ],
+        "provisioned_wheel_directory": "/private/tmp/pourpoint-m1-s1-provision/wheels-0.3.0",
+        "sha256": "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe",
+        "sha256_verification": "observed with shasum -a 256 before environment creation and installation; observed equals expected",
+        "size_bytes": 22310060,
+        "source": "Provisioned outside the network-disabled sandbox from the default PyPI index; provenance at /private/tmp/pourpoint-m1-s1-provision/PROVENANCE.txt"
+      }
+    }
+  },
+  "recorded_at_utc": "2026-08-07T12:21:00.479702+00:00",
+  "schema": "pourpoint.released-reader-mutation-control.v1",
+  "source_grounding": {
+    "0.2.1": "crates/gdal/src/raster_reader.rs:38-41 hard-codes encoding: FlowDirEncoding::Esri",
+    "0.3.0": "crates/gdal/src/raster_reader.rs constructs GdalRasterSource with config: GdalConfig::new() and no encoding field",
+    "both_releases": "crates/python/src/engine.rs:214 wires Engine::builder(session).with_raster_source(GdalRasterSource::new())",
+    "release_api_md_sha256": "b6a48a593dbd0b9e9d007980d2691880d8b7e4f2fe299c498295f6bbdbcd2724"
+  },
+  "source_read_hypothesis": {
+    "0.2.1": "The tagged source suggests GdalRasterSource::new() selects ESRI flow-direction encoding.",
+    "0.3.0": "The tagged source suggests the manifest-declared GRASS encoding reaches a GdalRasterSource with no reader-configured encoding field.",
+    "status": "Read from crates/gdal/src/raster_reader.rs at pourpoint-v0.2.1 and pourpoint-v0.3.0; this hypothesis is NOT established by this observation and is never the classification."
+  }
+}
