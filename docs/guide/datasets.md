@@ -28,6 +28,7 @@ hydrofabric:
 
 ```text
 https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
+Reader floor: pourpoint 0.3.0
 ```
 
 This is GRIT 2.0.0, the source river network, compiled to the HFX v0.3.0 format. Public hosting is
@@ -46,6 +47,7 @@ Your delineation code does not change when you switch datasets; you swap the pat
 import pourpoint
 
 # Hosted dataset over HTTPS (read over the network, nothing downloaded).
+# Reader floor: pourpoint 0.3.0
 engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 
 # Local directory.

@@ -8,6 +8,9 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 - Accepted public R2 custom-domain dataset roots at
   `https://basin-delineations-public.upstream.tech/...`.
+- Reader floor: pourpoint 0.3.0 for the GRIT address offered by this repository,
+  derived from the 0.3.0 format and GRASS decoding entries in
+  `crates/core/src/support_claims.rs`.
 - Documented remote HFX dataset locations backed by the object-store
   integration, including local paths, `file://`, `s3://`, Cloudflare R2 HTTPS
   URLs, manifest/graph cache behavior, `HFX_CACHE_DIR`, and parquet range

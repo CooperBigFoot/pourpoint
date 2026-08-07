@@ -13,6 +13,7 @@ to export those intermediates.
 ```python
 import pourpoint
 
+# Reader floor: pourpoint 0.3.0
 engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
 
 level = engine.select_level(selection=pourpoint.LevelSelection.FINEST)

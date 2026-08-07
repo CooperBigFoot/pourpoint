@@ -80,6 +80,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Check reader floors
+        run: python3 scripts/check_reader_floors.py --root .
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
