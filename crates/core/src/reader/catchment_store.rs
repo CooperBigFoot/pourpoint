@@ -1,14 +1,10 @@
 //! CatchmentStore — parquet reader with row-group bbox pruning and eager ID indexing.
 
-#[cfg(test)]
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(test)]
-use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
 use arrow::array::{
@@ -33,6 +29,13 @@ use parquet::arrow::async_reader::{
 use tracing::{debug, info, instrument, warn};
 
 use super::id_index::IdIndex;
+#[cfg(test)]
+use super::test_instrumentation::{
+    CatchmentIdLevelInFlightForTest as ReadIdLevelInFlightForTest, catchment_geometry_decode_count,
+    catchment_geometry_decode_rows, catchment_id_level_max_in_flight,
+    catchment_id_level_scan_count, catchment_id_only_scan_count, record_catchment_geometry_decode,
+    record_catchment_id_level_scan, record_catchment_id_only_scan,
+};
 use super::{
     BboxColIndices, bbox_struct_leaf, bbox_struct_leaf_indices, extract_row_group_bbox,
     require_column, validate_bbox_struct_field,
@@ -52,26 +55,7 @@ const CATCHMENT_ID_ONLY_ROW_GROUP_CONCURRENCY: usize = 16;
 const GEOMETRY_QUERY_ROW_GROUP_CONCURRENCY: usize = 16;
 
 #[cfg(test)]
-static GEOMETRY_DECODE_COUNTS_FOR_TEST: LazyLock<Mutex<HashMap<(String, UnitId), usize>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-#[cfg(test)]
-thread_local! {
-    static READ_ID_LEVEL_SCAN_COUNT_FOR_TEST: Cell<usize> = const { Cell::new(0) };
-    static READ_ID_ONLY_SCAN_COUNT_FOR_TEST: Cell<usize> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-static READ_ID_LEVEL_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-static READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
 static READ_ID_LEVEL_ROW_GROUP_DELAY_MS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-pub(crate) static READER_SESSION_INSTRUMENTATION_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// Decoded geometry-only catchment row used on the assembly/refinement hot path.
 #[derive(Debug, Clone, PartialEq)]
@@ -842,13 +826,7 @@ impl CatchmentStore {
     /// Return the successful geometry decode count for `id` in this store.
     #[cfg(test)]
     pub(crate) fn geometry_decode_count_for_test(&self, id: UnitId) -> usize {
-        let counts = GEOMETRY_DECODE_COUNTS_FOR_TEST
-            .lock()
-            .expect("geometry decode count mutex poisoned");
-        counts
-            .get(&(self.path_display.clone(), id))
-            .copied()
-            .unwrap_or_default()
+        catchment_geometry_decode_count(&self.path_display, id)
     }
 
     /// Return the total number of rows in the Parquet file.
@@ -1366,102 +1344,33 @@ async fn read_id_level_row_group_async(
 }
 
 #[cfg(test)]
-struct ReadIdLevelInFlightForTest;
-
-#[cfg(test)]
-impl ReadIdLevelInFlightForTest {
-    fn enter() -> Self {
-        // saturating_add so a transiently corrupted gauge can never overflow-panic
-        // inside this hot instrumentation path.
-        let current = READ_ID_LEVEL_IN_FLIGHT_FOR_TEST
-            .fetch_add(1, Ordering::SeqCst)
-            .saturating_add(1);
-        record_read_id_level_max_in_flight_for_test(current);
-        Self
-    }
-}
-
-#[cfg(test)]
-impl Drop for ReadIdLevelInFlightForTest {
-    fn drop(&mut self) {
-        READ_ID_LEVEL_IN_FLIGHT_FOR_TEST.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-#[cfg(test)]
-fn record_read_id_level_max_in_flight_for_test(current: usize) {
-    let mut observed = READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.load(Ordering::SeqCst);
-    while current > observed {
-        match READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.compare_exchange(
-            observed,
-            current,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ) {
-            Ok(_) => break,
-            Err(actual) => observed = actual,
-        }
-    }
-}
-
-#[cfg(test)]
 fn record_geometry_decode_for_test(path: &str, unit_id: UnitId) {
-    let mut counts = GEOMETRY_DECODE_COUNTS_FOR_TEST
-        .lock()
-        .expect("geometry decode count mutex poisoned");
-    *counts.entry((path.to_owned(), unit_id)).or_default() += 1;
-}
-
-#[cfg(test)]
-pub(crate) fn reset_geometry_decode_counts_for_test() {
-    GEOMETRY_DECODE_COUNTS_FOR_TEST
-        .lock()
-        .expect("geometry decode count mutex poisoned")
-        .clear();
+    record_catchment_geometry_decode(path, unit_id);
 }
 
 #[cfg(test)]
 pub(crate) fn geometry_decode_rows_for_test() -> usize {
-    GEOMETRY_DECODE_COUNTS_FOR_TEST
-        .lock()
-        .expect("geometry decode count mutex poisoned")
-        .values()
-        .sum()
+    catchment_geometry_decode_rows()
 }
 
 #[cfg(test)]
 pub(crate) fn read_id_level_scan_count_for_test() -> usize {
-    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.with(|c| c.get())
+    catchment_id_level_scan_count()
 }
 
 #[cfg(test)]
 pub(crate) fn read_id_only_scan_count_for_test() -> usize {
-    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.with(|c| c.get())
+    catchment_id_only_scan_count()
 }
 
 #[cfg(test)]
 fn record_read_id_level_scan_for_test() {
-    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.with(|c| c.set(c.get() + 1));
-}
-
-#[cfg(test)]
-pub(crate) fn reset_read_id_level_scan_count_for_test() {
-    READ_ID_LEVEL_SCAN_COUNT_FOR_TEST.with(|c| c.set(0));
-    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.with(|c| c.set(0));
+    record_catchment_id_level_scan();
 }
 
 #[cfg(test)]
 pub(crate) fn read_id_level_max_in_flight_for_test() -> usize {
-    READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.load(Ordering::SeqCst)
-}
-
-#[cfg(test)]
-pub(crate) fn reset_read_id_level_max_in_flight_for_test() {
-    // Only reset the high-water mark. The live in-flight gauge must NEVER be
-    // force-zeroed: doing so while a parallel test still holds in-flight guards
-    // makes their Drop underflow the gauge to usize::MAX, which then overflows
-    // the next fetch_add. The gauge returns to 0 on its own as guards drop.
-    READ_ID_LEVEL_MAX_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
+    catchment_id_level_max_in_flight()
 }
 
 #[cfg(test)]
@@ -1506,7 +1415,7 @@ async fn read_all_ids_with_row_groups_async(
     let _guard = StageGuard::enter(Stage::CatchmentIdIndex);
     #[cfg(test)]
     // Thread-scoped counter must increment at fn entry before the first await on the block_on caller thread.
-    READ_ID_ONLY_SCAN_COUNT_FOR_TEST.with(|c| c.set(c.get() + 1));
+    record_catchment_id_only_scan();
     record_path(path.as_ref());
     let started = Instant::now();
     let builder = ParquetRecordBatchStreamBuilder::new(cached_object_reader(
@@ -2167,6 +2076,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
+    use crate::reader::test_instrumentation::ReaderSessionMeasurementScope;
     use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
     // -----------------------------------------------------------------------
@@ -2370,9 +2280,6 @@ mod tests {
 
     #[test]
     fn test_open_valid_catchments() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (
@@ -2392,9 +2299,6 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_matching() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         // Three spatially separated units
         let units = [
@@ -2414,9 +2318,6 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_empty_for_no_overlap() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2433,9 +2334,6 @@ mod tests {
 
     #[test]
     fn test_bbox_pruning_skips_row_groups() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         // 6 units in 3 row groups (size=2); spatially separated clusters
         let units = [
@@ -2462,9 +2360,6 @@ mod tests {
 
     #[test]
     fn test_query_by_ids() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2485,9 +2380,6 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2513,9 +2405,6 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_returns_expected_pairs() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 0i16, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2536,10 +2425,6 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_overlaps_row_group_reads() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        reset_read_id_level_max_in_flight_for_test();
         let _delay_guard = ReadIdLevelDelayGuard::set(25);
 
         let tmp = NamedTempFile::new().unwrap();
@@ -2558,7 +2443,7 @@ mod tests {
         write_fixture_with_levels(tmp.path(), &units, 1);
 
         let store = CatchmentStore::open(tmp.path()).unwrap();
-        reset_read_id_level_max_in_flight_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let rows = store.read_id_levels().unwrap();
 
         let pairs: Vec<(i64, i16)> = rows
@@ -2582,10 +2467,6 @@ mod tests {
 
     #[test]
     fn test_read_ids_levels_with_row_groups_overlaps_row_group_reads() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        reset_read_id_level_max_in_flight_for_test();
         let _delay_guard = ReadIdLevelDelayGuard::set(25);
 
         let tmp = NamedTempFile::new().unwrap();
@@ -2605,6 +2486,7 @@ mod tests {
 
         let (store, path, _) = local_object_artifact(tmp.path()).unwrap();
         let file_size = std::fs::metadata(tmp.path()).unwrap().len();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let result =
             read_ids_levels_with_row_groups(&store, &path, file_size, &None, &None, &None).unwrap();
 
@@ -2638,9 +2520,6 @@ mod tests {
 
     #[test]
     fn test_read_id_levels_rejects_missing_level_column() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [(1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32])];
         write_fixture(tmp.path(), &units, 1024);
@@ -2656,9 +2535,6 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids_preserves_row_group_order_under_concurrency() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units: Vec<_> = (1..=40)
             .map(|id| {
@@ -2687,9 +2563,6 @@ mod tests {
 
     #[test]
     fn test_query_geometries_by_ids_ignores_unknown_ids() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2710,9 +2583,6 @@ mod tests {
 
     #[test]
     fn test_read_all_ids_uses_cached_index() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -2736,9 +2606,6 @@ mod tests {
 
     #[test]
     fn test_nullable_up_area() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (
@@ -2765,18 +2632,12 @@ mod tests {
 
     #[test]
     fn test_missing_file() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let result = CatchmentStore::open(Path::new("/nonexistent/path/catchments.parquet"));
         assert!(matches!(result, Err(SessionError::Io { .. })));
     }
 
     #[test]
     fn test_wrong_schema() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         // Write a Parquet file with an incompatible schema (missing most columns)
         let schema = Arc::new(Schema::new(vec![Field::new(
@@ -2931,9 +2792,6 @@ mod tests {
 
     #[test]
     fn test_null_id_returns_error() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         write_fixture_with_null(tmp.path(), "id", 1);
 
@@ -2946,9 +2804,6 @@ mod tests {
 
     #[test]
     fn test_null_area_returns_error() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         write_fixture_with_null(tmp.path(), "area_km2", 0);
 
@@ -2963,9 +2818,6 @@ mod tests {
 
     #[test]
     fn test_null_geometry_returns_error() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         write_fixture_with_null(tmp.path(), "geometry", 2);
 
@@ -2980,9 +2832,6 @@ mod tests {
 
     #[test]
     fn test_read_all_ids() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (10i64, 1.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),
@@ -3003,9 +2852,6 @@ mod tests {
 
     #[test]
     fn test_open_rejects_duplicate_ids_across_row_groups() {
-        let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let tmp = NamedTempFile::new().unwrap();
         let units = [
             (1i64, 10.0f32, None, [0.0f32, 0.0f32, 1.0f32, 1.0f32]),

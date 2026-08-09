@@ -23,7 +23,7 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 
 use crate::parquet_cache::ParquetFooterCache;
-use crate::reader::catchment_store::{CatchmentStore, READER_SESSION_INSTRUMENTATION_TEST_LOCK};
+use crate::reader::catchment_store::CatchmentStore;
 use crate::runtime::RT;
 use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
@@ -169,9 +169,6 @@ impl ObjectStore for CountingStore {
 
 #[test]
 fn open_remote_indexes_ids_with_one_streaming_scan() {
-    let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
     let path = ObjectPath::from("catchments.parquet");
     let base_store = Arc::new(InMemory::new());
     let payload = write_catchments_fixture();
@@ -210,9 +207,6 @@ fn open_remote_indexes_ids_with_one_streaming_scan() {
 
 #[test]
 fn footer_cache_reused_for_second_open_and_query() {
-    let _guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
     let path = ObjectPath::from("catchments.parquet");
     let base_store = Arc::new(InMemory::new());
     let payload = write_catchments_fixture();

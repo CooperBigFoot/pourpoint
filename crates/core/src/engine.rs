@@ -1094,9 +1094,7 @@ mod tests {
         ProjectionError, RasterSourceError, RasterTile, RasterTileError, Raw, SnapError,
     };
     use crate::error::CacheError;
-    use crate::reader::catchment_store::{
-        READER_SESSION_INSTRUMENTATION_TEST_LOCK, reset_geometry_decode_counts_for_test,
-    };
+    use crate::reader::test_instrumentation::ReaderSessionMeasurementScope;
     use crate::refinement::{BestEffortSkipReason, BestEffortSkipSource, RefinementStrategyName};
     use crate::session::{DatasetSession, RasterKind};
     use crate::testutil::{DatasetBuilder, TestCatchment};
@@ -1366,10 +1364,6 @@ mod tests {
 
     #[test]
     fn applied_refinement_materializes_terminal_geometry() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        reset_geometry_decode_counts_for_test();
         let (_dir, root) = DatasetBuilder::new(2)
             .with_rasters()
             .with_custom_catchments(vec![
@@ -1389,7 +1383,7 @@ mod tests {
             .build();
         copy_valid_d8_fixture_tiffs(&root);
         let session = DatasetSession::open_path(&root).expect("session should open");
-        reset_geometry_decode_counts_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let engine = Engine::builder(session)
             .with_raster_source(AppliedRefinementRasterSource)
             .build();
