@@ -4,8 +4,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-#[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bytes::BytesMut;
 use futures_util::StreamExt;
@@ -31,6 +29,10 @@ use crate::reader;
 use crate::reader::catchment_store::CatchmentStore;
 use crate::reader::manifest::{AuxDeclarations, SnapDecl};
 use crate::reader::snap_store::{SnapOpenMode, SnapStore};
+#[cfg(test)]
+use crate::reader::test_instrumentation::{
+    record_snap_validation_scan, snap_validation_scan_count,
+};
 use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
 use crate::source::{DatasetSource, pourpoint_get_ranges_concurrency};
@@ -133,21 +135,13 @@ struct ValidationSidecarInputs {
 }
 
 #[cfg(test)]
-static SNAP_VALIDATION_SCAN_COUNT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
 fn record_snap_validation_scan_for_test() {
-    SNAP_VALIDATION_SCAN_COUNT_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+    record_snap_validation_scan();
 }
 
 #[cfg(test)]
 fn snap_validation_scan_count_for_test() -> usize {
-    SNAP_VALIDATION_SCAN_COUNT_FOR_TEST.load(Ordering::SeqCst)
-}
-
-#[cfg(test)]
-fn reset_snap_validation_scan_count_for_test() {
-    SNAP_VALIDATION_SCAN_COUNT_FOR_TEST.store(0, Ordering::SeqCst);
+    snap_validation_scan_count()
 }
 
 impl DatasetSession {
@@ -1399,7 +1393,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::pin::Pin;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+    use std::thread;
     use std::time::Instant;
 
     use arrow::array::{
@@ -1428,24 +1423,28 @@ mod tests {
 
     use super::{
         DatasetSession, read_remote_artifact, remote_artifact_path, remote_artifact_ranges,
+        snap_validation_scan_count_for_test,
     };
+    use crate::algo::coord::GeoCoord;
     use crate::error::SessionError;
     use crate::parquet_cache::{ParquetFooterCache, ParquetRowGroupCache};
     use crate::reader::catchment_store::{
-        READER_SESSION_INSTRUMENTATION_TEST_LOCK, geometry_decode_rows_for_test,
-        read_id_level_max_in_flight_for_test, read_id_level_scan_count_for_test,
-        read_id_only_scan_count_for_test, reset_geometry_decode_counts_for_test,
-        reset_read_id_level_max_in_flight_for_test, reset_read_id_level_scan_count_for_test,
+        geometry_decode_rows_for_test, read_id_level_max_in_flight_for_test,
+        read_id_level_scan_count_for_test, read_id_only_scan_count_for_test,
     };
     use crate::reader::snap_store::{
-        reset_snap_geometry_decode_rows_for_test, reset_snap_membership_max_in_flight_for_test,
-        reset_snap_membership_rows_for_test, snap_geometry_decode_rows_for_test,
-        snap_membership_max_in_flight_for_test, snap_membership_rows_for_test,
+        snap_geometry_decode_rows_for_test, snap_membership_max_in_flight_for_test,
+        snap_membership_rows_for_test,
     };
+    use crate::reader::test_instrumentation::ReaderSessionMeasurementScope;
+    use crate::resolver::{ResolverConfig, SearchRadiusMetres, resolve_outlet};
     use crate::runtime::RT;
     use crate::source::DatasetSource;
     use crate::telemetry::jsonl::JsonlLayer;
-    use crate::testutil::{DatasetBuilder, bbox_struct_array, bbox_struct_field};
+    use crate::testutil::{
+        DatasetBuilder, TestCatchment, TestSnapGeometry, TestSnapTarget, bbox_struct_array,
+        bbox_struct_field,
+    };
     use hfx::{BoundingBox, SnapId, UnitId};
 
     static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -2367,10 +2366,76 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_session_and_resolver_work_cannot_contaminate_reader_measurements() {
+        let (fixture, root) = DatasetBuilder::new(1)
+            .with_custom_catchments(vec![TestCatchment {
+                id: 1,
+                area_km2: 1.0,
+                up_area_km2: None,
+                polygon: (0.0, 0.0, 0.4, 0.4),
+            }])
+            .with_custom_snap_targets(vec![TestSnapTarget {
+                id: 11,
+                catchment_id: 1,
+                weight: 1.0,
+                is_mainstem: true,
+                geometry: TestSnapGeometry::Point(0.2, 0.2),
+            }])
+            .build();
+
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
+        let (done_tx, done_rx) = mpsc::sync_channel(0);
+        let owner_root = root.clone();
+
+        let unrelated = thread::spawn(move || {
+            let session = DatasetSession::open_path(&root).unwrap();
+            let resolved = resolve_outlet(
+                &session,
+                GeoCoord::new(0.2, 0.2),
+                &ResolverConfig::new()
+                    .with_search_radius(SearchRadiusMetres::new(2_000.0).unwrap()),
+            )
+            .unwrap();
+            assert_eq!(resolved.unit_id, UnitId::new(1).unwrap());
+            done_tx.send(()).unwrap();
+        });
+
+        done_rx.recv().unwrap();
+        unrelated.join().unwrap();
+        let actual = (
+            snap_membership_rows_for_test(),
+            snap_geometry_decode_rows_for_test(),
+            snap_validation_scan_count_for_test(),
+        );
+        assert_eq!(
+            actual,
+            (0, 0, 0),
+            "unowned open_path and resolve_outlet work must not enter the measuring owner's membership, geometry, or validation totals"
+        );
+
+        let session = DatasetSession::open_path(&owner_root).unwrap();
+        let resolved = resolve_outlet(
+            &session,
+            GeoCoord::new(0.2, 0.2),
+            &ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(2_000.0).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(resolved.unit_id, UnitId::new(1).unwrap());
+        let actual = (
+            snap_membership_rows_for_test(),
+            snap_geometry_decode_rows_for_test(),
+            snap_validation_scan_count_for_test(),
+        );
+        assert_eq!(
+            actual,
+            (1, 1, 1),
+            "owned open_path and resolve_outlet work must enter the measuring owner's membership, geometry, and validation totals"
+        );
+        drop(fixture);
+    }
+
+    #[test]
     fn open_remote_fetches_manifest_graph_and_opens_catchments() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2420,9 +2485,6 @@ mod tests {
 
     #[test]
     fn local_open_does_not_allocate_parquet_caches() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let (_dir, root) = DatasetBuilder::new(2).build();
         let session = DatasetSession::open(root.to_str().unwrap()).unwrap();
 
@@ -2432,9 +2494,6 @@ mod tests {
 
     #[test]
     fn remote_default_open_enables_parquet_caches() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2452,9 +2511,6 @@ mod tests {
 
     #[test]
     fn explicit_none_caches_disable_remote_parquet_caches() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2472,10 +2528,7 @@ mod tests {
 
     #[test]
     fn open_does_not_decode_catchment_geometry_during_validation() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        reset_geometry_decode_counts_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let (_dir, root) = DatasetBuilder::new(2).build();
 
         let session = DatasetSession::open_path(&root).unwrap();
@@ -2497,9 +2550,6 @@ mod tests {
 
     #[test]
     fn repeated_remote_query_with_cache_avoids_second_range_reads() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());
@@ -2533,9 +2583,6 @@ mod tests {
 
     #[test]
     fn open_remote_uses_cached_manifest_and_graph_when_remote_is_empty() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2557,9 +2604,6 @@ mod tests {
 
     #[test]
     fn open_remote_does_not_use_cache_entry_from_different_source() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let root_a = ObjectPath::from("dataset/a");
@@ -2595,9 +2639,6 @@ mod tests {
 
     #[test]
     fn open_remote_reports_missing_manifest() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2617,9 +2658,6 @@ mod tests {
 
     #[test]
     fn open_remote_with_snap_opens_and_queries_snap_store() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2676,9 +2714,6 @@ mod tests {
 
     #[test]
     fn second_remote_open_uses_persistent_indexes_and_validation_sidecar() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());
@@ -2717,8 +2752,7 @@ mod tests {
                 .is_file()
         );
 
-        reset_geometry_decode_counts_for_test();
-        reset_read_id_level_scan_count_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let second_session = DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
         let second_ranged_gets = counting_store.ranged_get_calls() - first_ranged_gets;
         let read_id_level_scans = read_id_level_scan_count_for_test();
@@ -2748,9 +2782,6 @@ mod tests {
 
     #[test]
     fn second_remote_open_with_two_snaps_uses_validation_sidecar() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());
@@ -2764,12 +2795,7 @@ mod tests {
 
         DatasetSession::open_remote(object_store.clone(), &root, &url, None).unwrap();
 
-        reset_read_id_level_scan_count_for_test();
-        reset_read_id_level_max_in_flight_for_test();
-        super::reset_snap_validation_scan_count_for_test();
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_max_in_flight_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
 
         assert_eq!(
@@ -2810,9 +2836,6 @@ mod tests {
 
     #[test]
     fn cold_remote_id_index_miss_merges_catchment_id_and_level_pass() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2826,8 +2849,7 @@ mod tests {
         let object_store = Arc::clone(&store) as Arc<dyn ObjectStore>;
         let url = Url::parse("s3://pourpoint-test/dataset/root").unwrap();
 
-        reset_geometry_decode_counts_for_test();
-        reset_read_id_level_scan_count_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let session = DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
 
         assert_eq!(
@@ -2866,9 +2888,6 @@ mod tests {
 
     #[test]
     fn cached_id_index_token_miss_fallback_scans_levels_and_rejects_mismatch() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -2905,7 +2924,7 @@ mod tests {
                 .unwrap();
         });
 
-        reset_read_id_level_scan_count_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
 
         assert_graph_level_mismatch(err);
@@ -2929,18 +2948,12 @@ mod tests {
             return;
         }
 
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let (store, root, url) = parsed_remote_source(REAL_GRIT_V200_URL);
 
         DatasetSession::open_remote(store.clone(), &root, &url, None)
             .expect("first real GRIT open should create or refresh validation token");
 
-        reset_read_id_level_scan_count_for_test();
-        super::reset_snap_validation_scan_count_for_test();
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
 
         let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
         let trace_path = trace_dir.path().join("warm-open.jsonl");
@@ -3012,22 +3025,13 @@ mod tests {
             return;
         }
 
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().expect("cold measurement cache tempdir");
         let _cache_env = CacheEnv::set(cache_dir.path());
         let (store, root, url) = parsed_remote_source(REAL_GRIT_V200_URL);
         let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
         let trace_path = trace_dir.path().join("cold-open.jsonl");
 
-        reset_read_id_level_scan_count_for_test();
-        reset_read_id_level_max_in_flight_for_test();
-        super::reset_snap_validation_scan_count_for_test();
-        reset_geometry_decode_counts_for_test();
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_max_in_flight_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let started = Instant::now();
         let session = run_with_trace(&trace_path, || {
             DatasetSession::open_remote(store, &root, &url, None)
@@ -3102,9 +3106,6 @@ mod tests {
             return;
         }
 
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let root = PathBuf::from(LOCAL_MERIT_GLOBAL);
         assert!(
             root.is_dir(),
@@ -3114,10 +3115,7 @@ mod tests {
         let trace_dir = tempfile::TempDir::new().expect("measurement trace tempdir");
         let trace_path = trace_dir.path().join("local-merit-open.jsonl");
 
-        reset_read_id_level_scan_count_for_test();
-        super::reset_snap_validation_scan_count_for_test();
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let started = Instant::now();
         let session = run_with_trace(&trace_path, || DatasetSession::open_path(&root))
             .expect("local MERIT global open should succeed");
@@ -3161,9 +3159,6 @@ mod tests {
 
     #[test]
     fn remote_open_missing_etag_does_not_write_validation_sidecar() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());
@@ -3190,13 +3185,9 @@ mod tests {
 
     #[test]
     fn cold_open_with_snap_decodes_geometry() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let (_dir, root) = DatasetBuilder::new(2).with_snap().build();
 
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         DatasetSession::open_path(&root).unwrap();
 
         assert!(
@@ -3212,9 +3203,6 @@ mod tests {
 
     #[test]
     fn snap_token_change_revalidates_with_lean_membership_read() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -3235,8 +3223,7 @@ mod tests {
                 .unwrap();
         });
 
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         DatasetSession::open_remote(object_store, &root, &url, None).unwrap();
 
         assert!(
@@ -3252,9 +3239,6 @@ mod tests {
 
     #[test]
     fn snap_token_change_rejects_bad_membership() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -3275,8 +3259,7 @@ mod tests {
                 .unwrap();
         });
 
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_rows_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
 
         assert!(
@@ -3299,9 +3282,6 @@ mod tests {
 
     #[test]
     fn catchments_token_change_revalidates_graph_level_equality() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -3328,7 +3308,7 @@ mod tests {
         });
         assert_ne!(remote_object_size(&store, &catchments_path), valid_size);
 
-        reset_read_id_level_scan_count_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
 
         assert_graph_level_mismatch(err);
@@ -3340,9 +3320,6 @@ mod tests {
 
     #[test]
     fn graph_token_change_after_cached_graph_eviction_revalidates_level_equality() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let store = Arc::new(InMemory::new());
@@ -3384,7 +3361,7 @@ mod tests {
         });
         assert_ne!(remote_object_size(&store, &graph_path), valid_size);
 
-        reset_read_id_level_scan_count_for_test();
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let err = DatasetSession::open_remote(object_store, &root, &url, None).unwrap_err();
 
         assert_graph_level_mismatch(err);
@@ -3411,9 +3388,6 @@ mod tests {
 
     #[test]
     fn remote_open_does_not_nest_id_index_stages_inside_validation_stages() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let cache_dir = tempfile::TempDir::new().unwrap();
         let _cache_env = CacheEnv::set(cache_dir.path());
         let base_store = Arc::new(InMemory::new());

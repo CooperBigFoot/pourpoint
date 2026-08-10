@@ -5,6 +5,8 @@ pub mod graph;
 pub(crate) mod id_index;
 pub mod manifest;
 pub mod snap_store;
+#[cfg(test)]
+pub(crate) mod test_instrumentation;
 
 #[cfg(test)]
 mod catchment_store_perf_tests;

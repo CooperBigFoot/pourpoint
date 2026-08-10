@@ -29,6 +29,11 @@ use crate::error::SessionError;
 use crate::parquet_cache::{
     ArtifactIdent, CachingReader, ParquetFooterCache, ParquetRowGroupCache,
 };
+#[cfg(test)]
+use crate::reader::test_instrumentation::{
+    SnapMembershipInFlightForTest, record_snap_geometry_decode_row, record_snap_membership_rows,
+    snap_geometry_decode_rows, snap_membership_max_in_flight, snap_membership_rows,
+};
 use crate::reader::{
     BboxColIndices, bbox_struct_leaf, bbox_struct_leaf_indices, extract_row_group_bbox,
     require_column, validate_bbox_struct_field,
@@ -92,49 +97,21 @@ const LEAN_VALIDATION_ROW_GROUP_CONCURRENCY: usize = 64;
 const SNAP_BBOX_ROW_GROUP_CONCURRENCY: usize = 8;
 
 #[cfg(test)]
-static SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-static SNAP_MEMBERSHIP_ROWS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-static SNAP_MEMBERSHIP_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
-static SNAP_MEMBERSHIP_MAX_IN_FLIGHT_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(test)]
 static SNAP_MEMBERSHIP_ROW_GROUP_DELAY_MS_FOR_TEST: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
 pub(crate) fn snap_geometry_decode_rows_for_test() -> usize {
-    SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST.load(Ordering::SeqCst)
-}
-
-#[cfg(test)]
-pub(crate) fn reset_snap_geometry_decode_rows_for_test() {
-    SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST.store(0, Ordering::SeqCst);
+    snap_geometry_decode_rows()
 }
 
 #[cfg(test)]
 pub(crate) fn snap_membership_rows_for_test() -> usize {
-    SNAP_MEMBERSHIP_ROWS_FOR_TEST.load(Ordering::SeqCst)
-}
-
-#[cfg(test)]
-pub(crate) fn reset_snap_membership_rows_for_test() {
-    SNAP_MEMBERSHIP_ROWS_FOR_TEST.store(0, Ordering::SeqCst);
+    snap_membership_rows()
 }
 
 #[cfg(test)]
 pub(crate) fn snap_membership_max_in_flight_for_test() -> usize {
-    SNAP_MEMBERSHIP_MAX_IN_FLIGHT_FOR_TEST.load(Ordering::SeqCst)
-}
-
-#[cfg(test)]
-pub(crate) fn reset_snap_membership_max_in_flight_for_test() {
-    SNAP_MEMBERSHIP_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
-    SNAP_MEMBERSHIP_MAX_IN_FLIGHT_FOR_TEST.store(0, Ordering::SeqCst);
+    snap_membership_max_in_flight()
 }
 
 #[cfg(test)]
@@ -839,7 +816,7 @@ async fn read_snap_membership_refs_row_group_async(
             stats.batches_read += 1;
             stats.membership_rows += batch.num_rows();
             #[cfg(test)]
-            SNAP_MEMBERSHIP_ROWS_FOR_TEST.fetch_add(batch.num_rows(), Ordering::SeqCst);
+            record_snap_membership_rows(batch.num_rows());
             for i in 0..batch.num_rows() {
                 if id_col.is_null(i) {
                     return Err(SessionError::invalid_row(
@@ -876,41 +853,6 @@ async fn read_snap_membership_refs_row_group_async(
     }
 
     Ok(stats)
-}
-
-#[cfg(test)]
-struct SnapMembershipInFlightForTest;
-
-#[cfg(test)]
-impl SnapMembershipInFlightForTest {
-    fn enter() -> Self {
-        let current = SNAP_MEMBERSHIP_IN_FLIGHT_FOR_TEST.fetch_add(1, Ordering::SeqCst) + 1;
-        record_snap_membership_max_in_flight_for_test(current);
-        Self
-    }
-}
-
-#[cfg(test)]
-impl Drop for SnapMembershipInFlightForTest {
-    fn drop(&mut self) {
-        SNAP_MEMBERSHIP_IN_FLIGHT_FOR_TEST.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-#[cfg(test)]
-fn record_snap_membership_max_in_flight_for_test(current: usize) {
-    let mut observed = SNAP_MEMBERSHIP_MAX_IN_FLIGHT_FOR_TEST.load(Ordering::SeqCst);
-    while current > observed {
-        match SNAP_MEMBERSHIP_MAX_IN_FLIGHT_FOR_TEST.compare_exchange(
-            observed,
-            current,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ) {
-            Ok(_) => break,
-            Err(actual) => observed = actual,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1130,7 +1072,7 @@ fn geometry_from_array(
     absolute_row: usize,
 ) -> Result<WkbGeometry, SessionError> {
     #[cfg(test)]
-    SNAP_GEOMETRY_DECODE_ROWS_FOR_TEST.fetch_add(1, Ordering::SeqCst);
+    record_snap_geometry_decode_row();
 
     let geom_bytes: Vec<u8> =
         if let Some(arr) = geometry_col_array.as_any().downcast_ref::<BinaryArray>() {
@@ -1333,7 +1275,7 @@ mod tests {
     use tracing_subscriber::prelude::*;
 
     use super::*;
-    use crate::reader::catchment_store::READER_SESSION_INSTRUMENTATION_TEST_LOCK;
+    use crate::reader::test_instrumentation::ReaderSessionMeasurementScope;
     use crate::testutil::{bbox_struct_array, bbox_struct_field};
 
     /// Minimal valid WKB LineString with two points.
@@ -1627,9 +1569,6 @@ mod tests {
 
     #[test]
     fn test_open_valid_snap() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(-10.0, -5.0, -9.0, -4.0);
         let rows = vec![
             SnapRow {
@@ -1663,9 +1602,6 @@ mod tests {
 
     #[test]
     fn test_read_all_unit_ids_uses_cached_index() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(-10.0, -5.0, -9.0, -4.0);
         let rows = vec![
             SnapRow {
@@ -1733,11 +1669,6 @@ mod tests {
 
     #[test]
     fn test_cold_membership_open_reads_refs_without_decoding_geometry() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
-        reset_snap_geometry_decode_rows_for_test();
-        reset_snap_membership_rows_for_test();
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -1765,6 +1696,7 @@ mod tests {
         ];
 
         let tmp = write_snap_parquet(&rows);
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let store = open_local_with_mode(tmp.path(), SnapOpenMode::ColdMembershipValidation)
             .expect("cold membership snap store should open");
 
@@ -1775,11 +1707,6 @@ mod tests {
 
     #[test]
     fn test_cold_membership_open_overlaps_row_group_reads() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
-        reset_snap_membership_max_in_flight_for_test();
-        reset_snap_membership_rows_for_test();
         let _delay_guard = SnapMembershipDelayGuard::set(25);
 
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
@@ -1801,6 +1728,7 @@ mod tests {
             .collect();
 
         let tmp = write_snap_parquet_with_row_group_size(&rows, 1);
+        let _measurement_scope = ReaderSessionMeasurementScope::enter();
         let store = open_local_with_mode(tmp.path(), SnapOpenMode::ColdMembershipValidation)
             .expect("cold membership snap store should open");
         let refs = store.read_all_snap_refs().unwrap();
@@ -1827,9 +1755,6 @@ mod tests {
 
     #[test]
     fn test_lazy_open_rejects_wrong_stem_role_column_type() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1863,9 +1788,6 @@ mod tests {
 
     #[test]
     fn test_lazy_open_rejects_missing_geometry_column() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1894,9 +1816,6 @@ mod tests {
 
     #[test]
     fn test_lazy_open_rejects_non_struct_bbox_column() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("unit_id", DataType::Int64, false),
@@ -1923,9 +1842,6 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_returns_matching() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -1986,9 +1902,6 @@ mod tests {
 
     #[test]
     fn test_lazy_open_query_by_bbox_returns_matching() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -2029,9 +1942,6 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_preserves_row_group_order_under_concurrency() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let rows: Vec<_> = (1..=24)
             .map(|id| {
                 let x = id as f32;
@@ -2065,9 +1975,6 @@ mod tests {
 
     #[test]
     fn test_query_by_bbox_empty() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![SnapRow {
             id: 1,
@@ -2093,9 +2000,6 @@ mod tests {
 
     #[test]
     fn test_mainstem_and_tributary() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![
             SnapRow {
@@ -2148,9 +2052,6 @@ mod tests {
 
     #[test]
     fn test_degenerate_bbox_point() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         // A snap target with a Point geometry: minx==maxx and miny==maxy.
         // The spec allows this; snap_bbox() must pad it instead of erroring.
         let geom = minimal_wkb_point(5.0, 10.0);
@@ -2179,9 +2080,6 @@ mod tests {
 
     #[test]
     fn test_degenerate_bbox_vertical_line() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         // A snap target where minx==maxx (vertical LineString), but miny < maxy.
         let geom = minimal_wkb_linestring(5.0, 9.0, 5.0, 11.0);
         let rows = vec![SnapRow {
@@ -2212,9 +2110,6 @@ mod tests {
 
     #[test]
     fn test_reversed_bbox_is_rejected() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let geom = minimal_wkb_linestring(1.0, 1.0, 2.0, 2.0);
         let rows = vec![SnapRow {
             id: 1,
@@ -2247,9 +2142,6 @@ mod tests {
 
     #[test]
     fn test_null_id_returns_error() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         use arrow::array::Int64Builder;
 
         // Write a snap parquet where the id column is declared nullable and
@@ -2315,9 +2207,6 @@ mod tests {
 
     #[test]
     fn test_null_weight_returns_error() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         use arrow::array::Float32Builder as F32B;
 
         // Row 0 has a null weight column.
@@ -2384,18 +2273,12 @@ mod tests {
 
     #[test]
     fn test_missing_file() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         let result = SnapStore::open(Path::new("/nonexistent/path/snap.parquet"));
         assert!(matches!(result, Err(SessionError::Io { .. })));
     }
 
     #[test]
     fn test_wrong_schema() {
-        let _decode_guard = READER_SESSION_INSTRUMENTATION_TEST_LOCK
-            .lock()
-            .expect("reader/session instrumentation test lock should not be poisoned");
         // Write a parquet file that's missing the 'weight' column.
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
