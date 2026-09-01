@@ -239,6 +239,9 @@ MAX_COVERED_CHUNK_BYTES = 1073741824
 MAX_DECODED_CHUNK_BYTES = 8388608
 MAX_WINDOW_ALLOCATION_BYTES = 1073741824
 CANDIDATE_BUDGET = 128
+# A successful fixed-case worker historically completes in minutes. Ten minutes
+# allows transient public-object latency while bounding a stalled planetary read.
+WORKER_TIMEOUT_SECONDS = 10 * 60
 TILE_SIZE = 512
 BAND_HALF_WIDTH_PIXELS = 32
 BAND_HALF_LENGTH_PIXELS = 4096
@@ -2314,8 +2317,14 @@ def run_worker(temporary: Path, install_target: Path, dataset_url: str, case: Ca
                                   "PYTHONPATH": str(install_target.resolve())},
                                  ambient_environment)
     try:
-        completed = subprocess.run([sys.executable, "-I", "-c", WORKER_SOURCE], check=False,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        completed = subprocess.run(
+            [sys.executable, "-I", "-c", WORKER_SOURCE], check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+            timeout=WORKER_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        fail(FailureCode.WORKER,
+             f"released worker timed out after {WORKER_TIMEOUT_SECONDS} seconds")
     except OSError as exc:
         fail(FailureCode.WORKER, f"released worker failed to launch: {exc}")
     if completed.returncode == int(FailureCode.REQUIRE_D8):
