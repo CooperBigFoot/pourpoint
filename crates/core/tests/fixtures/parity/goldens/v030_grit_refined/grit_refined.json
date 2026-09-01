@@ -250,6 +250,14 @@
         }
       ]
     },
+    "released_wheel_identity": {
+      "filename": "pourpoint-0.3.0-cp39-abi3-macosx_11_0_arm64.whl",
+      "metadata_name": "pourpoint",
+      "metadata_requires_python": ">=3.9",
+      "metadata_version": "0.3.0",
+      "sha256": "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe",
+      "size_bytes": 22310060
+    },
     "fixture_provenance": {
       "content_hash_algorithm": "sha256",
       "files": []
@@ -677,6 +685,14 @@
           "content_length": 205069870081
         }
       ]
+    },
+    "released_wheel_identity": {
+      "filename": "pourpoint-0.3.0-cp39-abi3-macosx_11_0_arm64.whl",
+      "metadata_name": "pourpoint",
+      "metadata_requires_python": ">=3.9",
+      "metadata_version": "0.3.0",
+      "sha256": "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe",
+      "size_bytes": 22310060
     },
     "fixture_provenance": {
       "content_hash_algorithm": "sha256",

@@ -46,6 +46,8 @@ struct GoldenRecord {
     #[serde(default)]
     remote_input_identity: Option<RemoteInputIdentity>,
     #[serde(default)]
+    released_wheel_identity: Option<ReleasedWheelIdentity>,
+    #[serde(default)]
     window_measurement: Option<WindowMeasurement>,
     #[serde(default)]
     carve_measurement: Option<serde_json::Value>,
@@ -153,6 +155,16 @@ struct RemoteInputIdentity {
     artifacts: Vec<RemoteArtifactIdentity>,
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+struct ReleasedWheelIdentity {
+    filename: String,
+    metadata_name: String,
+    metadata_requires_python: String,
+    metadata_version: String,
+    sha256: String,
+    size_bytes: u64,
+}
+
 #[derive(Debug, Deserialize)]
 struct RemoteArtifactIdentity {
     path: String,
@@ -226,6 +238,7 @@ struct AcceptedLiveEvidence {
     invocation: AcceptedInvocation,
     refinement: AcceptedRefinement,
     result: AcceptedResult,
+    wheel: ReleasedWheelIdentity,
 }
 
 #[derive(Debug, Deserialize)]
@@ -721,6 +734,22 @@ fn assert_grit_refined_matches_accepted_live_evidence(record: &GoldenRecord) {
     assert_eq!(
         evidence.candidate.sha256,
         "02339ff92cbfd1d2ea57bb5332cb843b98115cd7a7395f64c14fac78d2ed643c"
+    );
+    let released_wheel = record
+        .released_wheel_identity
+        .as_ref()
+        .expect("refined GRIT golden should pin its released wheel");
+    assert_eq!(released_wheel, &evidence.wheel);
+    assert_eq!(
+        released_wheel,
+        &ReleasedWheelIdentity {
+            filename: "pourpoint-0.3.0-cp39-abi3-macosx_11_0_arm64.whl".to_owned(),
+            metadata_name: "pourpoint".to_owned(),
+            metadata_requires_python: ">=3.9".to_owned(),
+            metadata_version: "0.3.0".to_owned(),
+            sha256: "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe".to_owned(),
+            size_bytes: 22_310_060,
+        }
     );
     assert_eq!(
         evidence.geometry.canonicalizer,

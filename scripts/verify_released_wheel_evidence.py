@@ -227,6 +227,18 @@ def _producer_verifier_round_trip(temporary: Path) -> None:
         proof.CaseMode.HORIZONTAL, proof.POSITIVE_CANDIDATE, wheel, proxy, attempt,
         1, 1, proof.ZURICH_SEED, None, None, completed_reads_before_worker,
     )
+    hosted = evidence["hosted"]
+    if (hosted.get("completed_preflight_reads") != completed_reads_before_worker
+            or hosted.get("released_worker_raster_reads") != 2
+            or "completed_network_reads" in hosted):
+        raise AssertionError("released-worker and preflight read scopes are not separated")
+    for kind in ("flow_dir", "flow_acc"):
+        telemetry = evidence["telemetry"][kind]
+        ceilings = evidence["ceilings"][kind]
+        if (ceilings["planned_tile_count"]["observed"] != telemetry["requests"]
+                or ceilings["covered_chunk_bytes"]["observed"] != telemetry["bytes"]
+                or ceilings["single_compressed_chunk_bytes"]["observed"] != telemetry["bytes"]):
+            raise AssertionError(f"{kind} ceilings are not conservatively bound to worker trace")
     expected_paths = {
         "flow_dir": "hfx-cache/attempt-1/direction.tif",
         "flow_acc": "hfx-cache/attempt-1/accumulation.tif",
@@ -245,7 +257,9 @@ def _producer_verifier_round_trip(temporary: Path) -> None:
     verify_case(staging.resolve(), proof.CaseMode.HORIZONTAL)
 
     mismatched_count = json.loads(json.dumps(evidence))
-    mismatched_count["hosted"]["completed_network_reads"] += 1
+    read_count_key = ("completed_preflight_reads" if "completed_preflight_reads" in mismatched_count["hosted"]
+                      else "completed_network_reads")
+    mismatched_count["hosted"][read_count_key] += 1
     _rewrite_case(staging, mismatched_count, trace)
     _assert_rejected(lambda: verify_case(staging.resolve(), proof.CaseMode.HORIZONTAL),
                      "completed hosted read count mismatch")
@@ -550,8 +564,10 @@ def verify_case(root: Path, expected_case: proof.CaseMode) -> dict[str, Any]:
         _retained_window(root, evidence, kind)
     reads = proof.validate_completed_reads((root / "reads.jsonl").read_bytes())
     completed_hosted_reads = sum(record["origin"] == "hosted" and record["completed"] for record in reads)
+    hosted_read_count = evidence["hosted"].get(
+        "completed_preflight_reads", evidence["hosted"].get("completed_network_reads"))
     if (any(record["case_id"] != expected_case.value for record in reads)
-            or completed_hosted_reads != evidence["hosted"]["completed_network_reads"]):
+            or completed_hosted_reads != hosted_read_count):
         proof.fail(proof.FailureCode.EVIDENCE, "reads transcript case or completed count differs")
     if evidence["case"] != expected_case.value or evidence["mutation_attempt_count"] != 0:
         proof.fail(proof.FailureCode.EVIDENCE, "case identity or mutation count differs")
@@ -570,15 +586,27 @@ def verify_case(root: Path, expected_case: proof.CaseMode) -> dict[str, Any]:
         proof.fail(proof.FailureCode.EVIDENCE, "candidate evidence identity differs")
 
     wheel = evidence["wheel"]
-    expected_wheel = proof.expected_wheel_for_host()
-    allowed = proof.WHEEL_ALLOWLIST.get(expected_wheel)
-    if allowed is None or wheel != {"filename": expected_wheel, "metadata_name": "pourpoint", "metadata_requires_python": ">=3.9",
+    filename = wheel.get("filename") if isinstance(wheel, dict) else None
+    allowed = proof.WHEEL_ALLOWLIST.get(filename)
+    if allowed is None or wheel != {"filename": filename, "metadata_name": "pourpoint", "metadata_requires_python": ">=3.9",
                                     "metadata_version": "0.3.0", "sha256": allowed[1], "size_bytes": allowed[0]}:
         proof.fail(proof.FailureCode.EVIDENCE, "wheel identity differs")
 
     hosted = evidence["hosted"]
-    if hosted.get("base") != proof.HOSTED_BASE or _integer(hosted.get("completed_network_reads"), "completed reads", 1) < 1:
-        proof.fail(proof.FailureCode.EVIDENCE, "hosted base or read count differs")
+    if hosted.get("base") != proof.HOSTED_BASE:
+        proof.fail(proof.FailureCode.EVIDENCE, "hosted base differs")
+    legacy_reads = hosted.get("completed_network_reads")
+    preflight_reads = hosted.get("completed_preflight_reads")
+    worker_reads = hosted.get("released_worker_raster_reads")
+    if type(legacy_reads) is int:
+        _integer(legacy_reads, "legacy completed reads", 1)
+    else:
+        _integer(preflight_reads, "completed preflight reads", 1)
+        expected_worker_reads = sum(
+            _integer(evidence["telemetry"][kind].get("requests"), f"{kind} worker reads", 1)
+            for kind in ("flow_dir", "flow_acc"))
+        if _integer(worker_reads, "released worker raster reads", 1) != expected_worker_reads:
+            proof.fail(proof.FailureCode.EVIDENCE, "released worker raster read count differs")
     former = hosted.get("former_manifest")
     if former != {"byte_count": 1132, "d8_declaration_count": 0, "sha256": proof.FORMER_MANIFEST.sha256}:
         proof.fail(proof.FailureCode.EVIDENCE, "former manifest identity differs")
@@ -609,6 +637,13 @@ def verify_case(root: Path, expected_case: proof.CaseMode) -> dict[str, Any]:
             margin = _integer(observation["margin"], "ceiling margin", 1)
             if margin != ceiling - observed:
                 proof.fail(proof.FailureCode.EVIDENCE, "ceiling margin arithmetic differs")
+        if type(legacy_reads) is not int:
+            telemetry = evidence["telemetry"][kind]
+            if (observations["planned_tile_count"]["observed"] != telemetry["requests"]
+                    or observations["covered_chunk_bytes"]["observed"] != telemetry["bytes"]
+                    or observations["single_compressed_chunk_bytes"]["observed"] != telemetry["bytes"]):
+                proof.fail(proof.FailureCode.EVIDENCE,
+                           f"{kind} ceilings are not bound to released-worker trace")
 
     invocation = evidence["invocation"]
     if (set(invocation) != {"candidate_rank", "input_outlet", "invocation_id", "seed"}
@@ -1097,6 +1132,13 @@ def self_test() -> None:
         altered_path.write_bytes(proof.canonical_json(altered))
         _assert_rejected(lambda: verify_fixed_cases(altered_path.resolve()),
                          "unsupported fixed-case declaration")
+        retained_horizontal = repository / "docs/evidence/grit-d8-live/prepublication/horizontal-boundary"
+        original_host_wheel = proof.expected_wheel_for_host
+        try:
+            proof.expected_wheel_for_host = lambda: "pourpoint-0.3.0-cp39-abi3-manylinux_2_28_x86_64.whl"
+            verify_case(retained_horizontal.resolve(), proof.CaseMode.HORIZONTAL)
+        finally:
+            proof.expected_wheel_for_host = original_host_wheel
     after = {relative: _hash(repository / relative) for relative in HISTORICAL_PATHS}
     if before != after or denied.calls != 0:
         proof.fail(proof.FailureCode.EVIDENCE, "historical artifact changed or network opener was reached")

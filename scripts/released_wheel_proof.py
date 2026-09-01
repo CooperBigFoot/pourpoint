@@ -2232,7 +2232,7 @@ def exercise_injected_controller(root: Path) -> None:
               "terminal_unit_id": "1", "upstream_unit_ids": ["1"]}
     attempt = WorkerAttempt(result, [{"id": 1, "outlet": list(ZURICH_SEED)}], b"", b"", trace, cache)
     telemetry, windows, decoded = candidate_acceptance_predicate(attempt)
-    ceilings = _ceiling_evidence(proxy, windows, decoded)
+    ceilings = _ceiling_evidence(windows, decoded, _worker_raster_observations(attempt))
     assert telemetry["accepted_trace_line_numbers"] == [1, 2]
     assert all(window["horizontal_seam_row"] == 1 for window in windows.values())
     assert all(observation["margin"] >= 1 for values in ceilings.values() for observation in values.values())
@@ -2489,8 +2489,15 @@ def validate_live_evidence(value: Any) -> None:
     if set(value) != required or value.get("schema") != "pourpoint.released-wheel-proof-evidence.v1":
         fail(FailureCode.EVIDENCE, "live evidence schema or key set differs")
     hosted = value.get("hosted", {})
-    if type(hosted.get("completed_network_reads")) is not int or hosted["completed_network_reads"] <= 0:
-        fail(FailureCode.EVIDENCE, "live evidence has no completed hosted reads")
+    legacy_reads = hosted.get("completed_network_reads")
+    preflight_reads = hosted.get("completed_preflight_reads")
+    worker_reads = hosted.get("released_worker_raster_reads")
+    legacy_shape = type(legacy_reads) is int and legacy_reads > 0
+    traced_shape = (type(preflight_reads) is int and preflight_reads > 0
+                    and type(worker_reads) is int and worker_reads > 0
+                    and "completed_network_reads" not in hosted)
+    if legacy_shape == traced_shape:
+        fail(FailureCode.EVIDENCE, "live evidence hosted-read scope differs")
     invocation = value.get("invocation", {})
     selection = value.get("selection")
     selection_keys = {"candidate_budget", "candidate_rejections",
@@ -2819,16 +2826,36 @@ def _candidate_evidence(case: CaseMode, candidate: bytes) -> dict[str, Any]:
             "sha256": sha256_bytes(candidate)}
 
 
-def _ceiling_evidence(proxy: ProxyController, windows: dict[str, Any], decoded: dict[str, int]) -> dict[str, Any]:
+def _worker_raster_observations(attempt: WorkerAttempt) -> dict[str, dict[str, int]]:
+    records = parse_trace_jsonl(attempt.trace)
+    line_dir, line_acc = validate_trace(
+        records, attempt.cache_root, attempt.result.get("invocation_id"))
+    output = {}
+    for kind, line in (("flow_dir", line_dir), ("flow_acc", line_acc)):
+        record = records[line - 1]
+        requests, bytes_value = record.get("requests"), record.get("bytes")
+        if (type(requests) is not int or requests <= 0
+                or type(bytes_value) is not int or bytes_value <= 0):
+            fail(FailureCode.ZERO_READS,
+                 "authorization present but zero hosted network operations completed by released worker")
+        output[kind] = {"bytes": bytes_value, "requests": requests}
+    return output
+
+
+def _ceiling_evidence(windows: dict[str, Any], decoded: dict[str, int],
+                      worker: dict[str, dict[str, int]]) -> dict[str, Any]:
     output = {}
     for kind in ("flow_dir", "flow_acc"):
         sample_width = 1 if kind == "flow_dir" else 4
         allocation = windows[kind]["width"] * windows[kind]["height"] * sample_width
+        fetched_bytes = worker[kind]["bytes"]
         output[kind] = {
-            "covered_chunk_bytes": observe_ceiling(proxy.covered[kind], MAX_COVERED_CHUNK_BYTES).evidence(),
+            "covered_chunk_bytes": observe_ceiling(fetched_bytes, MAX_COVERED_CHUNK_BYTES).evidence(),
             "decoded_chunk_bytes": observe_ceiling(decoded[kind], MAX_DECODED_CHUNK_BYTES).evidence(),
-            "planned_tile_count": observe_ceiling(proxy.range_count[kind], MAX_PLANNED_TILE_COUNT).evidence(),
-            "single_compressed_chunk_bytes": observe_ceiling(proxy.max_range[kind], MAX_COMPRESSED_CHUNK_BYTES).evidence(),
+            "planned_tile_count": observe_ceiling(worker[kind]["requests"], MAX_PLANNED_TILE_COUNT).evidence(),
+            # The trace exposes total fetched bytes, not each range length. Treating the total as
+            # the largest range is a conservative upper bound for every compressed chunk request.
+            "single_compressed_chunk_bytes": observe_ceiling(fetched_bytes, MAX_COMPRESSED_CHUNK_BYTES).evidence(),
             "window_allocation_bytes": observe_ceiling(allocation, MAX_WINDOW_ALLOCATION_BYTES).evidence(),
         }
     return output
@@ -2849,19 +2876,8 @@ def require_completed_worker_reads(proxy: ProxyController,
         return controller_reads
     if controller_reads != 0:
         fail(FailureCode.EVIDENCE, "hosted worker unexpectedly used the controller proxy")
-    records = parse_trace_jsonl(attempt.trace)
-    line_dir, line_acc = validate_trace(
-        records, attempt.cache_root, attempt.result.get("invocation_id"))
-    worker_reads = 0
-    for line in (line_dir, line_acc):
-        record = records[line - 1]
-        requests, bytes_value = record.get("requests"), record.get("bytes")
-        if (type(requests) is not int or requests <= 0
-                or type(bytes_value) is not int or bytes_value <= 0):
-            fail(FailureCode.ZERO_READS,
-                 "authorization present but zero hosted network operations completed by released worker")
-        worker_reads += requests
-    return worker_reads
+    observations = _worker_raster_observations(attempt)
+    return sum(observation["requests"] for observation in observations.values())
 
 
 def _build_evidence(case: CaseMode, candidate: bytes, wheel: dict[str, Any], proxy: ProxyController,
@@ -2870,7 +2886,8 @@ def _build_evidence(case: CaseMode, candidate: bytes, wheel: dict[str, Any], pro
                     completed_reads_before_worker: int,
                     rejections: list[dict[str, Any]] | None = None,
                     seed_probe_rejection: dict[str, Any] | None = None) -> tuple[dict[str, Any], bytes]:
-    require_completed_worker_reads(proxy, completed_reads_before_worker, attempt)
+    worker_reads = require_completed_worker_reads(proxy, completed_reads_before_worker, attempt)
+    worker_observations = _worker_raster_observations(attempt)
     telemetry, windows, decoded = candidate_acceptance_predicate(attempt)
     raw_wkb = bytes.fromhex(attempt.result["geometry_wkb_hex"])
     geometry = canonical_wkb(raw_wkb)
@@ -2888,10 +2905,12 @@ def _build_evidence(case: CaseMode, candidate: bytes, wheel: dict[str, Any], pro
             _worker_comparison(attempt.result, sha256_bytes(geometry)))
     evidence = {
         "case": case.value, "candidate": _candidate_evidence(case, candidate),
-        "ceilings": _ceiling_evidence(proxy, windows, decoded),
+        "ceilings": _ceiling_evidence(windows, decoded, worker_observations),
         "geometry": {"canonicalizer": "pourpoint-canonical-wkb-v1", "decimal_precision": 6,
                      "sha256": sha256_bytes(geometry), "size_bytes": len(geometry)},
-        "hosted": {"base": HOSTED_BASE, "completed_network_reads": proxy.completed_hosted_reads,
+        "hosted": {"base": HOSTED_BASE,
+                   "completed_preflight_reads": proxy.completed_hosted_reads,
+                   "released_worker_raster_reads": worker_reads,
                    "flow_acc": _hosted_identity("flow_acc"), "flow_dir": _hosted_identity("flow_dir"),
                    "former_manifest": {"byte_count": FORMER_MANIFEST.content_length,
                                        "d8_declaration_count": 0, "sha256": FORMER_MANIFEST.sha256}},
