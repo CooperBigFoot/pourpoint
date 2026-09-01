@@ -27,6 +27,14 @@ result = engine.compose_result(outlet, upstream, units, refinement, dissolved)
 
 `result` here is identical to `engine.delineate(lat=47.3769, lon=8.5417)`.
 
+This hosted example uses the planetary GRIT direction and accumulation raster
+archive (`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`). The data are by
+Wortmann et al.; cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
+the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
+and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is
+licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use.
+
 ## What each stage does
 
 | Stage | Returns | What it does |

@@ -12,12 +12,10 @@ Remote window reads resolve only the tile-offset and tile-byte-count entries for
 ## When refinement is skipped
 
 The default `refine=True` is best-effort: if a dataset declares no D8 raster, the
-engine skips terminal refinement and returns whole source units. The intended
-canonical public GRIT (Global River Topology) D8 contract declares both flow
-direction and flow accumulation. The staged prefix carries those rasters at
-`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. Its live `manifest.json` does
-not currently carry an `hfx.aux.d8_raster.v2` entry, so the engine cannot
-discover them from that manifest and skips terminal refinement.
+engine skips terminal refinement and returns whole source units. The canonical public GRIT (Global River Topology) manifest declares both flow
+direction and flow accumulation in one `hfx.aux.d8_raster.v2` entry. The live
+rasters are `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`, so pourpoint 0.3.0
+can discover them and apply built-in terminal refinement.
 
 When several D8 declarations overlap and each fully covers the terminal catchment
 — the expected case for a per-Pfafstetter-basin fabric such as MERIT-Basins — the
