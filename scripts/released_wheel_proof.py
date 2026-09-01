@@ -3000,15 +3000,18 @@ def _write_artifacts(staging: Path, candidate: bytes, proxy: ProxyController,
 
 
 def run_live(args: argparse.Namespace, transport: ReadOnlyTransport | None = None) -> None:
+    case = CaseMode(args.case)
+    if case is CaseMode.NEGATIVE:
+        fail(FailureCode.CONFIG,
+             "live negative-flow-direction is unsupported; use the sealed offline declaration-discrimination evidence")
     output = Path(args.output_dir)
     wheel_path = validate_live_environment(output, dict(os.environ))
-    case = CaseMode(args.case)
     positive: dict[str, Any] | None = None
     horizontal: tuple[float, float] | None = None
-    if case is not CaseMode.HORIZONTAL:
+    if case is CaseMode.DISTANT:
         positive, horizontal = _load_positive(case, args.positive_evidence)
     wheel = verify_wheel(wheel_path)
-    candidate = NEGATIVE_CANDIDATE if case is CaseMode.NEGATIVE else POSITIVE_CANDIDATE
+    candidate = POSITIVE_CANDIDATE
     if not output.parent.is_dir():
         fail(FailureCode.OUTPUT, "output parent must already exist")
     selected: WorkerAttempt | None = None
@@ -3032,15 +3035,11 @@ def run_live(args: argparse.Namespace, transport: ReadOnlyTransport | None = Non
         preflight_hosted(proxy)
         completed_reads_before_worker = proxy.completed_hosted_reads
         with running_proxy(proxy) as proxy_url:
-            if case in {CaseMode.HORIZONTAL, CaseMode.NEGATIVE}:
+            if case is CaseMode.HORIZONTAL:
                 seed = ZURICH_SEED
             else:
                 _, seed = read_distant_seed_declaration()
-            if case is CaseMode.NEGATIVE:
-                if args.fixed_case:
-                    fail(FailureCode.CONFIG, "--fixed-case is only valid for positive cases")
-                candidates = [horizontal] if horizontal is not None else []
-            elif args.fixed_case:
+            if args.fixed_case:
                 candidates = [HORIZONTAL_FIXED_OUTLET if case is CaseMode.HORIZONTAL
                               else DISTANT_FIXED_OUTLET]
             else:
