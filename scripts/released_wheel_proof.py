@@ -243,7 +243,9 @@ TILE_SIZE = 512
 BAND_HALF_WIDTH_PIXELS = 32
 BAND_HALF_LENGTH_PIXELS = 4096
 ZURICH_SEED = (8.5417, 47.3769)
+HORIZONTAL_FIXED_OUTLET = (8.616505182125767, 47.26531170766501)
 DISTANT_DISCOVERY_SEED = (10.405, 63.44)
+DISTANT_FIXED_OUTLET = (10.68514408032242, 63.26919011070941)
 # Compatibility name consumed by the released-evidence verifier.
 REPPARFJORD_SEED = DISTANT_DISCOVERY_SEED
 DISTANT_SEED_DECLARATION = (Path(__file__).resolve().parent.parent
@@ -3026,7 +3028,12 @@ def run_live(args: argparse.Namespace, transport: ReadOnlyTransport | None = Non
             else:
                 _, seed = read_distant_seed_declaration()
             if case is CaseMode.NEGATIVE:
+                if args.fixed_case:
+                    fail(FailureCode.CONFIG, "--fixed-case is only valid for positive cases")
                 candidates = [horizontal] if horizontal is not None else []
+            elif args.fixed_case:
+                candidates = [HORIZONTAL_FIXED_OUTLET if case is CaseMode.HORIZONTAL
+                              else DISTANT_FIXED_OUTLET]
             else:
                 discovery = (run_distant_seed_discovery(
                     DISTANT_SEED_DECLARATION, temporary, install_target, 0)
@@ -3095,6 +3102,8 @@ def parser() -> argparse.ArgumentParser:
     live = sub.add_parser("live")
     live.add_argument("--case", required=True, choices=[mode.value for mode in CaseMode])
     live.add_argument("--positive-evidence")
+    live.add_argument("--fixed-case", action="store_true",
+                      help="run the sealed positive outlet without discovery")
     live.add_argument("--output-dir", required=True)
     return result
 
