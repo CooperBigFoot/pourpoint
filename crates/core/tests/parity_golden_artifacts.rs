@@ -39,10 +39,14 @@ struct GoldenRecord {
     resolution_method: String,
     resolver_config: ResolverConfig,
     refinement_outcome: RefinementOutcome,
+    #[serde(default)]
+    refinement_provenance: Option<RefinementProvenance>,
     canonicalizer_version: String,
     comparison_policy: ComparisonPolicy,
     #[serde(default)]
     remote_input_identity: Option<RemoteInputIdentity>,
+    #[serde(default)]
+    released_wheel_identity: Option<ReleasedWheelIdentity>,
     #[serde(default)]
     window_measurement: Option<WindowMeasurement>,
     #[serde(default)]
@@ -70,6 +74,13 @@ struct ResolverConfig {
 struct RefinementOutcome {
     status: String,
     reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RefinementProvenance {
+    strategy: String,
+    declaration_index: usize,
+    basis: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,11 +155,23 @@ struct RemoteInputIdentity {
     artifacts: Vec<RemoteArtifactIdentity>,
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+struct ReleasedWheelIdentity {
+    filename: String,
+    metadata_name: String,
+    metadata_requires_python: String,
+    metadata_version: String,
+    sha256: String,
+    size_bytes: u64,
+}
+
 #[derive(Debug, Deserialize)]
 struct RemoteArtifactIdentity {
     path: String,
     etag: String,
     content_length: u64,
+    #[serde(default)]
+    sha256: Option<String>,
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -191,6 +214,79 @@ struct ProjectedCarveMeasurement {
 struct ProjectedRefinementProvenance {
     strategy: String,
     declaration_index: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedArtifactIndex {
+    schema: String,
+    artifacts: Vec<AcceptedIndexedArtifact>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedIndexedArtifact {
+    path: String,
+    sha256: String,
+    size_bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedLiveEvidence {
+    case: String,
+    candidate: AcceptedManifestIdentity,
+    geometry: AcceptedGeometryIdentity,
+    hosted: AcceptedHostedIdentity,
+    invocation: AcceptedInvocation,
+    refinement: AcceptedRefinement,
+    result: AcceptedResult,
+    wheel: ReleasedWheelIdentity,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedManifestIdentity {
+    byte_count: u64,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedGeometryIdentity {
+    canonicalizer: String,
+    decimal_precision: u32,
+    sha256: String,
+    size_bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedHostedIdentity {
+    base: String,
+    flow_dir: AcceptedHostedObject,
+    flow_acc: AcceptedHostedObject,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedHostedObject {
+    etag: String,
+    content_length: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedInvocation {
+    input_outlet: [f64; 2],
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedRefinement {
+    status: String,
+    provenance: RefinementProvenance,
+    refined_outlet: [f64; 2],
+}
+
+#[derive(Debug, Deserialize)]
+struct AcceptedResult {
+    area_km2: f64,
+    resolution_method: String,
+    resolved_outlet: [f64; 2],
+    terminal_unit_id: i64,
+    upstream_unit_ids: Vec<i64>,
 }
 
 #[test]
@@ -291,6 +387,78 @@ fn committed_grit_nonrefined_a_goldens_validate_schema_and_metadata_offline() {
             &["manifest.json", "catchments.parquet", "graph.arrow"],
         );
         assert_canonical_wkb_idempotent(&decode_hex(&record.canonical_wkb_hex));
+    }
+}
+
+#[test]
+fn committed_grit_refined_goldens_validate_offline() {
+    let records = read_golden_array("goldens/v030_grit_refined/grit_refined.json");
+    assert_eq!(records.len(), 2);
+    let names = records
+        .iter()
+        .map(|record| record.case_name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["horizontal-boundary", "distant-region"]);
+
+    for record in &records {
+        assert_record_contract(record);
+        assert_eq!(record.oracle, "GRIT-REFINED-LIVE");
+        assert_eq!(record.refinement_outcome.status, "Applied");
+        assert!(record.refinement_outcome.reason.is_none());
+        assert!(record.raster_interpretation.is_none());
+        assert!(record.window_measurement.is_none());
+        assert!(record.carve_measurement.is_none());
+        assert_remote_provenance_is_inert(record);
+        assert_grit_refined_matches_accepted_live_evidence(record);
+        assert_canonical_wkb_idempotent(&decode_hex(&record.canonical_wkb_hex));
+    }
+}
+
+#[test]
+fn committed_grit_refined_goldens_reject_broken_accepted_artifact_index() {
+    for case_name in ["horizontal-boundary", "distant-region"] {
+        let source = grit_live_evidence_path(case_name);
+        let scratch = std::env::temp_dir().join(format!(
+            "pourpoint-grit-refined-index-{}-{case_name}",
+            std::process::id()
+        ));
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("stale scratch evidence should be removable");
+        }
+        fs::create_dir_all(&scratch).expect("scratch evidence directory should be creatable");
+
+        let index: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(source.join("artifact-index.json"))
+                .expect("accepted artifact index should be readable"),
+        )
+        .expect("accepted artifact index should be JSON");
+        for artifact in index["artifacts"]
+            .as_array()
+            .expect("accepted artifact index should list artifacts")
+        {
+            let relative = artifact["path"]
+                .as_str()
+                .expect("indexed artifact should have a path");
+            fs::copy(source.join(relative), scratch.join(relative))
+                .expect("indexed artifact should copy to scratch evidence");
+        }
+        fs::copy(
+            source.join("artifact-index.json"),
+            scratch.join("artifact-index.json"),
+        )
+        .expect("artifact index should copy to scratch evidence");
+
+        validate_accepted_artifact_index(&scratch)
+            .expect("an unchanged accepted evidence tree should match its artifact index");
+        let geometry_path = scratch.join("geometry.canonical.wkb");
+        let mut geometry = fs::read(&geometry_path).expect("scratch geometry should be readable");
+        geometry.push(0);
+        fs::write(&geometry_path, geometry).expect("scratch geometry should be corruptible");
+
+        let error = validate_accepted_artifact_index(&scratch)
+            .expect_err("a changed accepted geometry must invalidate its artifact index");
+        assert!(error.contains("geometry.canonical.wkb"));
+        fs::remove_dir_all(&scratch).expect("scratch evidence should be removable");
     }
 }
 
@@ -539,12 +707,273 @@ fn assert_remote_identity(record: &GoldenRecord, pinned_url: &str, expected_path
         assert!(!artifact.etag.is_empty());
         assert!(artifact.content_length > 0);
         assert!(
+            artifact.sha256.is_none(),
+            "historical remote identity must remain ETag plus Content-Length only"
+        );
+        assert!(
             artifact.extra.is_empty(),
             "unexpected remote identity metadata for {}: {:?}",
             artifact.path,
             artifact.extra
         );
     }
+}
+
+fn assert_grit_refined_matches_accepted_live_evidence(record: &GoldenRecord) {
+    let evidence_dir = grit_live_evidence_path(&record.case_name);
+    validate_accepted_artifact_index(&evidence_dir)
+        .expect("accepted live evidence should match its retained artifact index");
+    let evidence: AcceptedLiveEvidence = serde_json::from_str(
+        &fs::read_to_string(evidence_dir.join("evidence.json"))
+            .expect("accepted live evidence should be readable"),
+    )
+    .expect("accepted live evidence should match its retained schema");
+
+    assert_eq!(evidence.case, record.case_name);
+    assert_eq!(evidence.candidate.byte_count, 1_426);
+    assert_eq!(
+        evidence.candidate.sha256,
+        "02339ff92cbfd1d2ea57bb5332cb843b98115cd7a7395f64c14fac78d2ed643c"
+    );
+    let released_wheel = record
+        .released_wheel_identity
+        .as_ref()
+        .expect("refined GRIT golden should pin its released wheel");
+    assert_eq!(released_wheel, &evidence.wheel);
+    assert_eq!(
+        released_wheel,
+        &ReleasedWheelIdentity {
+            filename: "pourpoint-0.3.0-cp39-abi3-macosx_11_0_arm64.whl".to_owned(),
+            metadata_name: "pourpoint".to_owned(),
+            metadata_requires_python: ">=3.9".to_owned(),
+            metadata_version: "0.3.0".to_owned(),
+            sha256: "a79ebc38be0cdc39247fd07eb608750536c982999954bd68e3ccf5599fefdabe".to_owned(),
+            size_bytes: 22_310_060,
+        }
+    );
+    assert_eq!(
+        evidence.geometry.canonicalizer,
+        record.canonicalizer_version
+    );
+    assert_eq!(evidence.geometry.decimal_precision, 6);
+    assert_eq!(record.input_outlet.lon, evidence.invocation.input_outlet[0]);
+    assert_eq!(record.input_outlet.lat, evidence.invocation.input_outlet[1]);
+    assert_eq!(
+        record.resolved_outlet.lon,
+        evidence.result.resolved_outlet[0]
+    );
+    assert_eq!(
+        record.resolved_outlet.lat,
+        evidence.result.resolved_outlet[1]
+    );
+    let refined_outlet = record
+        .refined_outlet
+        .as_ref()
+        .expect("refined GRIT golden should record its refined outlet");
+    assert_eq!(refined_outlet.lon, evidence.refinement.refined_outlet[0]);
+    assert_eq!(refined_outlet.lat, evidence.refinement.refined_outlet[1]);
+    assert_eq!(evidence.refinement.status, "applied");
+    assert_eq!(record.area_km2, evidence.result.area_km2);
+    assert_eq!(record.resolution_method, evidence.result.resolution_method);
+    assert_eq!(record.terminal_id, evidence.result.terminal_unit_id);
+    assert_eq!(record.upstream_ids, evidence.result.upstream_unit_ids);
+    assert_eq!(record.resolver_config.search_radius_m, 1_000.0);
+
+    let provenance = record
+        .refinement_provenance
+        .as_ref()
+        .expect("refined GRIT golden should record applied provenance");
+    assert_eq!(provenance.strategy, "BuiltInD8");
+    assert_eq!(provenance.strategy, evidence.refinement.provenance.strategy);
+    assert_eq!(
+        provenance.declaration_index,
+        evidence.refinement.provenance.declaration_index
+    );
+    assert_eq!(provenance.declaration_index, 2);
+    assert_eq!(provenance.basis, evidence.refinement.provenance.basis);
+    assert_eq!(
+        provenance.basis,
+        "identity_derived_from_pinned_wheel_shipped_Engine_path"
+    );
+
+    let geometry_path = evidence_dir.join("geometry.canonical.wkb");
+    let retained_geometry =
+        fs::read(&geometry_path).expect("accepted canonical geometry should be readable");
+    assert_eq!(decode_hex(&record.canonical_wkb_hex), retained_geometry);
+    assert_eq!(
+        fs::metadata(&geometry_path)
+            .expect("accepted canonical geometry metadata should be readable")
+            .len(),
+        evidence.geometry.size_bytes
+    );
+    assert_eq!(sha256_file(&geometry_path), evidence.geometry.sha256);
+
+    let identity = record
+        .remote_input_identity
+        .as_ref()
+        .expect("refined GRIT golden should pin public object identities");
+    assert_eq!(identity.pinned_url, evidence.hosted.base);
+    assert_eq!(
+        identity.pinned_url,
+        "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"
+    );
+    let paths = identity
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            "manifest.json",
+            "aux/d8/flow_dir.tif",
+            "aux/d8/flow_acc.tif"
+        ]
+    );
+
+    let manifest = find_remote_artifact(record, "manifest.json");
+    assert_eq!(manifest.content_length, evidence.candidate.byte_count);
+    assert_eq!(
+        manifest.sha256.as_deref(),
+        Some(evidence.candidate.sha256.as_str())
+    );
+    assert_eq!(
+        sha256_file(&evidence_dir.join("served-manifest.json")),
+        evidence.candidate.sha256
+    );
+    assert_completed_manifest_read_matches(manifest, &evidence_dir.join("reads.jsonl"));
+    assert_hosted_object_matches(
+        find_remote_artifact(record, "aux/d8/flow_dir.tif"),
+        &evidence.hosted.flow_dir,
+    );
+    assert_hosted_object_matches(
+        find_remote_artifact(record, "aux/d8/flow_acc.tif"),
+        &evidence.hosted.flow_acc,
+    );
+}
+
+fn validate_accepted_artifact_index(evidence_dir: &Path) -> Result<(), String> {
+    let index_path = evidence_dir.join("artifact-index.json");
+    let index_text = fs::read_to_string(&index_path)
+        .map_err(|error| format!("cannot read {index_path:?}: {error}"))?;
+    let index: AcceptedArtifactIndex = serde_json::from_str(&index_text)
+        .map_err(|error| format!("invalid accepted artifact index {index_path:?}: {error}"))?;
+    if index.schema != "pourpoint.released-wheel-proof-artifact-index.v1" {
+        return Err(format!(
+            "unsupported accepted artifact index schema {:?}",
+            index.schema
+        ));
+    }
+    if index.artifacts.is_empty() {
+        return Err("accepted artifact index must not be empty".to_string());
+    }
+
+    let mut paths = std::collections::HashSet::new();
+    for artifact in index.artifacts {
+        let relative = Path::new(&artifact.path);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err(format!(
+                "indexed artifact path is not relative: {}",
+                artifact.path
+            ));
+        }
+        if !paths.insert(artifact.path.clone()) {
+            return Err(format!("accepted artifact index repeats {}", artifact.path));
+        }
+
+        let path = evidence_dir.join(relative);
+        let metadata = fs::metadata(&path).map_err(|error| {
+            format!("indexed artifact {} is unavailable: {error}", artifact.path)
+        })?;
+        if metadata.len() != artifact.size_bytes {
+            return Err(format!(
+                "indexed artifact {} has size {}, expected {}",
+                artifact.path,
+                metadata.len(),
+                artifact.size_bytes
+            ));
+        }
+        let actual_sha256 = sha256_file_result(&path)?;
+        if actual_sha256 != artifact.sha256 {
+            return Err(format!(
+                "indexed artifact {} has sha256 {}, expected {}",
+                artifact.path, actual_sha256, artifact.sha256
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn sha256_file_result(path: &Path) -> Result<String, String> {
+    let output = Command::new("shasum")
+        .args(["-a", "256"])
+        .arg(path)
+        .output()
+        .map_err(|error| format!("cannot run shasum for {path:?}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "shasum failed for {path:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    String::from_utf8(output.stdout)
+        .map_err(|error| format!("shasum output for {path:?} is not utf8: {error}"))?
+        .split_whitespace()
+        .next()
+        .map(str::to_string)
+        .ok_or_else(|| format!("shasum output for {path:?} has no hash"))
+}
+
+fn grit_live_evidence_path(case_name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/evidence/grit-d8-live/postpublication")
+        .join(case_name)
+}
+
+fn find_remote_artifact<'a>(record: &'a GoldenRecord, path: &str) -> &'a RemoteArtifactIdentity {
+    record
+        .remote_input_identity
+        .as_ref()
+        .expect("real oracle should record remote input identity")
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.path == path)
+        .unwrap_or_else(|| panic!("remote identity should record {path}"))
+}
+
+fn assert_hosted_object_matches(
+    artifact: &RemoteArtifactIdentity,
+    accepted: &AcceptedHostedObject,
+) {
+    assert_eq!(artifact.etag, accepted.etag);
+    assert_eq!(artifact.content_length, accepted.content_length);
+    assert!(artifact.sha256.is_none());
+    assert!(artifact.extra.is_empty());
+}
+
+fn assert_completed_manifest_read_matches(artifact: &RemoteArtifactIdentity, path: &Path) {
+    let manifest_read = fs::read_to_string(path)
+        .expect("accepted hosted-read telemetry should be readable")
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .expect("accepted hosted-read telemetry line should be JSON")
+        })
+        .find(|read| read["key"] == "manifest.json")
+        .expect("accepted hosted-read telemetry should include the public manifest read");
+    assert_eq!(manifest_read["completed"], true);
+    assert_eq!(manifest_read["origin"], "hosted");
+    assert_eq!(manifest_read["status"], 200);
+    assert_eq!(manifest_read["bytes_received"], artifact.content_length);
+    assert_eq!(
+        manifest_read["response_content_length"],
+        artifact.content_length
+    );
+    assert_eq!(manifest_read["etag"], artifact.etag);
 }
 
 fn assert_merit_refined_c_contract(record: &GoldenRecord) {

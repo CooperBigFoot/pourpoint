@@ -30,11 +30,26 @@ and global implementation that made the hybrid method fast and widely usable.
 
 pourpoint's canonical hosted example dataset is **GRIT (Global River Topology)**,
 a global river-network dataset by Wortmann et al. GRIT is a separate work from the
-delineation algorithm; if you delineate over the GRIT hydrofabric, cite it
-alongside Heberger's method:
+delineation algorithm; if you delineate over the GRIT hydrofabric, cite the
+**GRIT vector dataset** alongside Heberger's method:
+
+> Wortmann, M., et al. (2025). Global River Topology (GRIT) vector datasets.
+> Zenodo. doi:[10.5281/zenodo.17435232](https://doi.org/10.5281/zenodo.17435232)
+
+Also cite the GRIT paper:
 
 > Wortmann, M., et al. (2025). Global River Topology (GRIT).
 > doi:[10.1029/2024WR038308](https://doi.org/10.1029/2024WR038308)
+
+The hosted HFX compilation also includes GRIT's planetary direction and
+accumulation raster archive. Cite the **GRIT raster dataset** too:
+
+> Wortmann, M., et al. (2025). Global River Topology (GRIT) raster datasets.
+> Zenodo. doi:[10.5281/zenodo.15715535](https://doi.org/10.5281/zenodo.15715535)
+
+The combined hosted dataset is licensed
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use.
 
 ## How to cite Heberger's work
 

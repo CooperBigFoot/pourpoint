@@ -60,6 +60,14 @@ print(result.terminal_unit_id)  # the HFX unit the outlet resolved into
 geojson = result.to_geojson()
 ```
 
+The hosted manifest includes the planetary GRIT direction and accumulation raster
+archive (`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`) for D8 refinement.
+The data are by Wortmann et al.; cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
+the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
+and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is
+licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use.
+
 That is the whole flow: open an `Engine`, call `delineate` with an outlet, and
 read the result. `result.area_km2` is the drainage area; `result.to_geojson()`
 returns the boundary polygon ready to write to a file or load into GeoPandas,

@@ -43,6 +43,13 @@ The engine fetches only the pieces of the dataset it needs, so the full dataset
 never lands on your machine. The one public dataset hosted today is GRIT 2.0.0
 (the source river network), compiled to HFX v0.3.0 (the format version). To use a
 different HFX dataset, change the URL and nothing else in your code changes.
+The hosted manifest includes the planetary GRIT direction and accumulation raster
+archive (`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`) for D8 refinement.
+The data are by Wortmann et al.; cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
+the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
+and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is
+licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use.
 
 ## Local quickstart
 

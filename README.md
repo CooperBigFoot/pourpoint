@@ -123,9 +123,17 @@ result = engine.delineate(lat=47.3769, lon=8.5417)
 print(result.terminal_unit_id, result.area_km2)
 ```
 
-These examples use the default `refine=True`. GRIT does not declare a D8
-raster auxiliary, so best-effort refinement safely skips with a
-`best_effort_no_d8_aux_declared` outcome.
+These examples use the default `refine=True`. The hosted manifest declares the
+planetary GRIT direction and accumulation archive as `aux/d8/flow_dir.tif` and
+`aux/d8/flow_acc.tif`, so pourpoint 0.3.0 can apply built-in D8 terminal
+refinement.
+
+**Hosted GRIT data notice:** The vector data and the planetary raster archive
+are by Wortmann et al. Cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
+the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
+and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The combined hosted
+dataset is licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
+for NonCommercial use.
 
 ## Performance And Caching
 
