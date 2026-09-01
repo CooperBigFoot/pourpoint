@@ -4,7 +4,24 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const PASS_LINES: [&str; 20] = [
+const PASS_LINES: [&str; 37] = [
+    "PASS: an accepted seed is ranked and attempted within the supplied budget",
+    "PASS: authorization failures are loud and typed",
+    "PASS: live released-wheel inputs use only the exact hosted dataset base",
+    "PASS: hosted worker trace, not idle proxy traffic, satisfies the worker read gate",
+    "PASS: preflight reads cannot satisfy the released-worker read guard",
+    "PASS: hosted ranges and allocation ceilings retain positive margin",
+    "PASS: candidate exhaustion retains one reason per ordered candidate",
+    "PASS: preflight requires the published D8 declaration authority",
+    "PASS: seed probe uses the live measurement predicate",
+    "PASS: rejected seed is recorded and ordered candidate search continues",
+    "PASS: rejected seed cannot re-enter the ordered candidate loop",
+    "PASS: hosted transport requires an explicit non-default User-Agent",
+    "PASS: an unresolvable candidate is recorded and selection continues",
+    "PASS: unresolvable discovery seed is named while ranked rejection continues",
+    "PASS: unresolved status requires the worker protocol marker",
+    "PASS: ambient live-input probe recorded zero reads across all self-tests",
+    "PASS: every self-test result is unchanged under ambient live inputs",
     "PASS: network opener is unreachable offline",
     "PASS: missing authorization rejected loudly",
     "PASS: authorized zero completed reads rejected loudly",

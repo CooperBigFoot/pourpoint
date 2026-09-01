@@ -784,12 +784,8 @@ fn remote_doubles<const N: usize>(path: &ObjectPath, bytes: &[u8]) -> Result<[f6
         return Err(remote_layout_error(path, "incomplete TIFF double field"));
     }
     let mut values = [0.0; N];
-    for (value, chunk) in values.iter_mut().zip(bytes.chunks_exact(8)) {
-        *value = f64::from_le_bytes(
-            chunk
-                .try_into()
-                .map_err(|_| remote_layout_error(path, "incomplete TIFF double"))?,
-        );
+    for (value, chunk) in values.iter_mut().zip(bytes.as_chunks::<8>().0) {
+        *value = f64::from_le_bytes(*chunk);
     }
     Ok(values)
 }
@@ -1702,10 +1698,8 @@ fn decode_owned_chunk(
                 .ok_or_else(|| remote_layout_error(remote_path, "TIFF predictor row overflow"))?;
             for row in inflated.chunks_exact_mut(row_bytes) {
                 let mut previous = 0_i32;
-                for chunk in row.chunks_exact_mut(4) {
-                    let difference = i32::from_le_bytes(chunk.try_into().map_err(|_| {
-                        remote_layout_error(remote_path, "incomplete TIFF I32 sample")
-                    })?);
+                for chunk in row.as_chunks_mut::<4>().0 {
+                    let difference = i32::from_le_bytes(*chunk);
                     let value = previous.wrapping_add(difference);
                     chunk.copy_from_slice(&value.to_le_bytes());
                     previous = value;
@@ -1776,10 +1770,8 @@ fn decode_owned_chunk(
                         }
                     }
                     _ => {
-                        for chunk in row.chunks_exact(4).take(live_width_usize) {
-                            clipped.push(f32::from_le_bytes(chunk.try_into().map_err(|_| {
-                                remote_layout_error(remote_path, "incomplete TIFF F32 sample")
-                            })?));
+                        for chunk in row.as_chunks::<4>().0.iter().take(live_width_usize) {
+                            clipped.push(f32::from_le_bytes(*chunk));
                         }
                     }
                 }
@@ -1793,10 +1785,8 @@ fn decode_owned_chunk(
             let nodata = metadata.nodata.parse::<i32>().ok();
             let mut values = Vec::with_capacity(live_len);
             for row in inflated.chunks_exact(row_bytes).take(live_height_usize) {
-                for chunk in row.chunks_exact(4).take(live_width_usize) {
-                    values.push(i32::from_le_bytes(chunk.try_into().map_err(|_| {
-                        remote_layout_error(remote_path, "incomplete TIFF I32 sample")
-                    })?));
+                for chunk in row.as_chunks::<4>().0.iter().take(live_width_usize) {
+                    values.push(i32::from_le_bytes(*chunk));
                 }
             }
             Ok(OwnedTileData::F32(normalize_i32_accumulation(

@@ -34,9 +34,14 @@ Reader floor: pourpoint 0.3.0
 This is GRIT 2.0.0, the source river network, compiled to the HFX v0.3.0 format. Public hosting is
 sponsored by [Upstream Tech](https://www.upstream.tech/) as an in-kind
 contribution to the open HFX ecosystem; pourpoint is independent open-source software
-and the hosting implies no endorsement. The GRIT dataset ships no D8 raster, so
-terminal refinement is skipped automatically (see
-[Raster cache](../raster-cache.md)).
+and the hosting implies no endorsement. Its manifest declares the planetary GRIT
+direction and accumulation raster archive as `aux/d8/flow_dir.tif` and
+`aux/d8/flow_acc.tif`, which pourpoint uses for built-in D8 terminal refinement
+(see [Raster cache](../raster-cache.md)). The data are by Wortmann et al.; cite
+the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
+the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535) and the
+[GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is licensed
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for NonCommercial use.
 
 ## Opening a dataset
 
