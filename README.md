@@ -87,10 +87,11 @@ https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
 Reader floor: pourpoint 0.3.0
 ```
 
-A bare root can return 404 in a browser. Its resolvable
-Reader floor: pourpoint 0.3.0.
+A bare root can return 404 in a browser. Use this resolvable manifest as the
+authority:
 [`manifest.json`](https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/manifest.json)
-is authoritative. The distinct identities are:
+(Reader floor: pourpoint 0.3.0).
+The distinct identities are:
 
 - hosted distribution title: GRIT 2.0.0 HFX dataset;
 - source data: GRIT v1.0;

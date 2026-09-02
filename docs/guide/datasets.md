@@ -30,10 +30,9 @@ Reader floor: pourpoint 0.3.0
 ```
 
 The dataset root is intended for engines and may return 404 when opened in a
-browser. Use its resolvable
-Reader floor: pourpoint 0.3.0.
+browser. Use this resolvable manifest as the authority:
 [`manifest.json`](https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/manifest.json)
-as the authority.
+(Reader floor: pourpoint 0.3.0).
 
 Do not conflate these identities:
 

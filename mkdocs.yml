@@ -33,9 +33,9 @@ plugins:
             members_order: source
             docstring_style: google
 
-# Keep the stale maintainer-facing folder index (README.md maps to the same site
-# root '/' as index.md — a duplicate-destination conflict that fails --strict) and
-# the untracked local-only codex note out of the build. Both files are left on disk.
+# The maintainer-facing README.md index is excluded because it maps to the same
+# site root '/' as index.md, a duplicate-destination conflict. The untracked
+# local-only codex note is also excluded. Both files remain on disk.
 exclude_docs: |
   README.md
   codex-non-interactive.md

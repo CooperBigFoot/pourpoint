@@ -4,7 +4,14 @@ Pure-Rust core library for the pourpoint watershed extraction engine. It handles
 
 ## Snap Strategy
 
-`ResolverConfig::new()` defaults to `SnapStrategy::WeightFirst` to align with the HFX v0.2 weight contract, which requires that the `weight` column be monotonically increasing in drainage dominance (higher weight = more hydrologically significant reach). Under this default, when an outlet is coincident with a tiny tributary stub, the hydrologically dominant mainstem candidate wins over the geometrically closest one. `SnapStrategy::DistanceFirst` remains available for datasets whose `weight` column is not rank-meaningful: configure it via `ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst)`.
+`ResolverConfig::new()` defaults to `SnapStrategy::WeightFirst`. A declared
+`weight` increases with drainage dominance, so a higher value identifies a more
+hydrologically significant reach. Under this default, when an outlet is
+coincident with a tiny tributary stub, the hydrologically dominant mainstem
+candidate wins over the geometrically closest one. `SnapStrategy::DistanceFirst`
+remains available for datasets whose `weight` column is not rank-meaningful:
+configure it with
+`ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst)`.
 
 ## Staged Delineation Contract
 

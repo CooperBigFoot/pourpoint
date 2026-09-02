@@ -88,4 +88,4 @@ If the delineation algorithm matters to your work, please cite Heberger.
 DOI or paper. If you use them in research, cite Heberger's algorithm as above and
 point to the repository:
 
-> pourpoint: watershed delineation for any HFX-compliant hydrofabric. <https://github.com/CooperBigFoot/pourpoint>
+> pourpoint: watershed delineation from normalized HFX datasets. <https://github.com/CooperBigFoot/pourpoint>

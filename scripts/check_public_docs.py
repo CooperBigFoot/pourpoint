@@ -10,6 +10,12 @@ from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_HOSTED_ROOT = (
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"
+)
+HOSTED_URL_RE = re.compile(
+    r"https://basin-delineations-public\.upstream\.tech/[^\s<>`)\]\"]+"
+)
 EXCLUDED_PARTS = {
     ".git",
     ".worktrees",
@@ -22,6 +28,7 @@ EXCLUDED_PARTS = {
 }
 EXCLUDED_FILES = {"AGENTS.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md"}
 PROHIBITED = {
+    "Prospective-organization naming": re.compile(r"\bSCALGO\b", re.IGNORECASE),
     "Pending release language": re.compile(r"pending 0\.2\.1", re.IGNORECASE),
     "Unsubstantiated production-adoption language": re.compile(
         r"live-fired in production", re.IGNORECASE
@@ -98,6 +105,13 @@ def check_claims() -> list[str]:
             for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line}: {label}: {match.group(0)!r}")
+        for match in HOSTED_URL_RE.finditer(text):
+            if not match.group(0).startswith(CANONICAL_HOSTED_ROOT):
+                line = text.count("\n", 0, match.start()) + 1
+                errors.append(
+                    f"{relative}:{line}: retired hosted dataset address: "
+                    f"{match.group(0)!r}"
+                )
     for relative, markers in REQUIRED.items():
         text = (ROOT / relative).read_text(encoding="utf-8")
         for marker in markers:

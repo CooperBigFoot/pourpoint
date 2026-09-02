@@ -103,7 +103,7 @@ hard-error as an unsupported format version.
 |---|---|---|---|
 | `dataset_path` | `str` | — | Path or URL to the HFX dataset root directory |
 | `snap_radius` | `float \| None` | `None` | Snap-path search radius in metres; must be finite and positive when provided |
-| `snap_strategy` | `"distance-first" \| "weight-first" \| None` | `None` | Snap ranking strategy. Defaults to `"weight-first"` (HFX v0.2 contract). |
+| `snap_strategy` | `"distance-first" \| "weight-first" \| None` | `None` | Snap ranking strategy. Defaults to `"weight-first"`, which ranks greater declared weight as more hydrologically significant before distance. |
 | `snap_threshold` | `int \| None` | `None` | Minimum upstream-pixel count for stream-network snapping |
 | `clean_epsilon` | `float \| None` | `None` | Topology-cleaning epsilon in degrees |
 | `refine` | `bool` | `True` | Whether raster-based terminal refinement is enabled |
