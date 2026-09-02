@@ -13,10 +13,11 @@ point-and-click [Global Watersheds](https://mghydro.com/watersheds) web applicat
 `pourpoint` is an independent Rust reimplementation of that method. The algorithm
 design is entirely Heberger's; what `pourpoint` adds is engineering reach: Heberger's
 delineator is built specifically around the MERIT-Hydro and MERIT-Basins
-datasets, while `pourpoint` runs the same method on any
-[HFX](https://github.com/CooperBigFoot/hfx)-compliant hydrofabric, including
-GRIT, MERIT-Basins, and others. Because delineator is MIT-licensed, the license
-permits this reimplementation. This page credits him because correctness and
+datasets, while `pourpoint` runs the same method on normalized
+[HFX](https://github.com/CooperBigFoot/hfx) inputs. Every raw source fabric
+requires an adapter compile step. The existence of an adapter does not imply
+that this project hosts its output; GRIT is the only currently hosted dataset.
+Because delineator is MIT-licensed, the license permits this reimplementation. This page credits him because correctness and
 courtesy require it.
 
 ### A note on lineage
@@ -49,7 +50,12 @@ accumulation raster archive. Cite the **GRIT raster dataset** too:
 
 The combined hosted dataset is licensed
 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
-NonCommercial use.
+NonCommercial use. Installing the MIT-licensed engine does not grant
+commercial rights to the hosted GRIT data.
+
+[Upstream Tech](https://www.upstream.tech/) provides only in-kind hosting
+infrastructure. It is not the project owner, dataset vendor, or commercial
+partner.
 
 ## How to cite Heberger's work
 

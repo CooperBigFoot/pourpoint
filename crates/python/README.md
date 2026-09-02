@@ -1,13 +1,7 @@
 # pourpoint
 
-`pourpoint` is the Python package for the `pourpoint` watershed delineation engine.
-Give it a point on a river and it returns the whole upstream watershed as a
-polygon. It reads HFX datasets, which are folders of pre-built river-network
-files. Only HFX v0.3.0 datasets load; older versions report a clear unsupported
-format error.
-
-The wheel bundles the full native stack, including GDAL, PROJ, GEOS, libtiff,
-SQLite, and more, so no system GDAL install is needed.
+`pourpoint` is the Python package for the pourpoint watershed-delineation
+engine. The current PyPI release is 0.3.0 and is classified Beta.
 
 ## Install
 
@@ -17,86 +11,80 @@ uv add pourpoint
 
 (or `pip install pourpoint`)
 
-Prebuilt wheels are published for:
+Release 0.3.0 has five `cp39-abi3` wheels for macOS 11+ arm64/x86_64,
+`manylinux_2_28` arm64/x86_64, and Windows amd64, plus an sdist. The wheels
+bundle GDAL, PROJ, GEOS, and their runtime dependencies.
 
-- macOS (Apple Silicon + Intel)
-- Linux (x86_64 + aarch64)
-- Windows (x86_64)
-
-as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
-
-## Zero-download quickstart
-
-Use the hosted public GRIT (Global River Topology) dataset without downloading it first:
+## Hosted quickstart
 
 ```python
 import pourpoint
 
-# No local dataset: this reads the hosted GRIT dataset over the network.
-# Reader floor: pourpoint 0.3.0
-engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
+engine = pourpoint.Engine(
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"  # Reader floor: pourpoint 0.3.0
+)
 result = engine.delineate(lat=47.3769, lon=8.5417)
 print(result.area_km2)
+geojson_feature = result.to_geojson()
 ```
 
-The engine fetches only the pieces of the dataset it needs, so the full dataset
-never lands on your machine. The one public dataset hosted today is GRIT 2.0.0
-(the source river network), compiled to HFX v0.3.0 (the format version). To use a
-different HFX dataset, change the URL and nothing else in your code changes.
-The hosted manifest includes the planetary GRIT direction and accumulation raster
-archive (`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`) for D8 refinement.
-The data are by Wortmann et al.; cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
-the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
-and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is
-licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
-NonCommercial use.
+HFX is the normalized input contract. Every raw or source hydrofabric needs an
+adapter compile step before pourpoint can read it. Adapter availability does not
+imply hosted availability. There is exactly one dataset hosted by this project:
+the **GRIT 2.0.0 HFX dataset**, compiled from GRIT v1.0 source data. Its live
+manifest reports `fabric_version` 1.0.0, HFX `format_version` 0.3.0, and
+`adapter_version` `grit-global-2.1.0`.
 
-## Local quickstart
+Remote operation fetches required byte ranges and raster windows instead of the
+complete roughly 299 GB dataset. The small manifest and graph may be fetched
+completely on a cold open. Required ranges and windows may be cached locally.
+
+The live D8 declaration uses `hfx.aux.d8_raster.v2`, EPSG:8857, `grass`, and
+`km2`, at `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. See the
+[D8 compatibility boundary](https://cooperbigfoot.github.io/pourpoint/guide/datasets/#d8-compatibility-and-remote-layout).
+
+## Released and development API references
+
+**Released 0.3.0 documentation:** use the
+[tag-pinned Python README](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/README.md)
+and [tag-pinned API reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md).
+Released 0.3.0 includes one-shot and batch calls, the staged API, GeoJSON
+`Feature` output, and both GeoParquet writer classes.
+
+**Main development documentation:** the files on the `main` branch and the
+generated docs site describe the current checkout. They can include Unreleased
+changes. In particular, `BestEffortSkipReason`,
+`DelineationResult.refinement_skip_reason`, and
+`Engine.unreadable_auxiliary_schemas` are main-only and are not in the 0.3.0
+wheel.
+
+## Local use
 
 ```python
 import pourpoint
 
 engine = pourpoint.Engine("/path/to/hfx/dataset")
 result = engine.delineate(lat=47.3769, lon=8.5417)
-print(result.area_km2)
 ```
 
-`Engine` accepts local paths and remote dataset URLs such as `s3://` and
-`https://`. For constructor options such as snap search radius and geometry
-repair, see the
-[Tuning Knobs](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md#tuning-knobs)
-section of `API.md`.
+Outlet resolution uses declared snap features and the configured strategy. The
+default weight-first strategy is not simply nearest. Keep an `Engine` for
+repeated delineations so its caches can be reused.
 
-## Reuse the Engine
+## License and citation
 
-The first open fetches dataset metadata over the network and is slower, so keep
-the engine around and reuse it. Repeated delineations in the same session reuse
-data already fetched, so overlapping watersheds are faster.
+The engine is MIT-licensed. The hosted GRIT dataset is separately
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use. Installing pourpoint grants no commercial rights to hosted
+GRIT. Cite the [vector data](https://doi.org/10.5281/zenodo.17435232),
+[raster data](https://doi.org/10.5281/zenodo.15715535), and
+[paper](https://doi.org/10.1029/2024WR038308).
 
-## Going further
-
-Logging and verbose output, batch delineation with a progress callback, the
-staged step-by-step API, and GeoParquet export are documented in
-[`API.md`](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md)
-and on the docs site at https://cooperbigfoot.github.io/pourpoint/.
-
-## What it does
-
-- Finds the catchment your point sits in.
-- Gathers every catchment upstream.
-- Merges them into one watershed polygon.
-- Returns the geometry plus geodesic area in km².
-
-## API Reference
-
-For the full developer-oriented API surface, including argument types, return
-types, and the exception hierarchy, see
-[API.md](https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/API.md).
+[Upstream Tech](https://www.upstream.tech/) is only the in-kind hosting
+infrastructure sponsor, not the owner, vendor, or commercial partner.
 
 ## Links
 
-- **Source & issues:** https://github.com/CooperBigFoot/pourpoint
-- **HFX dataset spec:** https://github.com/CooperBigFoot/hfx
-- **License:** MIT for `pourpoint`; bundled native libraries retain their own
-  licenses. See
-  [`LICENSES/`](https://github.com/CooperBigFoot/pourpoint/tree/main/LICENSES).
+- [Source and issues](https://github.com/CooperBigFoot/pourpoint)
+- [HFX specification](https://github.com/CooperBigFoot/hfx)
+- [Main development API](API.md)

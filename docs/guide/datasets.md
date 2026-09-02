@@ -1,81 +1,115 @@
 # Datasets
 
-pourpoint reads a *hydrofabric*: a pre-built dataset of catchments and how they
-connect upstream and downstream. pourpoint reads any hydrofabric published in the open
-[HFX (HydroFabric Exchange)](https://github.com/CooperBigFoot/hfx) format, a
-folder of pre-built river-network files, so the same engine works over GRIT (Global River Topology),
-MERIT-Basins, and any other HFX dataset.
+## HFX is the engine boundary
 
-## What's in an HFX dataset
+[HFX](https://github.com/CooperBigFoot/hfx) is the normalized input contract.
+It is not a native or raw hydrofabric format. Every raw or source hydrofabric must first be compiled
+by an adapter before pourpoint can read it. A named adapter documents a compilation path; it does not imply that its output is
+publicly hosted.
 
-An HFX dataset is a directory, local or remote, containing:
+Every HFX v0.3.0 dataset root contains:
 
-| Artifact | Required | What it holds |
+| Artifact | Requirement | Purpose |
 |---|---|---|
-| `manifest.json` | Yes | Dataset metadata: fabric name, version, levels, and which optional auxiliaries are present. |
-| `catchments.parquet` | Yes | The catchment ("unit") polygons. |
-| `graph.parquet` | Yes | The upstream/downstream topology connecting the units. |
-| `snap.parquet` | Optional | Precomputed snap points that pull an outlet onto the stream network. |
-| D8 rasters (`flow_dir.tif`, `flow_acc.tif`) | Optional | Flow-direction and flow-accumulation grids used to sharpen the outlet's terminal catchment. |
+| `manifest.json` | Required | Contract and dataset metadata, levels, and auxiliary declarations |
+| `catchments.parquet` | Required | Drainage-unit polygons and attributes |
+| `graph.parquet` | Required | Same-level topology |
 
-`manifest.json` declares which optional artifacts a dataset carries. A dataset
-that omits them still delineates; it just skips the corresponding step.
+Snap features and D8 rasters are optional. Their paths are declared in
+`manifest.json`; consumers must not assume `snap.parquet`, `flow_dir.tif`, or
+`flow_acc.tif` locations. Pourpoint rejects unsupported HFX format versions.
 
-## The canonical hosted dataset
+## Hosted GRIT identity
 
-To get started without downloading anything, point pourpoint at the hosted GRIT
-hydrofabric:
+The project currently offers exactly one hosted dataset, titled the **GRIT
+2.0.0 HFX dataset**:
 
 ```text
 https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
 Reader floor: pourpoint 0.3.0
 ```
 
-This is GRIT 2.0.0, the source river network, compiled to the HFX v0.3.0 format. Public hosting is
-sponsored by [Upstream Tech](https://www.upstream.tech/) as an in-kind
-contribution to the open HFX ecosystem; pourpoint is independent open-source software
-and the hosting implies no endorsement. Its manifest declares the planetary GRIT
-direction and accumulation raster archive as `aux/d8/flow_dir.tif` and
-`aux/d8/flow_acc.tif`, which pourpoint uses for built-in D8 terminal refinement
-(see [Raster cache](../raster-cache.md)). The data are by Wortmann et al.; cite
-the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
-the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535) and the
-[GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is licensed
-[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for NonCommercial use.
+The dataset root is intended for engines and may return 404 when opened in a
+browser. Use its resolvable
+Reader floor: pourpoint 0.3.0.
+[`manifest.json`](https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/manifest.json)
+as the authority.
 
-## Opening a dataset
+Do not conflate these identities:
 
-The first argument to `Engine` is the dataset root, a local directory or a URL.
-Your delineation code does not change when you switch datasets; you swap the path.
+| Identity | Current value |
+|---|---|
+| Hosted distribution title | GRIT 2.0.0 HFX dataset |
+| Source data release | GRIT v1.0 |
+| Manifest `fabric_version` | `1.0.0` |
+| HFX `format_version` | `0.3.0` |
+| Manifest `adapter_version` | `grit-global-2.1.0` |
+
+The live auxiliary declaration uses `hfx.aux.d8_raster.v2`, EPSG:8857, `grass`
+flow direction, and `km2` accumulation. Its manifest-declared paths are
+`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`.
+
+## Opening local and remote roots
 
 ```python
 import pourpoint
 
-# Hosted dataset over HTTPS (read over the network, nothing downloaded).
-# Reader floor: pourpoint 0.3.0
-engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
-
-# Local directory.
-engine = pourpoint.Engine("/data/hfx/rhine")
-
-# Local file URL.
-engine = pourpoint.Engine("file:///data/hfx/rhine")
-
-# Amazon S3.
-engine = pourpoint.Engine("s3://bucket/path/to/hfx/rhine")
+remote = pourpoint.Engine(
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"  # Reader floor: pourpoint 0.3.0
+)
+local = pourpoint.Engine("/data/hfx/local")
+file_url = pourpoint.Engine("file:///data/hfx/local")
+s3 = pourpoint.Engine("s3://bucket/path/to/hfx")
 ```
 
-Only HFX v0.3.0 datasets load; older HFX format versions are rejected as an
-unsupported version.
+For remote roots, pourpoint fetches required byte ranges and raster windows
+instead of the complete dataset. The hosted dataset is roughly 299 GB. The
+small manifest and graph may be fetched completely on a cold open. Required
+ranges and materialized raster windows may be cached locally. This is bounded
+remote access, not a promise that every request is a partial-file request or
+that no bytes are written to disk. See [Raster cache](../raster-cache.md).
 
-## Remote datasets
+## Snapping
 
-For remote datasets, pourpoint fetches only the pieces of each file it needs over
-the network; the full dataset is never copied to your machine. Dataset metadata
-is cached between runs under `HFX_CACHE_DIR`, or the OS cache directory if that
-variable is unset. The first open of a large dataset fetches dataset metadata
-over the network and is slower; keep the same `engine` around and reuse it for
-many delineations.
+Outlet resolution uses the snap features and metadata declared by the dataset,
+plus the configured strategy. The default is weight-first, which ranks
+hydrologic weight before distance. Distance-first is also available. The
+default therefore does not mean “choose the nearest feature.”
 
-See the [Quickstart](../quickstart.md) for a complete delineation and the
-[API Reference](../api-reference.md) for every `Engine` option.
+## D8 compatibility and remote layout
+
+Released pourpoint 0.3.0 consumes only `hfx.aux.d8_raster.v2` for built-in D8
+terminal refinement. The supported CRS/unit combinations are exactly:
+
+- EPSG:4326 with `cells`;
+- EPSG:8857 with `cells`;
+- EPSG:8857 with `km2`.
+
+EPSG:4326 with `km2` is rejected because angular pixel area is not approximated.
+Other D8 CRSs are unsupported.
+
+The remote D8 reader accepts one-band, internally tiled 512 by 512, DEFLATE COGs.
+Direction samples may be `uint8` or `int8`, with TIFF predictor 1 or 2.
+Accumulation samples may be `float32` or `int32`; `cells` requires `float32`.
+For `int32`, predictors 1 and 2 are accepted. For `float32`, predictors 1 and 3
+are accepted. Unsupported layouts fail rather than falling back to a complete
+raster download.
+
+Refinement traces within the selected terminal unit and returns a terminal
+sub-polygon at the snapped raster cell. It does not claim an exact boundary at
+the original point.
+
+## Hosted-data license and citations
+
+The engine is MIT-licensed. The hosted GRIT dataset is separately licensed
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use. Installing pourpoint does not grant commercial rights to the
+hosted GRIT data. Cite all three sources:
+
+- [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232)
+- [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
+- [GRIT paper](https://doi.org/10.1029/2024WR038308)
+
+[Upstream Tech](https://www.upstream.tech/) provides only hosting infrastructure
+as an in-kind sponsor. It is not the project owner, dataset vendor, or
+commercial partner.

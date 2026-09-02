@@ -126,14 +126,14 @@ Writers must enable bbox column statistics so row-group pruning can use the outw
 
 | basin_id | delineation | geometry | outlet_lon | outlet_lat | area_km2 | bbox_minx | bbox_miny | bbox_maxx | bbox_maxy | adapter_version |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| `rhine-basel` | `grit/2.0.0/d8-best-effort` | WKB MultiPolygon | 7.589 | 47.5596 | 365000.0 | 5.80 | 45.80 | 10.60 | 48.90 | `hfx-grit-adapter/1.4.0` |
-| `rhine-basel` | `grit/2.0.0/no-refine` | WKB MultiPolygon | 7.589 | 47.5596 | 364200.0 | 5.81 | 45.81 | 10.58 | 48.88 | `hfx-grit-adapter/1.4.0` |
+| `rhine-basel` | `grit/1.0.0/d8-best-effort` | WKB MultiPolygon | 7.589 | 47.5596 | 365000.0 | 5.80 | 45.80 | 10.60 | 48.90 | `grit-global-2.1.0` |
+| `rhine-basel` | `grit/1.0.0/no-refine` | WKB MultiPolygon | 7.589 | 47.5596 | 364200.0 | 5.81 | 45.81 | 10.58 | 48.88 | `grit-global-2.1.0` |
 
 The repeated `basin_id` is valid because the `delineation` values are distinct.
-For a locally compiled MERIT HFX dataset (built with the HFX `merit-v2`
-reference adapter), overlapping Pfaf D8 rasters can make refinement
-ambiguous; runnable MERIT export examples should use an explicit `no-refine`
-method label when refinement is disabled for that reason.
+Historical tests used locally compiled MERIT HFX output from the HFX `merit-v2`
+reference adapter. That is local adapter evidence, not a currently hosted public
+MERIT dataset. When refinement is disabled for such local data, use an explicit
+`no-refine` method label.
 
 ## Reader Smoke
 

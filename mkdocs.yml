@@ -1,5 +1,5 @@
 site_name: pourpoint
-site_description: Watershed delineation for any HFX-compliant hydrofabric.
+site_description: Beta watershed delineation from normalized HFX datasets.
 site_url: https://cooperbigfoot.github.io/pourpoint/
 repo_url: https://github.com/CooperBigFoot/pourpoint
 

@@ -1,23 +1,7 @@
 # Quickstart
 
-This guide takes you from installing pourpoint to your first delineated watershed.
-
-## Terms
-
-- **Outlet**: the point a watershed drains to, given as a `(latitude,
-  longitude)` coordinate. Everything upstream of the outlet is its watershed.
-- **Delineation**: computing that watershed by finding every piece of land
-  upstream of the outlet and returning it as a polygon.
-- **Hydrofabric**: a pre-built map of a river network — its streams, the
-  catchments that drain into them, and how those catchments connect — of the same
-  kind as NHDPlus, HydroSHEDS, or MERIT-Hydro. pourpoint reads one to delineate.
-- **HFX dataset**: a *hydrofabric*, the pre-built river-network and catchment
-  data pourpoint reads to delineate. It follows the open
-  [HFX](https://github.com/CooperBigFoot/hfx) format, and you point pourpoint at one
-  by path or URL. See [Datasets](guide/datasets.md).
-- **GRIT**: Global River Topology, a global river-network dataset ([Wortmann et
-  al. 2025](https://doi.org/10.1029/2024WR038308)). The hosted example is GRIT
-  2.0.0 (the source data) compiled to the HFX v0.3.0 format.
+This guide uses the released `pourpoint` 0.3.0 Python package and the project's
+single hosted dataset.
 
 ## 1. Install
 
@@ -25,73 +9,55 @@ This guide takes you from installing pourpoint to your first delineated watershe
 uv add pourpoint
 ```
 
-(or pip install pourpoint)
+(or `pip install pourpoint`)
 
-pourpoint ships as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside,
-so there is nothing else to install. Prebuilt wheels are published for:
+PyPI publishes five self-contained `cp39-abi3` wheels for macOS 11+
+arm64/x86_64, `manylinux_2_28` arm64/x86_64, and Windows amd64, plus an sdist.
 
-- macOS (Apple Silicon + Intel)
-- Linux (x86_64 + aarch64)
-- Windows (x86_64)
-
-as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
-
-## 2. Delineate your first watershed
-
-You do not need a local dataset. pourpoint reads the hosted GRIT hydrofabric
-directly over the network, fetching only the bytes it needs; the full dataset is
-never downloaded to your machine.
+## 2. Open the hosted HFX dataset
 
 ```python
 import pourpoint
 
-# Open the engine against the hosted GRIT hydrofabric (read over the network;
-# nothing is copied to disk).
-# Reader floor: pourpoint 0.3.0
-engine = pourpoint.Engine("https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/")
-
-# Delineate the watershed draining to an outlet near Zurich, Switzerland.
+engine = pourpoint.Engine(
+    "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"  # Reader floor: pourpoint 0.3.0
+)
 result = engine.delineate(lat=47.3769, lon=8.5417)
 
-print(result.area_km2)          # geodesic drainage area, in km²
-print(result.terminal_unit_id)  # the HFX unit the outlet resolved into
-
-# The watershed boundary, as a GeoJSON Feature string.
-geojson = result.to_geojson()
+print(result.area_km2)
+print(result.terminal_unit_id)
+geojson_feature = result.to_geojson()
 ```
 
-The hosted manifest includes the planetary GRIT direction and accumulation raster
-archive (`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`) for D8 refinement.
-The data are by Wortmann et al.; cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
-the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
-and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The hosted dataset is
-licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
-NonCommercial use.
+HFX is the normalized input contract. Raw hydrofabrics require an adapter
+compile step first. The example is the **GRIT 2.0.0 HFX dataset**, compiled from
+GRIT v1.0 source data. It is the only dataset currently hosted by this project.
+See [Datasets](guide/datasets.md) for the distinct fabric, format, and adapter
+versions.
 
-That is the whole flow: open an `Engine`, call `delineate` with an outlet, and
-read the result. `result.area_km2` is the drainage area; `result.to_geojson()`
-returns the boundary polygon ready to write to a file or load into GeoPandas,
-QGIS, or a web map.
+The remote reader fetches required byte ranges and raster windows instead of
+the complete roughly 299 GB dataset. The small manifest and graph may be
+fetched completely on a cold open. Required ranges and windows may be cached
+locally, so reuse an `Engine` for repeated work.
 
-The first open of the hosted dataset fetches dataset metadata over the network
-and is slower; keep the `engine` around and reuse it for many delineations.
-Repeated delineations in the same session reuse data already fetched, so
-overlapping watersheds are faster.
+Outlet resolution uses declared snap features and the configured strategy. The
+default weight-first strategy is not simply a nearest-feature search. The hosted
+manifest declares `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. When that D8
+auxiliary is used, refinement produces a terminal sub-polygon at the snapped
+raster cell. See [D8 compatibility and remote
+layout](guide/datasets.md#d8-compatibility-and-remote-layout).
 
-## What just happened
+## License and citation
 
-The hydrofabric already records which catchment flows into which downstream
-catchment. `delineate` nudged your point onto the nearest river channel, found
-the unit catchment that contains it, followed the recorded catchment connections
-upstream, and merged the gathered catchments into one polygon, the watershed.
-For the mechanics in plain language, see [How it works](how-it-works.md). To run
-those steps yourself and inspect the intermediate results, see the
-[Staged API](guide/staged-api.md).
+The engine is MIT-licensed. The hosted GRIT dataset is separately
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use. Installing the engine grants no commercial rights to it.
+Cite the [GRIT vector data](https://doi.org/10.5281/zenodo.17435232),
+[GRIT raster data](https://doi.org/10.5281/zenodo.15715535), and
+[GRIT paper](https://doi.org/10.1029/2024WR038308).
 
 ## Next steps
 
-- Point pourpoint at other datasets, local or remote:
-  [Datasets](guide/datasets.md).
-- Export many basins to GeoParquet:
-  [Basin GeoParquet Export](basin-geoparquet-export.md).
-- Browse the full API: [API Reference](api-reference.md).
+- [Staged API](guide/staged-api.md)
+- [Basin GeoParquet Export](basin-geoparquet-export.md)
+- [API Reference](api-reference.md), generated from the current checkout

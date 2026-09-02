@@ -1,33 +1,33 @@
 # How it works
 
-Give `pourpoint` a point on a river and it returns the whole upstream area that drains to it, the watershed.
-The point you choose is the outlet, or pour point, of that watershed.
-It is the place where all upstream water leaves the area you want to trace.
+Given an outlet coordinate, pourpoint resolves a terminal HFX drainage unit,
+walks the same-level graph upstream, and dissolves the contributing unit
+geometries into a watershed.
 
-## The connections are already computed
+## Prepared input
 
-`pourpoint` reads a hydrofabric, a dataset that has already divided the landscape into unit catchments.
-A unit catchment is the patch of land that drains directly into one river segment.
-The hydrofabric also records which catchment flows into which downstream catchment.
+HFX is a normalized exchange contract. An adapter compiles each raw or source
+hydrofabric into required `manifest.json`, `catchments.parquet`, and
+`graph.parquet` artifacts before the engine reads it. The engine does not carry
+source-fabric-specific logic.
 
-`pourpoint` reads hydrofabrics in the HFX format, a folder of pre-built river-network files.
-Because the landscape units and their connections are prepared ahead of time, delineation becomes a lookup and a merge.
+## Outlet resolution and traversal
 
-## What pourpoint does with your point
+Resolution uses the snap features declared by the HFX manifest and the engine's
+configured strategy. Weight-first is the default and ranks hydrologic weight
+before distance. Distance-first is available, so snapping should not be
+described as an unconditional nearest-channel operation.
 
-First, `pourpoint` finds the unit catchment that contains your point.
-Before that lookup, it nudges the point onto the nearest river channel so the watershed starts from the stream and not a nearby hillside.
+After resolving the terminal unit, pourpoint follows graph edges upstream and
+collects all contributing units. It then dissolves their polygons.
 
-Next, `pourpoint` follows the recorded catchment connections upstream.
-It gathers every unit catchment whose water drains toward the point.
+## Optional terminal refinement
 
-Finally, `pourpoint` merges those unit catchments into one polygon.
-That polygon is the watershed.
-Repeated delineations in the same session reuse data already fetched, so overlapping watersheds are faster.
+When a compatible `hfx.aux.d8_raster.v2` auxiliary is declared, the engine can
+replace the whole terminal unit with a D8-derived terminal sub-polygon at the
+snapped raster cell. This does not assert an exact watershed boundary at the
+input coordinate. See the bounded [D8 compatibility and remote
+layout](guide/datasets.md#d8-compatibility-and-remote-layout) section.
 
-Developers who need each stage separately can use the [Staged API](guide/staged-api.md).
-
-As one optional last refinement step, when a dataset includes D8 flow-direction and accumulation rasters, `pourpoint` trims the outlet's own catchment to the exact point. The hosted GRIT (Global River Topology) manifest declares its planetary rasters as `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`, so pourpoint 0.3.0 can apply that built-in terminal refinement.
-
-This approach comes from Matthew Heberger's open-source `delineator` project, which inspired `pourpoint`.
-Full credit and citations are on the [Credits & Citation](credits.md) page.
+Developers can inspect each operation through the [Staged API](guide/staged-api.md).
+Algorithm lineage and citations are on [Credits & Citation](credits.md).

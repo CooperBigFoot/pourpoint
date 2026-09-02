@@ -167,9 +167,9 @@ EPSG:4326 terminal -> per-declaration forward projection -> native coverage and 
 -> native raster carve and snap -> inverse carved rings and outlet only -> EPSG:4326 result
 ```
 
-D8 grids are never warped, resampled, or reprojected. The only accepted
-auxiliary contract is `hfx.aux.d8_raster.v2`; a v1 declaration fails with an
-error directing the caller to recompile through a v2-emitting adapter. Supported
+D8 grids are never warped, resampled, or reprojected. The only auxiliary
+contract consumed by built-in D8 refinement is `hfx.aux.d8_raster.v2`; other D8
+schema versions are not decoded. Supported
 declaration CRSs are exactly EPSG:4326 and EPSG:8857. An unsupported declaration
 CRS is a D8 selection error. The selected carved rings and snapped outlet are
 the only values inverse-transformed, and component, ring, and vertex order is
@@ -212,7 +212,9 @@ declaration and logs the discarded candidates at `warn`. This is sound because
 `hfx.aux.d8_raster.v2` requires overlapping entries to be windows of a single
 coherent D8 fabric (byte-identical values in the overlap), and the carve never
 reads outside the terminal bbox, so any covering tile yields the same carve.
-Real MERIT-Hydro `merit/0.2.0` for `rhine_basel` therefore carves successfully.
+Historical tests with locally compiled MERIT-Hydro `merit/0.2.0` for
+`rhine_basel` carved successfully. This is local adapter evidence, not a claim
+that this project currently hosts a public MERIT dataset.
 [`SessionError::AmbiguousD8Coverage`] is retained for callers that need the
 un-collapsed candidate set or for fabrics whose overlap-agreement is not
 guaranteed. `TerminalSpansD8Tiles` (bbox straddles a boundary, no single tile
@@ -241,7 +243,7 @@ Network-gated boundary proof:
 POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
 ```
 
-These gates do not verify successful real-data carving on overlapping-Pfaf
+These gates do not verify current hosted real-data carving on overlapping-Pfaf
 terminals; they verify that the offline D8 path works and that the typed
 ambiguity boundary is surfaced for real MERIT coverage conflicts.
 

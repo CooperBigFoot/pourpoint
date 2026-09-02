@@ -1,18 +1,25 @@
 # pourpoint
 
-Give `pourpoint` a point on a river and it returns the whole upstream area that drains to it, the watershed.
+`pourpoint` is an independent, MIT-licensed watershed-delineation engine. Given
+an outlet coordinate and an HFX dataset, it resolves the outlet, traverses the
+upstream hydrofabric graph, and returns watershed geometry and area through
+Rust, Python, and CLI interfaces.
 
-`pourpoint` reads [HFX](https://github.com/CooperBigFoot/hfx), a folder of pre-built
-river-network files in the open HydroFabric Exchange format. It finds the
-catchment that contains the point, gathers every catchment upstream, and merges
-them into one watershed polygon. The same engine works with any dataset in the
-HFX format.
+## Release status
 
-## Use it from Python
+The released Python package is version 0.3.0. It is classified
+`Development Status :: 4 - Beta`, is available from
+[PyPI](https://pypi.org/project/pourpoint/), and is recorded as
+[`pourpoint-v0.3.0`](https://github.com/CooperBigFoot/pourpoint/releases/tag/pourpoint-v0.3.0)
+in GitHub Releases. PyPI hosts the package artifacts. The GitHub Release records
+the release and does not host wheels.
 
-The Python wrapper [`pourpoint`](https://pypi.org/project/pourpoint/) is published
-on PyPI as a self-contained wheel with GDAL, PROJ, and GEOS bundled inside, so
-no system installs are needed.
+Version 0.3.0 provides one-shot and batch delineation, a staged Python API,
+GeoJSON `Feature` serialization, and Python GeoParquet writers. Changes under
+the changelog's Unreleased section and APIs identified as main-only in the
+[Python API reference](crates/python/API.md) are not part of 0.3.0.
+
+Install the release:
 
 ```bash
 uv add pourpoint
@@ -20,98 +27,76 @@ uv add pourpoint
 
 (or `pip install pourpoint`)
 
-Prebuilt wheels are published for:
+PyPI provides five `cp39-abi3` wheels and an sdist for 0.3.0:
 
-- macOS (Apple Silicon + Intel)
-- Linux (x86_64 + aarch64)
-- Windows (x86_64)
+- macOS 11+ arm64 and x86_64;
+- `manylinux_2_28` arm64 and x86_64;
+- Windows amd64.
 
-as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local builds.
+The wheels bundle GDAL, PROJ, and GEOS. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for source builds.
 
 ```python
 import pourpoint
 
 engine = pourpoint.Engine("/path/to/hfx/dataset")
 result = engine.delineate(lat=47.3769, lon=8.5417)
-
-print(result.area_km2)        # geodesic area in km²
+print(result.area_km2)
 print(result.terminal_unit_id)
-geojson = result.to_geojson()
+geojson_feature = result.to_geojson()
 ```
 
-See [`crates/python/README.md`](crates/python/README.md) for the Python
-quickstart and [`crates/python/API.md`](crates/python/API.md) for the full
-developer API reference.
+See the [Python quickstart](crates/python/README.md), the
+[tag-pinned 0.3.0 API reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md),
+and the [main development API reference](crates/python/API.md).
 
-### Pending 0.2.1 combined release contract
+## HFX dataset boundary
 
-The prepared pourpoint 0.2.1 release consumes only
-`hfx.aux.d8_raster.v2` D8 auxiliaries. It supports EPSG:4326 and EPSG:8857 D8
-rasters, performs declaration selection, carving, and snapping in the raster's
-native CRS, and converts only the refined result back to EPSG:4326. Snap
-thresholds expressed as `cells` remain cell counts; projected `km2` thresholds
-are compared using projected pixel area. Version 0.2.1 rejects v1 auxiliaries
-and rejects `km2` accumulation on EPSG:4326 rather than approximating angular
-pixel area. For identical inputs, returned carve geometry is deterministic.
+[HFX](https://github.com/CooperBigFoot/hfx) is the normalized input contract.
+Pourpoint does not read arbitrary raw or source hydrofabrics. Every source
+hydrofabric must first pass through an adapter compile step that emits HFX.
+Named adapters indicate available compilation paths, not public hosting.
 
-Version 0.2.1 also makes remote classic-TIFF and BigTIFF metadata and planned
-tile-index reads independent of the raster's total tile count, and decodes
-bounded owned DEFLATE chunks with predictor 1.
+An HFX dataset root contains these required core artifacts:
 
-Pourpoint 0.2.0 shipped on 2026-07-24 under tag `pourpoint-v0.2.0` and was
-live-fired in production. Version 0.2.1 is now prepared and awaits its
-human-cut tag and GitHub Release.
+- `manifest.json`
+- `catchments.parquet`
+- `graph.parquet`
 
-The carried projected-CRS evidence is in the
-[projected-CRS terminal-refinement runbook](docs/releases/projected-crs-terminal-refinement.md).
-The current release-register entry point is the
-[tile-count-independent planetary COG-read evidence register](docs/releases/tile-count-independent-planetary-cog-reads.md).
+Optional snap and D8 artifact paths are declared by `manifest.json`; their file
+names and locations are not assumed by the engine.
 
-## Dataset locations
+Supported roots include local directories, `file://` URLs, `s3://` URLs, and
+HTTP(S) URLs. For a remote dataset, pourpoint fetches required byte ranges and
+raster windows instead of the complete dataset, which is about 299 GB for the
+hosted example. The small manifest and graph may be fetched completely on a
+cold open. Required ranges and materialized raster windows may be cached
+locally. See [Raster cache](docs/raster-cache.md).
 
-`pourpoint` accepts local HFX dataset folders and remote URLs to datasets hosted
-online, for example on Amazon S3 or Cloudflare R2. The root must contain the
-HFX artifacts described by the
-manifest: `manifest.json`, `catchments.parquet`, and `graph.parquet`.
-Optional snap and D8 raster artifacts are declared in `manifest.json`
-auxiliaries.
+Outlet resolution uses the dataset's declared snap features and the configured
+strategy. The default weight-first strategy ranks hydrologic weight before
+distance; it is not simply a nearest-feature search.
 
-Supported dataset path forms:
+## Hosted GRIT dataset
 
-| Form | Example |
-|---|---|
-| Local directory | `/data/hfx/rhine` |
-| Local file URL | `file:///data/hfx/rhine` |
-| Amazon S3 URL | `s3://bucket/path/to/hfx/rhine` |
-| Cloudflare R2 HTTPS URL | `https://<account>.r2.cloudflarestorage.com/<bucket>/path/to/hfx/rhine` |
-| Public R2 custom-domain URL | `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/`<br>Reader floor: pourpoint 0.3.0 |
-
-For remote datasets, `pourpoint` reads only the parts needed for each watershed, so
-you never download the whole dataset. It keeps a small cache on disk so repeat
-opens are faster; set `HFX_CACHE_DIR` to choose where it lives. On macOS that is
-typically `~/Library/Caches/hfx`. See
-[`docs/raster-cache.md`](docs/raster-cache.md) for details.
-
-### Canonical Hosted Dataset
-
-The canonical public dataset for examples is GRIT (Global River Topology) 2.0.0, the source river network, compiled to the HFX v0.3.0 format, at:
+There is exactly one dataset hosted by this project: the **GRIT 2.0.0 HFX
+dataset** at this engine root:
 
 ```text
 https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/
 Reader floor: pourpoint 0.3.0
 ```
 
-CLI example:
+A bare root can return 404 in a browser. Its resolvable
+Reader floor: pourpoint 0.3.0.
+[`manifest.json`](https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/manifest.json)
+is authoritative. The distinct identities are:
 
-```bash
-./target/release/pourpoint delineate \
-    --dataset https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/ \
-    --lat 47.3769 --lon 8.5417 # Reader floor: pourpoint 0.3.0
-```
-
-Python example:
+- hosted distribution title: GRIT 2.0.0 HFX dataset;
+- source data: GRIT v1.0;
+- `fabric_version`: `1.0.0`;
+- HFX `format_version`: `0.3.0`;
+- current `adapter_version`: `grit-global-2.1.0`.
 
 ```python
 import pourpoint
@@ -120,72 +105,66 @@ engine = pourpoint.Engine(
     "https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/"  # Reader floor: pourpoint 0.3.0
 )
 result = engine.delineate(lat=47.3769, lon=8.5417)
-print(result.terminal_unit_id, result.area_km2)
 ```
 
-These examples use the default `refine=True`. The hosted manifest declares the
-planetary GRIT direction and accumulation archive as `aux/d8/flow_dir.tif` and
-`aux/d8/flow_acc.tif`, so pourpoint 0.3.0 can apply built-in D8 terminal
-refinement.
+The live GRIT manifest declares `hfx.aux.d8_raster.v2` in EPSG:8857 with
+`grass` direction encoding and `km2` accumulation units. Its paths are
+`aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. See the bounded
+[D8 compatibility and remote layout](docs/guide/datasets.md#d8-compatibility-and-remote-layout)
+section for the released limits. Refinement returns a terminal sub-polygon at
+the snapped raster cell, not a claim of an exact hydrologic boundary.
 
-**Hosted GRIT data notice:** The vector data and the planetary raster archive
-are by Wortmann et al. Cite the [GRIT vector dataset](https://doi.org/10.5281/zenodo.17435232),
-the [GRIT raster dataset](https://doi.org/10.5281/zenodo.15715535)
-and the [GRIT paper](https://doi.org/10.1029/2024WR038308). The combined hosted
-dataset is licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
-for NonCommercial use.
+### Data license and citations
 
-## Performance And Caching
+The pourpoint engine is MIT-licensed. The hosted GRIT data is separately
+licensed [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) for
+NonCommercial use. Installing pourpoint does not grant commercial rights to
+the hosted GRIT data.
 
-The first open of a remote dataset fetches dataset metadata over the network and
-is slower, so keep the engine around and reuse it. Repeated delineations in the
-same session reuse data already fetched, so overlapping watersheds are faster.
+Users of hosted GRIT must cite:
 
-## Use it from the CLI
+- [GRIT vector data](https://doi.org/10.5281/zenodo.17435232);
+- [GRIT raster data](https://doi.org/10.5281/zenodo.15715535);
+- [the GRIT paper](https://doi.org/10.1029/2024WR038308).
+
+[Upstream Tech](https://www.upstream.tech/) provides only the hosted-data
+infrastructure as an in-kind sponsor. It is not the project owner, dataset
+vendor, or commercial partner.
+
+## CLI
+
+Build the CLI from source:
 
 ```bash
 git clone https://github.com/CooperBigFoot/pourpoint
 cd pourpoint
 cargo build --release
-
-# Single outlet
 ./target/release/pourpoint delineate --dataset /path/to/hfx \
     --lat 47.3769 --lon 8.5417
-
-# Batch via CSV
-./target/release/pourpoint delineate --dataset /path/to/hfx \
-    --outlets outlets.csv --output watersheds.geojson
 ```
 
-`pourpoint delineate --help` for all flags (snap radius, accumulation threshold,
-`--no-refine`, `--json` envelope, etc.).
+The CLI can write a GeoJSON `FeatureCollection` for CSV batch input. The
+GeoParquet writers are Python APIs; the CLI does not provide GeoParquet output.
+Run `pourpoint delineate --help` for current flags.
+
+## Evaluation and collaboration
+
+Technical evaluations and unpaid case-study collaboration are welcome. Open a
+[GitHub issue](https://github.com/CooperBigFoot/pourpoint/issues) or email
+[business.coopernick@gmail.com](mailto:business.coopernick@gmail.com).
 
 ## Repository layout
 
 | Path | Purpose |
 |---|---|
-| `crates/core` | Pure-Rust algorithm core (HFX I/O, traversal, dissolve, repair) |
-| `crates/gdal` | GDAL bridge for windowed raster reads + GEOS geometry repair |
-| `crates/python` | Python bindings, published on PyPI as `pourpoint` |
-| `src/main.rs` | The `pourpoint` CLI binary |
-| `ci/`, `.github/` | Five-platform wheel build, repair, test, and publication pipeline |
-| `scripts/` | Version-bump helpers; see `CLAUDE.md` for the workflow |
-
-## Contributing
-
-Build instructions, coding conventions, and the open call for community
-wheel contributions (Linux / Intel macOS / Windows) live in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## Acknowledgments
-
-Public hosting of the canonical GRIT HFX dataset at `https://basin-delineations-public.upstream.tech/grit/hfx-v0.3.0/` is sponsored by [Upstream Tech](https://www.upstream.tech/), who provide the hosting infrastructure as an in-kind contribution to the open HFX ecosystem.
-Reader floor: pourpoint 0.3.0.
-Upstream Tech is an infrastructure sponsor: `pourpoint` is independent open-source software, and this acknowledgment implies no commercial relationship or endorsement.
+| `crates/core` | Rust algorithm core and HFX I/O |
+| `crates/gdal` | GDAL raster bridge and GEOS geometry repair |
+| `crates/python` | Python bindings published as `pourpoint` |
+| `src/main.rs` | CLI composition root |
+| `ci/`, `.github/` | Tests, wheels, publication, and documentation workflows |
 
 ## License
 
-`pourpoint` is MIT-licensed (see [`LICENSE`](LICENSE)). Bundled
-native libraries in the published wheel retain their own licenses; see
-[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and the per-library
-texts in [`LICENSES/`](LICENSES/).
+The engine is MIT-licensed; see [`LICENSE`](LICENSE). Bundled native libraries
+retain their own licenses; see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
+and [`LICENSES/`](LICENSES/).

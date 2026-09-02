@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "pourpoint"
 version = "0.3.0"
 requires-python = ">=3.9"
-description = "Python bindings for the pourpoint watershed delineation engine"
+description = "Beta watershed delineation from normalized HFX datasets"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "LICENSES/*"]

@@ -1,5 +1,10 @@
 # Reader support claims
 
+This maintainer document describes the current main checkout. References to an
+installed wheel mean a wheel built from that checkout, not PyPI release 0.3.0.
+`DelineationResult.refinement_skip_reason` and
+`Engine.unreadable_auxiliary_schemas` are Unreleased/main-only.
+
 > Every catalogued declaration that production behavior distinguishes has one
 > independent evidence witness, and every witness names a declared integration
 > test. Inventory aggregation and claim/witness correspondence fail the build.

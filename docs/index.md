@@ -1,56 +1,44 @@
 # pourpoint
 
-**pourpoint** is a watershed-delineation engine: give `pourpoint` a point on a river and
-it returns the whole upstream area that drains to it, the watershed. `pourpoint` is
-its Python interface.
+**pourpoint** is an independent watershed-delineation engine. Give it an outlet
+coordinate and an HFX dataset, and it resolves the outlet, traverses the
+upstream graph, and returns watershed geometry and area.
 
-A *hydrofabric* is a pre-built map of a river network — its streams, the land
-patches (catchments) that drain into each stream, and which catchment flows into
-which downstream — of the same kind hydrologists already work with in NHDPlus,
-HydroSHEDS, or MERIT-Hydro. pourpoint reads any hydrofabric published in the open
-[HFX (HydroFabric Exchange)](https://github.com/CooperBigFoot/hfx) format, a
-folder of pre-built river-network files. The same delineation runs over GRIT
-(Global River Topology; [Wortmann et al.
-2025](https://doi.org/10.1029/2024WR038308)), MERIT-Basins, and any other HFX
-dataset. A hosted GRIT dataset is available to point at directly, so you can
-delineate your first watershed without downloading anything.
+The Python package's released version 0.3.0 is available on PyPI and classified
+Beta. It ships `cp39-abi3` wheels for macOS 11+ arm64/x86_64,
+`manylinux_2_28` arm64/x86_64, and Windows amd64, plus an sdist.
 
-## Who it's for
+## HFX inputs
 
-Hydrologists, water-resource scientists, and engineers who need watershed
-polygons and areas from outlet coordinates, interactively, in batch, or inside a
-pipeline. You work in Python; the heavy lifting runs in a compiled Rust core
-with GDAL bundled inside the wheel, so there is no system GDAL to install.
+[HFX](https://github.com/CooperBigFoot/hfx) is the normalized input contract,
+not a raw hydrofabric format. Every raw or source hydrofabric requires an
+adapter compile step before pourpoint can read it. An adapter's presence does
+not mean this project publicly hosts its output.
 
-## Install
+The project currently offers one hosted dataset, the GRIT 2.0.0 HFX dataset.
+It was compiled from GRIT v1.0 source data. See [Datasets](guide/datasets.md)
+for its manifest identity, remote-read behavior, D8 limits, license, and
+citations.
 
-```bash
-uv add pourpoint
-```
+## Capabilities
 
-(or pip install pourpoint)
-
-Prebuilt wheels are published for:
-
-- macOS (Apple Silicon + Intel)
-- Linux (x86_64 + aarch64)
-- Windows (x86_64)
-
-as `macosx_11_0_arm64`, `macosx_11_0_x86_64`, `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64`, `win_amd64`.
+Released 0.3.0 supports one-shot and batch Python calls, a staged API, GeoJSON
+`Feature` output, Python GeoParquet writers, and a source-built CLI that emits
+GeoJSON `FeatureCollection` output for batch input. The CLI does not emit
+GeoParquet.
 
 ## Where to go next
 
-- **[Quickstart](quickstart.md)**: from install to a first delineated watershed
-  in one script.
-- **[How it works](how-it-works.md)**: how pourpoint finds every catchment upstream
-  of your point and merges them into one watershed, using connections the
-  hydrofabric has already computed.
-- **[Datasets](guide/datasets.md)**: what an HFX hydrofabric is and how to point
-  pourpoint at one.
-- **[Staged API](guide/staged-api.md)**: run the delineation pipeline stage by
-  stage.
-- **[Basin GeoParquet Export](basin-geoparquet-export.md)**: write basins to
-  GeoParquet for downstream analysis.
-- **[API Reference](api-reference.md)**: the complete public `pourpoint` surface.
-- **[Credits & Citation](credits.md)**: the algorithm's origin and how to cite
-  pourpoint.
+- [Quickstart](quickstart.md)
+- [How it works](how-it-works.md)
+- [Datasets](guide/datasets.md)
+- [Staged API](guide/staged-api.md)
+- [Basin GeoParquet Export](basin-geoparquet-export.md)
+- [API Reference](api-reference.md), which renders the current checkout
+- [Credits & Citation](credits.md)
+
+## Evaluation and collaboration
+
+Technical evaluations and unpaid case-study collaboration are welcome. Open a
+[GitHub issue](https://github.com/CooperBigFoot/pourpoint/issues) or email
+[business.coopernick@gmail.com](mailto:business.coopernick@gmail.com).
