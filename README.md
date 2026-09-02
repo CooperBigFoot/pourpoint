@@ -67,8 +67,9 @@ Optional snap and D8 artifact paths are declared by `manifest.json`; their file
 names and locations are not assumed by the engine.
 
 Supported roots include local directories, `file://` URLs, `s3://` URLs, and
-HTTP(S) URLs. For a remote dataset, pourpoint fetches required byte ranges and
-raster windows instead of the complete dataset, which is about 299 GB for the
+Cloudflare R2 HTTP(S) URLs on either the project public custom domain or an
+`<account>.r2.cloudflarestorage.com` endpoint. For a remote dataset, pourpoint
+fetches required byte ranges and raster windows instead of the complete dataset, which is about 299 GB for the
 hosted example. The small manifest and graph may be fetched completely on a
 cold open. Required ranges and materialized raster windows may be cached
 locally. See [Raster cache](docs/raster-cache.md).

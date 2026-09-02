@@ -42,8 +42,17 @@ PROHIBITED = {
         r"(?:on)?to the nearest river channel",
         re.IGNORECASE,
     ),
-    "Overstated exact-point refinement": re.compile(r"trims? .* to the exact point", re.IGNORECASE),
-    "Stale package instruction": re.compile(r"(?:pip|uv) install pyshed", re.IGNORECASE),
+    "Overstated exact-point refinement": re.compile(
+        r"trims? .* to the exact point", re.IGNORECASE
+    ),
+    "Overstated generic HTTP(S) support": re.compile(
+        r"Supported roots include(?:(?!\n\n).)*?(?<!Cloudflare R2 )HTTP\(S\) URLs",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    "Stale package instruction": re.compile(
+        r"(?:uv\s+pip\s+install|pip\s+install|uv\s+add)\s+pyshed\b",
+        re.IGNORECASE,
+    ),
 }
 
 REQUIRED = {
@@ -57,6 +66,7 @@ REQUIRED = {
         "exactly one dataset hosted by this project",
         "Installing pourpoint does not grant commercial rights",
         "Evaluation and collaboration",
+        "Cloudflare R2 HTTP(S) URLs",
     ),
     "CONTRIBUTING.md": ("OIDC Trusted Publishing", "RELEASING.md"),
     "docs/index.md": ("released version 0.3.0", "Evaluation and collaboration"),
@@ -96,22 +106,28 @@ def active_markdown_files() -> list[Path]:
     return sorted(files)
 
 
+def claim_text_errors(relative: Path, text: str) -> list[str]:
+    errors = []
+    for label, pattern in PROHIBITED.items():
+        for match in pattern.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            errors.append(f"{relative}:{line}: {label}: {match.group(0)!r}")
+    for match in HOSTED_URL_RE.finditer(text):
+        if not match.group(0).startswith(CANONICAL_HOSTED_ROOT):
+            line = text.count("\n", 0, match.start()) + 1
+            errors.append(
+                f"{relative}:{line}: retired hosted dataset address: "
+                f"{match.group(0)!r}"
+            )
+    return errors
+
+
 def check_claims() -> list[str]:
     errors = []
     for path in active_markdown_files():
         relative = path.relative_to(ROOT)
         text = path.read_text(encoding="utf-8")
-        for label, pattern in PROHIBITED.items():
-            for match in pattern.finditer(text):
-                line = text.count("\n", 0, match.start()) + 1
-                errors.append(f"{relative}:{line}: {label}: {match.group(0)!r}")
-        for match in HOSTED_URL_RE.finditer(text):
-            if not match.group(0).startswith(CANONICAL_HOSTED_ROOT):
-                line = text.count("\n", 0, match.start()) + 1
-                errors.append(
-                    f"{relative}:{line}: retired hosted dataset address: "
-                    f"{match.group(0)!r}"
-                )
+        errors.extend(claim_text_errors(relative, text))
     for relative, markers in REQUIRED.items():
         text = (ROOT / relative).read_text(encoding="utf-8")
         for marker in markers:

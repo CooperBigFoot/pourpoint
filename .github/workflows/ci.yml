@@ -80,6 +80,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Test public documentation checker
+        run: python3 scripts/test_check_public_docs.py
+
       - name: Check public documentation
         run: python3 scripts/check_public_docs.py
 
