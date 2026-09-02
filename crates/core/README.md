@@ -251,8 +251,8 @@ POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_re
 ```
 
 These gates do not verify current hosted real-data carving on overlapping-Pfaf
-terminals; they verify that the offline D8 path works and that the typed
-ambiguity boundary is surfaced for real MERIT coverage conflicts.
+terminals. They verify the offline D8 path and the typed ambiguity boundary with
+historical, locally materialized MERIT fixture coverage cases.
 
 ## Glossary
 

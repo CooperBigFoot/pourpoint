@@ -21,17 +21,26 @@ automatically via `pkg-config`.
 
 ## Running tests
 
-Rust workspace tests:
+Portable Rust workspace checks:
 
 ```bash
-cargo test --workspace
+cargo test --workspace --exclude pourpoint-python
+cargo check -p pourpoint-python
 ```
 
-Python extension tests:
+The full `cargo test --workspace` also builds the PyO3 extension crate as a Rust
+test target. On macOS this can fail at link time with unresolved Python C
+symbols because the crate uses PyO3's `extension-module` linkage. The split
+above tests the Rust workspace and type-checks the binding crate without relying
+on that non-portable test linkage.
+
+Run Python extension tests in the virtual environment where `maturin develop`
+installs the extension:
 
 ```bash
 cd crates/python
-pytest tests/ -q
+maturin develop --release
+python -m pytest tests/ -q
 ```
 
 ## Coding conventions
