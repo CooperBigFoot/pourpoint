@@ -244,15 +244,10 @@ cargo test -p pourpoint-core --test parity_golden_artifacts
 cargo test -p pourpoint-core --test staged_delineation
 ```
 
-Network-gated boundary proof:
-
-```bash
-POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
-```
-
-These gates do not verify current hosted real-data carving on overlapping-Pfaf
-terminals. They verify the offline D8 path and the typed ambiguity boundary with
-historical, locally materialized MERIT fixture coverage cases.
+These active gates verify synthetic and offline D8 refinement behavior,
+accessor and selection contracts, committed parity records (including
+historical locally materialized fixture provenance), and staged composition.
+They do not execute a live hosted carve.
 
 ## Glossary
 
