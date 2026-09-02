@@ -21,17 +21,26 @@ automatically via `pkg-config`.
 
 ## Running tests
 
-Rust workspace tests:
+Portable Rust workspace checks:
 
 ```bash
-cargo test --workspace
+cargo test --workspace --exclude pourpoint-python
+cargo check -p pourpoint-python
 ```
 
-Python extension tests:
+The full `cargo test --workspace` also builds the PyO3 extension crate as a Rust
+test target. On macOS this can fail at link time with unresolved Python C
+symbols because the crate uses PyO3's `extension-module` linkage. The split
+above tests the Rust workspace and type-checks the binding crate without relying
+on that non-portable test linkage.
+
+Run Python extension tests in the virtual environment where `maturin develop`
+installs the extension:
 
 ```bash
 cd crates/python
-pytest tests/ -q
+maturin develop --release
+python -m pytest tests/ -q
 ```
 
 ## Coding conventions
@@ -78,37 +87,12 @@ Update `crates/python/CHANGELOG.md` for every pourpoint version bump, then tag:
 git tag pourpoint-v0.1.0rc1   # use the PEP 440 form for the tag
 ```
 
-## Maintainers: first-time PyPI setup
+## Maintainers: publishing setup
 
-These steps are performed once, then both release paths (TestPyPI for
-release candidates, PyPI for real releases) run automatically on tag push.
+Python releases use PyPI and TestPyPI **OIDC Trusted Publishing**. Do not create
+or store project API tokens in repository secrets. Repository administrators
+configure the trusted publishers and GitHub environments once.
 
-### 1. Create a PyPI project-scoped API token
-
-Go to https://pypi.org/manage/account/token/ and create a token scoped to
-the `pourpoint` project (create the project first by uploading once manually,
-or use the account-scoped token and tighten after first release). Copy the
-token (starts with `pypi-`).
-
-### 2. Create a TestPyPI token
-
-Same flow on https://test.pypi.org/manage/account/token/. Copy that token.
-
-### 3. Store both tokens as GitHub repository secrets
-
-From the repo root:
-
-```bash
-gh secret set PYPI_TOKEN     --repo CooperBigFoot/pourpoint  # paste PyPI token
-gh secret set TESTPYPI_TOKEN --repo CooperBigFoot/pourpoint  # paste TestPyPI token
-```
-
-The `build-wheels.yaml` workflow reads these via `secrets.PYPI_TOKEN` and
-`secrets.TESTPYPI_TOKEN`. No GitHub environments are required.
-
-### Rotation
-
-Rotate both tokens on a cadence you're comfortable with (or immediately
-after exposure — e.g. if a token ever leaks into a commit, PR, or chat
-transcript). Rotation means: revoke the old token on PyPI/TestPyPI, create
-a new one, re-run `gh secret set` with the new value.
+See [`RELEASING.md`](RELEASING.md#one-time-maintainer-setup-prerequisites) for
+the current publisher configuration, release routing, and human-gated release
+procedure.

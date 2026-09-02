@@ -4,7 +4,14 @@ Pure-Rust core library for the pourpoint watershed extraction engine. It handles
 
 ## Snap Strategy
 
-`ResolverConfig::new()` defaults to `SnapStrategy::WeightFirst` to align with the HFX v0.2 weight contract, which requires that the `weight` column be monotonically increasing in drainage dominance (higher weight = more hydrologically significant reach). Under this default, when an outlet is coincident with a tiny tributary stub, the hydrologically dominant mainstem candidate wins over the geometrically closest one. `SnapStrategy::DistanceFirst` remains available for datasets whose `weight` column is not rank-meaningful: configure it via `ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst)`.
+`ResolverConfig::new()` defaults to `SnapStrategy::WeightFirst`. A declared
+`weight` increases with drainage dominance, so a higher value identifies a more
+hydrologically significant reach. Under this default, when an outlet is
+coincident with a tiny tributary stub, the hydrologically dominant mainstem
+candidate wins over the geometrically closest one. `SnapStrategy::DistanceFirst`
+remains available for datasets whose `weight` column is not rank-meaningful:
+configure it with
+`ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst)`.
 
 ## Staged Delineation Contract
 
@@ -167,9 +174,9 @@ EPSG:4326 terminal -> per-declaration forward projection -> native coverage and 
 -> native raster carve and snap -> inverse carved rings and outlet only -> EPSG:4326 result
 ```
 
-D8 grids are never warped, resampled, or reprojected. The only accepted
-auxiliary contract is `hfx.aux.d8_raster.v2`; a v1 declaration fails with an
-error directing the caller to recompile through a v2-emitting adapter. Supported
+D8 grids are never warped, resampled, or reprojected. The only auxiliary
+contract consumed by built-in D8 refinement is `hfx.aux.d8_raster.v2`; other D8
+schema versions are not decoded. Supported
 declaration CRSs are exactly EPSG:4326 and EPSG:8857. An unsupported declaration
 CRS is a D8 selection error. The selected carved rings and snapped outlet are
 the only values inverse-transformed, and component, ring, and vertex order is
@@ -212,7 +219,9 @@ declaration and logs the discarded candidates at `warn`. This is sound because
 `hfx.aux.d8_raster.v2` requires overlapping entries to be windows of a single
 coherent D8 fabric (byte-identical values in the overlap), and the carve never
 reads outside the terminal bbox, so any covering tile yields the same carve.
-Real MERIT-Hydro `merit/0.2.0` for `rhine_basel` therefore carves successfully.
+Historical tests with locally compiled MERIT-Hydro `merit/0.2.0` for
+`rhine_basel` carved successfully. This is local adapter evidence, not a claim
+that this project currently hosts a public MERIT dataset.
 [`SessionError::AmbiguousD8Coverage`] is retained for callers that need the
 un-collapsed candidate set or for fabrics whose overlap-agreement is not
 guaranteed. `TerminalSpansD8Tiles` (bbox straddles a boundary, no single tile
@@ -235,15 +244,10 @@ cargo test -p pourpoint-core --test parity_golden_artifacts
 cargo test -p pourpoint-core --test staged_delineation
 ```
 
-Network-gated boundary proof:
-
-```bash
-POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
-```
-
-These gates do not verify successful real-data carving on overlapping-Pfaf
-terminals; they verify that the offline D8 path works and that the typed
-ambiguity boundary is surfaced for real MERIT coverage conflicts.
+These active gates verify synthetic and offline D8 refinement behavior,
+accessor and selection contracts, committed parity records (including
+historical locally materialized fixture provenance), and staged composition.
+They do not execute a live hosted carve.
 
 ## Glossary
 

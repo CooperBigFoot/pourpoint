@@ -1,6 +1,10 @@
 # pourpoint API Reference
 
-Developer-oriented reference for the supported public `pourpoint` Python API.
+This file documents the **main development branch** and can include Unreleased
+APIs. It is not a promise that an installed 0.3.0 wheel has every name below.
+Released users should use the [`pourpoint-v0.3.0` tag-pinned reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md).
+
+Developer-oriented reference for the current public `pourpoint` Python API.
 This file mirrors the runtime surface re-exported from
 [`python/pourpoint/__init__.py`](python/pourpoint/__init__.py) and the shipped
 PEP 561 stub in [`python/pourpoint/__init__.pyi`](python/pourpoint/__init__.pyi).
@@ -11,7 +15,7 @@ The `pourpoint` package exports these names:
 
 - `Engine`
 - `DelineationResult`
-- `BestEffortSkipReason`
+- `BestEffortSkipReason` *(Unreleased/main-only)*
 - `DelineationUnitMetadata`
 - `AreaOnlyResult`
 - `LevelSelection`
@@ -99,7 +103,7 @@ hard-error as an unsupported format version.
 |---|---|---|---|
 | `dataset_path` | `str` | — | Path or URL to the HFX dataset root directory |
 | `snap_radius` | `float \| None` | `None` | Snap-path search radius in metres; must be finite and positive when provided |
-| `snap_strategy` | `"distance-first" \| "weight-first" \| None` | `None` | Snap ranking strategy. Defaults to `"weight-first"` (HFX v0.2 contract). |
+| `snap_strategy` | `"distance-first" \| "weight-first" \| None` | `None` | Snap ranking strategy. Defaults to `"weight-first"`, which ranks greater declared weight as more hydrologically significant before distance. |
 | `snap_threshold` | `int \| None` | `None` | Minimum upstream-pixel count for stream-network snapping |
 | `clean_epsilon` | `float \| None` | `None` | Topology-cleaning epsilon in degrees |
 | `refine` | `bool` | `True` | Whether raster-based terminal refinement is enabled |
@@ -115,6 +119,9 @@ hard-error as an unsupported format version.
   `parquet_cache_max_mb=0` when `parquet_cache=True`.
 
 ### Engine Properties
+
+> **Unreleased/main-only:** `Engine.unreadable_auxiliary_schemas` is not in the
+> 0.3.0 wheel.
 
 `unreadable_auxiliary_schemas: list[str]` reports declarations ignored by the
 linked HFX reader. It is empty when every auxiliary declaration is readable and
@@ -285,7 +292,7 @@ Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 | `input_outlet` | `tuple[float, float]` | Original outlet as `(lon, lat)` |
 | `resolved_outlet` | `tuple[float, float]` | Outlet used for resolution as `(lon, lat)` |
 | `refined_outlet` | `tuple[float, float] \| None` | Raster-refined outlet as `(lon, lat)`, or `None` if refinement was not applied |
-| `refinement_skip_reason` | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
+| `refinement_skip_reason` *(Unreleased/main-only)* | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
 | `resolution_method` | `str` | Debug/provenance string describing how outlet resolution happened |
 | `upstream_unit_ids` | `list[int]` | Upstream unit IDs including the terminal unit |
 | `upstream_units` | `list[DelineationUnitMetadata]` | Light per-unit metadata without per-unit geometry |
@@ -312,6 +319,9 @@ and upstream unit count.
 `pre_merge_units()` staged output when whole-unit geometries are required.
 
 ### BestEffortSkipReason
+
+> **Unreleased/main-only:** this type and
+> `DelineationResult.refinement_skip_reason` are not in the 0.3.0 wheel.
 
 `refinement_skip_reason` is a separate typed accessor. It does not relabel the
 staged `TerminalRefinement.status` and does not replace the compatible Debug
