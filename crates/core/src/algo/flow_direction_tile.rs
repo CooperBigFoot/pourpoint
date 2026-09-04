@@ -33,6 +33,15 @@ pub enum FlowDirectionTileError {
     },
 }
 
+/// Decoded seed-cell semantics, including valid terminals with no downstream neighbor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodedFlowCell {
+    /// A valid D8 direction points to one downstream neighbor.
+    Direction(FlowDir),
+    /// A valid GRASS sink or signed coverage exit has no downstream neighbor.
+    Terminal,
+}
+
 /// Typed wrapper around a [`RasterTile<u8>`] holding D8 flow direction bytes.
 ///
 /// Raw bytes are decoded on read via [`FlowDir::from_encoded`], dispatching to
@@ -65,6 +74,23 @@ impl<S> FlowDirectionTile<S> {
     pub fn get(&self, cell: GridCoord) -> Option<FlowDir> {
         let raw = self.inner.get(cell);
         decode(raw, self.encoding)
+    }
+
+    /// Return valid seed-cell semantics, distinguishing GRASS terminals from invalid data.
+    ///
+    /// ESRI and TauDEM code 0 retain their existing absent-cell behavior. For GRASS,
+    /// code 0 and signed codes -1 through -8 are valid terminal cells unless the raw
+    /// byte equals the raster's declared nodata byte.
+    pub fn decoded_cell(&self, cell: GridCoord) -> Option<DecodedFlowCell> {
+        let raw = self.inner.get(cell);
+        if raw == self.inner.nodata() {
+            return None;
+        }
+        match FlowDir::from_encoded(raw, self.encoding) {
+            Ok(Some(direction)) => Some(DecodedFlowCell::Direction(direction)),
+            Ok(None) if self.encoding == FlowDirEncoding::Grass => Some(DecodedFlowCell::Terminal),
+            Ok(None) | Err(_) => None,
+        }
     }
 
     /// Returns the decoded [`FlowDir`] at a signed `(row, col)`, or `None`
@@ -580,6 +606,36 @@ mod tests {
         assert_eq!(masked.get_raw(GridCoord::new(0, 1)), 255);
         assert_eq!(masked.get_raw(GridCoord::new(1, 0)), 255);
         assert_eq!(masked.get(GridCoord::new(1, 1)), Some(FlowDir::West));
+    }
+
+    #[test]
+    fn decoded_cell_distinguishes_grass_terminals_from_nodata_and_invalid_codes() {
+        let raw = RasterTile::from_vec(
+            vec![0_u8, (-2_i8) as u8, 9_u8, (-128_i8) as u8],
+            GridDims::new(1, 4),
+            (-128_i8) as u8,
+            simple_geo(),
+        )
+        .unwrap();
+        let tile = FlowDirectionTile::from_raw(raw, FlowDirEncoding::Grass).unwrap();
+
+        assert_eq!(
+            tile.decoded_cell(GridCoord::new(0, 0)),
+            Some(DecodedFlowCell::Terminal)
+        );
+        assert_eq!(
+            tile.decoded_cell(GridCoord::new(0, 1)),
+            Some(DecodedFlowCell::Terminal)
+        );
+        assert_eq!(tile.decoded_cell(GridCoord::new(0, 2)), None);
+        assert_eq!(tile.decoded_cell(GridCoord::new(0, 3)), None);
+    }
+
+    #[test]
+    fn decoded_cell_preserves_esri_zero_as_absent() {
+        let tile = FlowDirectionTile::new(GridDims::new(1, 1), simple_geo(), FlowDirEncoding::Esri)
+            .unwrap();
+        assert_eq!(tile.decoded_cell(GridCoord::new(0, 0)), None);
     }
 
     #[test]

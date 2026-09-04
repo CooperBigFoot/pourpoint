@@ -6,7 +6,7 @@ use geo::BoundingRect;
 use pourpoint_core::algo::encode_wkb_multi_polygon;
 use pourpoint_core::engine::DelineationAreaOnlyResult;
 use pourpoint_core::refinement::{
-    BestEffortSkipCategory, BestEffortSkipReason, RefinementProvenance,
+    AppliedRefinementReason, BestEffortSkipCategory, BestEffortSkipReason,
 };
 use pourpoint_core::{DelineationResult, RefinementOutcome};
 use pyo3::prelude::*;
@@ -41,7 +41,11 @@ impl PyBestEffortSkipReason {
         match &self.inner {
             BestEffortSkipReason::UnreadableD8AuxDeclared { .. } => "unreadable_d8_aux_declared",
             BestEffortSkipReason::NoD8AuxDeclared => "no_d8_aux_declared",
+            BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared => {
+                "coarse_unit_only_no_d8_aux_declared"
+            }
             BestEffortSkipReason::NoRasterSourceProvided => "no_raster_source_provided",
+            BestEffortSkipReason::VectorOutletGuardFailed { .. } => "vector_outlet_guard_failed",
             BestEffortSkipReason::Availability { .. } => "availability",
             BestEffortSkipReason::MisDeclaration { .. } => "mis_declaration",
             BestEffortSkipReason::DataGeometryIntegrity { .. } => "data_geometry_integrity",
@@ -64,10 +68,89 @@ impl PyBestEffortSkipReason {
         match &self.inner {
             BestEffortSkipReason::UnreadableD8AuxDeclared { schema } => Some(schema.clone()),
             BestEffortSkipReason::NoD8AuxDeclared
+            | BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared
             | BestEffortSkipReason::NoRasterSourceProvided
+            | BestEffortSkipReason::VectorOutletGuardFailed { .. }
             | BestEffortSkipReason::Availability { .. }
             | BestEffortSkipReason::MisDeclaration { .. }
             | BestEffortSkipReason::DataGeometryIntegrity { .. } => None,
+        }
+    }
+
+    /// Failed vector guard conjunct, when applicable.
+    #[getter]
+    fn failure_kind(&self) -> Option<&'static str> {
+        let BestEffortSkipReason::VectorOutletGuardFailed { kind, .. } = &self.inner else {
+            return None;
+        };
+        Some(match kind {
+            pourpoint_core::algo::VectorOutletGuardFailureKind::GridMapping => "grid_mapping",
+            pourpoint_core::algo::VectorOutletGuardFailureKind::OutsideTerminalMask => {
+                "outside_terminal_mask"
+            }
+            pourpoint_core::algo::VectorOutletGuardFailureKind::UndefinedFlowDirection => {
+                "undefined_flow_direction"
+            }
+            pourpoint_core::algo::VectorOutletGuardFailureKind::UndefinedAccumulation => {
+                "undefined_accumulation"
+            }
+            pourpoint_core::algo::VectorOutletGuardFailureKind::BelowThreshold => "below_threshold",
+        })
+    }
+
+    /// Requested threshold in upstream cells, when applicable.
+    #[getter]
+    fn requested_threshold(&self) -> Option<u32> {
+        match &self.inner {
+            BestEffortSkipReason::VectorOutletGuardFailed {
+                requested_threshold,
+                ..
+            } => Some(requested_threshold.pixels()),
+            _ => None,
+        }
+    }
+
+    /// Effective threshold in declared accumulation units, when applicable.
+    #[getter]
+    fn effective_threshold(&self) -> Option<f32> {
+        match &self.inner {
+            BestEffortSkipReason::VectorOutletGuardFailed {
+                effective_threshold,
+                ..
+            } => Some(*effective_threshold),
+            _ => None,
+        }
+    }
+
+    /// Declared accumulation units, when applicable.
+    #[getter]
+    fn units(&self) -> Option<String> {
+        match &self.inner {
+            BestEffortSkipReason::VectorOutletGuardFailed { units, .. } => Some(units.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Mapped `(row, col)` cell, absent when grid mapping failed.
+    #[getter]
+    fn mapped_cell(&self) -> Option<(usize, usize)> {
+        match &self.inner {
+            BestEffortSkipReason::VectorOutletGuardFailed { mapped_cell, .. } => {
+                mapped_cell.map(|cell| (cell.row, cell.col))
+            }
+            _ => None,
+        }
+    }
+
+    /// Measured accumulation, absent when mapping or data availability prevented measurement.
+    #[getter]
+    fn measured_accumulation(&self) -> Option<f32> {
+        match &self.inner {
+            BestEffortSkipReason::VectorOutletGuardFailed {
+                measured_accumulation,
+                ..
+            } => *measured_accumulation,
+            _ => None,
         }
     }
 
@@ -159,13 +242,17 @@ impl PyDelineationResult {
     #[getter]
     fn refinement_skip_reason(&self) -> Option<PyBestEffortSkipReason> {
         match self.inner.refinement() {
-            RefinementOutcome::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped { why, .. },
-            } => Some(PyBestEffortSkipReason::from_reason(why.clone())),
-            RefinementOutcome::Applied { .. }
-            | RefinementOutcome::Disabled
-            | RefinementOutcome::BestEffortSkipped { .. } => None,
+            RefinementOutcome::BestEffortSkipped { provenance } => Some(
+                PyBestEffortSkipReason::from_reason(provenance.why().clone()),
+            ),
+            RefinementOutcome::Applied { .. } | RefinementOutcome::Disabled => None,
         }
+    }
+
+    /// Raster seed decision: `vector_quantized`, `raster_ranked`, `coarse`, or `disabled`.
+    #[getter]
+    fn refinement_seed_kind(&self) -> &'static str {
+        refinement_seed_kind(self.inner.refinement())
     }
 
     /// Debug string representation of the resolution method.
@@ -353,6 +440,19 @@ impl PyAreaOnlyResult {
             self.inner.area_km2().as_f64(),
             self.inner.upstream_unit_ids().len(),
         )
+    }
+}
+
+fn refinement_seed_kind(refinement: &RefinementOutcome) -> &'static str {
+    match refinement {
+        RefinementOutcome::Applied { provenance, .. } => match provenance.why() {
+            AppliedRefinementReason::VectorOutletQuantized { .. } => "vector_quantized",
+            #[allow(deprecated)]
+            AppliedRefinementReason::D8AuxMatchedTerminalBbox { .. }
+            | AppliedRefinementReason::RasterOutletRanked { .. } => "raster_ranked",
+        },
+        RefinementOutcome::BestEffortSkipped { .. } => "coarse",
+        RefinementOutcome::Disabled => "disabled",
     }
 }
 

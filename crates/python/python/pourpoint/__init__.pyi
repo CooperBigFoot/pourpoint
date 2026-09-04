@@ -59,7 +59,9 @@ class BestEffortSkipReason:
     ) -> Literal[
         "unreadable_d8_aux_declared",
         "no_d8_aux_declared",
+        "coarse_unit_only_no_d8_aux_declared",
         "no_raster_source_provided",
+        "vector_outlet_guard_failed",
         "availability",
         "mis_declaration",
         "data_geometry_integrity",
@@ -72,6 +74,24 @@ class BestEffortSkipReason:
 
     @property
     def schema(self) -> str | None: ...
+
+    @property
+    def failure_kind(self) -> str | None: ...
+
+    @property
+    def requested_threshold(self) -> int | None: ...
+
+    @property
+    def effective_threshold(self) -> float | None: ...
+
+    @property
+    def units(self) -> str | None: ...
+
+    @property
+    def mapped_cell(self) -> tuple[int, int] | None: ...
+
+    @property
+    def measured_accumulation(self) -> float | None: ...
 
     def __repr__(self) -> str: ...
 
@@ -91,6 +111,11 @@ class DelineationResult:
 
     @property
     def refinement_skip_reason(self) -> BestEffortSkipReason | None: ...
+
+    @property
+    def refinement_seed_kind(
+        self,
+    ) -> Literal["vector_quantized", "raster_ranked", "coarse", "disabled"]: ...
 
     @property
     def resolution_method(self) -> str: ...

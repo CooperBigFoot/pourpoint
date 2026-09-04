@@ -1,10 +1,10 @@
 use pourpoint_core::algo::coord::GeoCoord;
-use pourpoint_core::resolve_outlet;
+use pourpoint_core::resolve_outlet_authority;
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::{DatasetBuilder, TestCatchment, TestSnapGeometry, TestSnapTarget};
 use pourpoint_core::{
-    BestEffortSkipReason, DelineationOptions, Engine, RefinementOutcome, RefinementProvenance,
-    RefinementStrategyName, ResolutionMethod, ResolverConfig,
+    BestEffortRefinementProvenance, BestEffortSkipReason, DelineationOptions, Engine,
+    RefinementOutcome, RefinementStrategyName, ResolutionMethod, ResolverConfig,
 };
 
 #[test]
@@ -36,12 +36,12 @@ fn hydrobasins_snap_delineates_without_d8_refinement() {
 
     let resolver_session =
         DatasetSession::open_path(&path).expect("HydroBASINS snap fixture should open");
-    let resolved = resolve_outlet(&resolver_session, outlet, &ResolverConfig::default())
+    let resolved = resolve_outlet_authority(&resolver_session, outlet, &ResolverConfig::default())
         .expect("outlet on the HydroRIVERS LineString should resolve");
     assert!(
-        matches!(resolved.method, ResolutionMethod::Snap { .. }),
+        matches!(resolved.method(), ResolutionMethod::Snap { .. }),
         "declared snap data must dispatch to Snap, got {:?}",
-        resolved.method
+        resolved.method()
     );
 
     let engine_session =
@@ -58,10 +58,10 @@ fn hydrobasins_snap_delineates_without_d8_refinement() {
     assert_eq!(
         delineation.refinement(),
         &RefinementOutcome::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::NoD8AuxDeclared
+            ),
         }
     );
 }

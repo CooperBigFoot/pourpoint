@@ -104,7 +104,7 @@ hard-error as an unsupported format version.
 | `dataset_path` | `str` | — | Path or URL to the HFX dataset root directory |
 | `snap_radius` | `float \| None` | `None` | Snap-path search radius in metres; must be finite and positive when provided |
 | `snap_strategy` | `"distance-first" \| "weight-first" \| None` | `None` | Snap ranking strategy. Defaults to `"weight-first"`, which ranks greater declared weight as more hydrologically significant before distance. |
-| `snap_threshold` | `int \| None` | `None` | Minimum upstream-pixel count for stream-network snapping |
+| `snap_threshold` | `int \| None` | `None` | Upstream-cell threshold for containment candidate generation and the one-cell vector authority guard |
 | `clean_epsilon` | `float \| None` | `None` | Topology-cleaning epsilon in degrees |
 | `refine` | `bool` | `True` | Whether raster-based terminal refinement is enabled |
 | `repair_geometry` | `"auto" \| "gdal" \| "clean" \| False \| None` | `"auto"` | Geometry repair mode. `"auto"`, `"clean"`, `False`, and `None` use pure-Rust topology cleaning; `"gdal"` opts into GDAL repair |
@@ -282,6 +282,12 @@ pre-merge units is not the same as the final merged `area_km2` or
 
 ## DelineationResult
 
+Outlet resolution chooses authority once. A vector snap result is quantized to
+its containing D8 cell and never reranked. Point-in-polygon produces unit-only
+authority and uses the existing raster candidate ranker. `resolved_outlet`
+remains the vector point or request point. `refined_outlet` is the accepted seed
+cell center.
+
 Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 
 ### Properties
@@ -293,6 +299,7 @@ Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 | `resolved_outlet` | `tuple[float, float]` | Outlet used for resolution as `(lon, lat)` |
 | `refined_outlet` | `tuple[float, float] \| None` | Raster-refined outlet as `(lon, lat)`, or `None` if refinement was not applied |
 | `refinement_skip_reason` *(Unreleased/main-only)* | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
+| `refinement_seed_kind` *(Unreleased/main-only)* | `str` | `vector_quantized`, `raster_ranked`, `coarse`, or `disabled` |
 | `resolution_method` | `str` | Debug/provenance string describing how outlet resolution happened |
 | `upstream_unit_ids` | `list[int]` | Upstream unit IDs including the terminal unit |
 | `upstream_units` | `list[DelineationUnitMetadata]` | Light per-unit metadata without per-unit geometry |
@@ -327,11 +334,14 @@ and upstream unit count.
 staged `TerminalRefinement.status` and does not replace the compatible Debug
 string emitted by `to_geojson()`.
 
-The `kind` property is one of `unreadable_d8_aux_declared`,
-`no_d8_aux_declared`, `no_raster_source_provided`, `availability`,
-`mis_declaration`, or `data_geometry_integrity`. The `category` property is one
-of `availability`, `mis_declaration`, or `data_geometry_integrity`. `schema` is
-non-`None` only when `kind == "unreadable_d8_aux_declared"`.
+The `kind` property also includes `coarse_unit_only_no_d8_aux_declared` and
+`vector_outlet_guard_failed`. For the latter, `failure_kind` is one of
+`grid_mapping`, `outside_terminal_mask`, `undefined_flow_direction`,
+`undefined_accumulation`, or `below_threshold`. The
+`requested_threshold`, `effective_threshold`, `units`, `mapped_cell`, and
+`measured_accumulation` properties expose the remaining guard evidence. Mapping failure and undefined
+accumulation use `None` instead of fabricated values. `refinement_seed_kind`
+reports the three-way refinement seed decision independently of status.
 
 Unreadable-D8 eligibility uses only the exact `hfx.aux.d8_raster.` name prefix;
 it does not verify that a referenced artifact is a D8 raster. When multiple

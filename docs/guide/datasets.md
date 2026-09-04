@@ -94,9 +94,10 @@ For `int32`, predictors 1 and 2 are accepted. For `float32`, predictors 1 and 3
 are accepted. Unsupported layouts fail rather than falling back to a complete
 raster download.
 
-Refinement traces within the selected terminal unit and returns a terminal
-sub-polygon at the snapped raster cell. It does not claim an exact boundary at
-the original point.
+Refinement traces within the selected terminal unit. Vector authority maps to
+one containing raster cell without search; unit-only containment ranks masked
+threshold candidates. The returned terminal sub-polygon does not claim an exact
+boundary at the original point.
 
 ## Hosted-data license and citations
 

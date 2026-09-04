@@ -1,4 +1,4 @@
-//! Terminal refinement strategy contract and provenance types.
+//! refineStrategy : TerminalPolygon × OutletAuthority × D8Pantry → TerminalRefinementDecision
 
 use geo::{BoundingRect, Coord, LineString, MultiPolygon, Polygon};
 use hfx::{D8RasterMetadataV2, EpsgCode, FlowAccumulationUnits, FlowDirEncoding, UnitId};
@@ -7,9 +7,11 @@ use object_store::path::Path as ObjectPath;
 use crate::algo::coord::GeoCoord;
 use crate::algo::projection::{Crs, NativeCoord, ProjectionError, forward, inverse};
 use crate::algo::{
-    RasterSource, RasterSourceError, RefinementError, SnapThreshold, refine_terminal_from_source,
+    GridCoord, RasterOutlet, RasterSeedKind, RasterSource, RasterSourceError, RefinementError,
+    SnapThreshold, VectorOutletGuardFailureKind, refine_terminal_from_source,
 };
 use crate::error::SessionError;
+use crate::resolver::OutletResolution;
 use crate::session::{DatasetSession, RasterKind};
 use crate::telemetry::{
     Stage, StageGuard, record_bytes, record_cache_status, record_path, record_requests,
@@ -33,16 +35,38 @@ pub trait TerminalRefinementStrategy: Send + Sync {
     ) -> Result<TerminalRefinementDecision, TerminalRefinementError>;
 }
 
+/// Outlet authority narrowed to the coordinate information needed by refinement.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OutletAuthority {
+    /// A vector feature chose this point and refinement may only quantize it.
+    VectorPoint(GeoCoord),
+    /// Containment chose only a unit and refinement may use the raster ranker.
+    UnitOnly(GeoCoord),
+}
+
+impl From<&OutletResolution> for OutletAuthority {
+    fn from(value: &OutletResolution) -> Self {
+        match value {
+            OutletResolution::VectorPoint { vector_coord, .. } => Self::VectorPoint(*vector_coord),
+            OutletResolution::UnitContainment { input_coord, .. } => Self::UnitOnly(*input_coord),
+        }
+    }
+}
+
 /// Terminal-only input for a refinement strategy.
+///
+/// The former `resolved_outlet: GeoCoord` field is replaced by
+/// [`Self::outlet_authority`]. Custom strategies must select the vector or
+/// unit-only variant explicitly so refinement cannot silently resolve again.
 #[derive(Debug, Clone, Copy)]
 pub struct TerminalRefinementInput<'a> {
     /// Terminal drainage-unit ID.
     pub terminal_unit: UnitId,
     /// Pre-merge whole-terminal geometry decoded by the staged path.
     pub terminal_geometry: &'a MultiPolygon<f64>,
-    /// Outlet resolved before refinement.
-    pub resolved_outlet: GeoCoord,
-    /// Minimum flow accumulation used by D8 snapping.
+    /// Typed outlet authority chosen before refinement.
+    pub outlet_authority: OutletAuthority,
+    /// Minimum flow accumulation used for ranking or the vector-cell guard.
     pub snap_threshold: SnapThreshold,
 }
 
@@ -94,10 +118,10 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
 
         let Some(raster_source) = pantry.raster_source else {
             return Ok(TerminalRefinementDecision::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped {
-                    strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                    why: BestEffortSkipReason::NoRasterSourceProvided,
-                },
+                provenance: BestEffortRefinementProvenance::new(
+                    RefinementStrategyName::BestEffortD8IfPresent,
+                    BestEffortSkipReason::NoRasterSourceProvided,
+                ),
             });
         };
 
@@ -153,7 +177,14 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         let selected_crs = handle.projection_crs();
         let epsg = handle.epsg();
         let flow_accumulation_units = handle.flow_accumulation_units();
-        let native_outlet = forward(selected_crs, input.resolved_outlet);
+        let native_outlet = match input.outlet_authority {
+            OutletAuthority::VectorPoint(vector_coord) => {
+                RasterOutlet::VectorPoint(forward(selected_crs, vector_coord))
+            }
+            OutletAuthority::UnitOnly(input_coord) => {
+                RasterOutlet::UnitOnly(forward(selected_crs, input_coord))
+            }
+        };
 
         let refinement_result = {
             let _refine_guard = StageGuard::enter(Stage::TerminalRefine);
@@ -181,6 +212,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
                     source: RefinementError::InverseProjection { epsg, source },
                 }
             })?;
+        let seed_kind = refinement_result.seed_kind();
         let geographic_polygon = inverse_terminal(&refinement_result.into_polygon(), selected_crs)
             .map_err(|source| TerminalRefinementError::Algorithm {
                 unit_id: input.terminal_unit.get(),
@@ -195,12 +227,19 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         Ok(TerminalRefinementDecision::Applied {
             refined_outlet,
             geometry,
-            provenance: RefinementProvenance::Applied {
-                strategy: RefinementStrategyName::BuiltInD8,
-                why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
-                    declaration_index: handle.declaration_index(),
+            provenance: AppliedRefinementProvenance::new(
+                RefinementStrategyName::BuiltInD8,
+                match seed_kind {
+                    RasterSeedKind::VectorQuantized => {
+                        AppliedRefinementReason::VectorOutletQuantized {
+                            declaration_index: handle.declaration_index(),
+                        }
+                    }
+                    RasterSeedKind::RasterRanked => AppliedRefinementReason::RasterOutletRanked {
+                        declaration_index: handle.declaration_index(),
+                    },
                 },
-            },
+            ),
         })
     }
 }
@@ -366,27 +405,101 @@ impl ContainedTerminalPolygon {
     }
 }
 
+/// Provenance that can only accompany an applied terminal refinement.
+#[derive(Clone, PartialEq, Eq)]
+pub struct AppliedRefinementProvenance {
+    strategy: RefinementStrategyName,
+    why: AppliedRefinementReason,
+}
+
+impl AppliedRefinementProvenance {
+    /// Construct applied provenance from one strategy and seed rule.
+    pub fn new(strategy: RefinementStrategyName, why: AppliedRefinementReason) -> Self {
+        Self { strategy, why }
+    }
+
+    /// Return the strategy that produced the carve.
+    pub fn strategy(&self) -> RefinementStrategyName {
+        self.strategy
+    }
+
+    /// Return the applied seed rule.
+    pub fn why(&self) -> &AppliedRefinementReason {
+        &self.why
+    }
+}
+
+impl std::fmt::Debug for AppliedRefinementProvenance {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Applied")
+            .field("strategy", &self.strategy)
+            .field("why", &self.why)
+            .finish()
+    }
+}
+
+/// Provenance that can only accompany a best-effort coarse result.
+#[derive(Clone, PartialEq)]
+pub struct BestEffortRefinementProvenance {
+    strategy: RefinementStrategyName,
+    why: BestEffortSkipReason,
+}
+
+impl BestEffortRefinementProvenance {
+    /// Construct skip provenance from one strategy and typed reason.
+    pub fn new(strategy: RefinementStrategyName, why: BestEffortSkipReason) -> Self {
+        Self { strategy, why }
+    }
+
+    /// Return the strategy that was attempted.
+    pub fn strategy(&self) -> RefinementStrategyName {
+        self.strategy
+    }
+
+    /// Return the typed reason the terminal stayed coarse.
+    pub fn why(&self) -> &BestEffortSkipReason {
+        &self.why
+    }
+}
+
+impl std::fmt::Debug for BestEffortRefinementProvenance {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BestEffortSkipped")
+            .field("strategy", &self.strategy)
+            .field("why", &self.why)
+            .finish()
+    }
+}
+
 /// Strategy-level decision before engine policy is applied.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TerminalRefinementDecision {
     /// A strategy produced a terminal override.
     Applied {
-        /// Refined outlet coordinate returned by raster snapping.
+        /// Refined outlet coordinate at the selected raster seed cell center.
         refined_outlet: GeoCoord,
         /// Refined terminal geometry.
         geometry: ContainedTerminalPolygon,
         /// Provenance explaining why refinement ran.
-        provenance: RefinementProvenance,
+        provenance: AppliedRefinementProvenance,
     },
     /// Best-effort refinement was visibly skipped.
     BestEffortSkipped {
         /// Provenance explaining why refinement was skipped.
-        provenance: RefinementProvenance,
+        provenance: BestEffortRefinementProvenance,
     },
 }
 
-/// Provenance for the terminal refinement stage.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Legacy aggregate provenance retained for migration and serialized records.
+///
+/// Live refinement outcomes use [`AppliedRefinementProvenance`] or
+/// [`BestEffortRefinementProvenance`] so status and provenance cannot disagree.
+#[deprecated(
+    note = "use AppliedRefinementProvenance or BestEffortRefinementProvenance with the matching outcome variant"
+)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RefinementProvenance {
     /// Refinement was disabled by caller policy.
     Disabled,
@@ -418,8 +531,22 @@ pub enum RefinementStrategyName {
 /// Reasons an applied refinement ran.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppliedRefinementReason {
-    /// D8 declaration selected for the terminal bbox.
+    /// Legacy applied reason emitted before seed authority was distinguished.
+    ///
+    /// New engine results emit [`Self::VectorOutletQuantized`] or
+    /// [`Self::RasterOutletRanked`]. This variant is retained for source migration.
+    #[deprecated(note = "match VectorOutletQuantized or RasterOutletRanked instead")]
     D8AuxMatchedTerminalBbox {
+        /// Zero-based declaration index in manifest order.
+        declaration_index: usize,
+    },
+    /// An authoritative vector point was mapped to its unique containing cell.
+    VectorOutletQuantized {
+        /// Zero-based declaration index in manifest order.
+        declaration_index: usize,
+    },
+    /// Unit-only containment used the fixed raster candidate ranker.
+    RasterOutletRanked {
         /// Zero-based declaration index in manifest order.
         declaration_index: usize,
     },
@@ -454,10 +581,12 @@ pub enum BestEffortSkipSource {
 }
 
 /// Reasons best-effort refinement skipped.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BestEffortSkipReason {
-    /// The dataset declares no blessed D8 auxiliary raster pair.
+    /// Vector authority is retained coarsely because no blessed D8 pair is declared.
     NoD8AuxDeclared,
+    /// Unit-only containment stays coarse because no blessed D8 pair is declared.
+    CoarseUnitOnlyNoD8AuxDeclared,
     /// An unreadable declaration names the D8 auxiliary family.
     ///
     /// Eligibility is determined only by the declared name starting with
@@ -470,6 +599,21 @@ pub enum BestEffortSkipReason {
     },
     /// The engine has no raster source attached.
     NoRasterSourceProvided,
+    /// The containing raster cell for vector authority failed a strict usability guard.
+    VectorOutletGuardFailed {
+        /// Failed guard conjunct.
+        kind: VectorOutletGuardFailureKind,
+        /// Requested threshold in upstream cells.
+        requested_threshold: SnapThreshold,
+        /// Effective threshold in the declared accumulation units.
+        effective_threshold: f32,
+        /// Declared accumulation units.
+        units: FlowAccumulationUnits,
+        /// Mapped cell when mapping succeeded.
+        mapped_cell: Option<GridCoord>,
+        /// Measured accumulation when the raster carried one.
+        measured_accumulation: Option<f32>,
+    },
     /// A required declaration, artifact, cache object, or reader capability was unavailable.
     Availability {
         /// Typed family in which the unavailable input was encountered.
@@ -497,13 +641,16 @@ impl BestEffortSkipReason {
     /// Return the operator-facing category of this skip.
     pub fn category(&self) -> BestEffortSkipCategory {
         match self {
-            Self::NoD8AuxDeclared | Self::NoRasterSourceProvided | Self::Availability { .. } => {
-                BestEffortSkipCategory::Availability
-            }
+            Self::NoD8AuxDeclared
+            | Self::CoarseUnitOnlyNoD8AuxDeclared
+            | Self::NoRasterSourceProvided
+            | Self::Availability { .. } => BestEffortSkipCategory::Availability,
             Self::UnreadableD8AuxDeclared { .. } | Self::MisDeclaration { .. } => {
                 BestEffortSkipCategory::MisDeclaration
             }
-            Self::DataGeometryIntegrity { .. } => BestEffortSkipCategory::DataGeometryIntegrity,
+            Self::VectorOutletGuardFailed { .. } | Self::DataGeometryIntegrity { .. } => {
+                BestEffortSkipCategory::DataGeometryIntegrity
+            }
         }
     }
 }
@@ -625,6 +772,16 @@ fn best_effort_session_skip(
 fn best_effort_refinement_skip(error: &RefinementError) -> BestEffortSkipReason {
     let diagnostic = error.to_string();
     match error {
+        RefinementError::VectorOutletUnusable { failure } => {
+            BestEffortSkipReason::VectorOutletGuardFailed {
+                kind: failure.kind,
+                requested_threshold: failure.requested_threshold,
+                effective_threshold: failure.effective_threshold,
+                units: failure.units,
+                mapped_cell: failure.mapped_cell,
+                measured_accumulation: failure.measured_accumulation,
+            }
+        }
         RefinementError::DimensionMismatch { .. }
         | RefinementError::GeoTransformMismatch { .. }
         | RefinementError::GeographicKm2Unsupported { .. } => {

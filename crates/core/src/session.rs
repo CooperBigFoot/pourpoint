@@ -1437,7 +1437,7 @@ mod tests {
         snap_membership_rows_for_test,
     };
     use crate::reader::test_instrumentation::ReaderSessionMeasurementScope;
-    use crate::resolver::{ResolverConfig, SearchRadiusMetres, resolve_outlet};
+    use crate::resolver::{ResolverConfig, SearchRadiusMetres, resolve_outlet_authority};
     use crate::runtime::RT;
     use crate::source::DatasetSource;
     use crate::telemetry::jsonl::JsonlLayer;
@@ -2389,14 +2389,14 @@ mod tests {
 
         let unrelated = thread::spawn(move || {
             let session = DatasetSession::open_path(&root).unwrap();
-            let resolved = resolve_outlet(
+            let resolved = resolve_outlet_authority(
                 &session,
                 GeoCoord::new(0.2, 0.2),
                 &ResolverConfig::new()
                     .with_search_radius(SearchRadiusMetres::new(2_000.0).unwrap()),
             )
             .unwrap();
-            assert_eq!(resolved.unit_id, UnitId::new(1).unwrap());
+            assert_eq!(resolved.unit_id(), UnitId::new(1).unwrap());
             done_tx.send(()).unwrap();
         });
 
@@ -2414,13 +2414,13 @@ mod tests {
         );
 
         let session = DatasetSession::open_path(&owner_root).unwrap();
-        let resolved = resolve_outlet(
+        let resolved = resolve_outlet_authority(
             &session,
             GeoCoord::new(0.2, 0.2),
             &ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(2_000.0).unwrap()),
         )
         .unwrap();
-        assert_eq!(resolved.unit_id, UnitId::new(1).unwrap());
+        assert_eq!(resolved.unit_id(), UnitId::new(1).unwrap());
         let actual = (
             snap_membership_rows_for_test(),
             snap_geometry_decode_rows_for_test(),

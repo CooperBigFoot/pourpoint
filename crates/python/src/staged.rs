@@ -127,34 +127,34 @@ impl PyResolvedOutlet {
     /// Terminal unit ID resolved at the selected level.
     #[getter]
     fn terminal_unit_id(&self) -> i64 {
-        self.inner.resolved().unit_id.get()
+        self.inner.authority().unit_id().get()
     }
 
     /// Original input outlet coordinate as `(lon, lat)`.
     #[getter]
     fn input_outlet(&self) -> (f64, f64) {
-        let coord = self.inner.resolved().input_coord;
+        let coord = self.inner.authority().input_coord();
         (coord.lon, coord.lat)
     }
 
     /// Resolved outlet coordinate as `(lon, lat)`.
     #[getter]
     fn resolved_outlet(&self) -> (f64, f64) {
-        let coord = self.inner.resolved().resolved_coord;
+        let coord = self.inner.authority().resolved_coord();
         (coord.lon, coord.lat)
     }
 
     /// Debug string representation of the resolution method.
     #[getter]
     fn resolution_method(&self) -> String {
-        format!("{:?}", self.inner.resolved().method)
+        format!("{:?}", self.inner.authority().method())
     }
 
     fn __repr__(&self) -> String {
         format!(
             "ResolvedOutlet(level={}, terminal_unit_id={})",
             self.inner.selected_level().level().get(),
-            self.inner.resolved().unit_id.get()
+            self.inner.authority().unit_id().get()
         )
     }
 }

@@ -81,8 +81,8 @@ fn resolve_finest_snap(declarations: Vec<TestSnapDeclaration>) -> (UnitId, Resol
         .expect("outlet should resolve");
 
     (
-        resolved.resolved().unit_id,
-        resolved.resolved().method.clone(),
+        resolved.authority().unit_id(),
+        resolved.authority().method().clone(),
     )
 }
 
@@ -121,12 +121,12 @@ fn declarations_not_referencing_selected_level_are_ignored() {
         .expect("PiP fallback should resolve inside the selected L1 unit");
 
     assert_eq!(
-        resolved.resolved().unit_id,
+        resolved.authority().unit_id(),
         UnitId::new(10).expect("fixture L1 unit")
     );
     assert!(
         matches!(
-            resolved.resolved().method,
+            resolved.authority().method(),
             ResolutionMethod::PointInPolygon { .. }
         ),
         "no selected-level snap declaration should fall back to the existing PiP path"

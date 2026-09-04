@@ -4,8 +4,55 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ## Unreleased
 
+### Rust API migration
+
+- `LevelResolvedOutlet::resolved()` remains available as a deprecated legacy
+  view returning `&ResolvedOutlet`, so existing public-field access and struct
+  patterns continue to compile. New staged callers use
+  `LevelResolvedOutlet::authority()` to receive `&OutletResolution` with typed
+  vector-versus-unit-only authority.
+- `resolve_outlet` and `resolve_outlet_at_level` remain available as deprecated
+  wrappers returning the original public-field `ResolvedOutlet` struct. New code
+  must use `resolve_outlet_authority` and `resolve_outlet_authority_at_level` to
+  receive the typed `OutletResolution` authority sum.
+- `TerminalRefinementInput.resolved_outlet` is intentionally replaced by
+  `outlet_authority`. Custom strategy implementations must choose
+  `OutletAuthority::VectorPoint(coord)` or `OutletAuthority::UnitOnly(coord)`;
+  implicit coordinate conversion is not supported because it would erase the
+  invariant this release adds.
+- `algo::refine_terminal` and `algo::refine_terminal_from_source` now require
+  an explicit `RasterOutlet`. Replace a former bare `NativeCoord` argument with
+  `RasterOutlet::UnitOnly(coord)` for containment behavior or
+  `RasterOutlet::VectorPoint(coord)` for authoritative vector behavior. The old
+  implicit conversion is intentionally unavailable because it could silently
+  recreate second resolution.
+- `AppliedRefinementReason::D8AuxMatchedTerminalBbox` remains as a deprecated
+  source bridge. Engine-produced results use `VectorOutletQuantized` or
+  `RasterOutletRanked`; exhaustive matches must add those variants.
+- `algo::RefinementError` adds `VectorOutletUnusable`. Exhaustive matches must
+  add that variant. It reports vector-cell guard failures when D8 refinement is
+  required instead of permitting raster re-ranking.
+- `BestEffortSkipReason` adds `CoarseUnitOnlyNoD8AuxDeclared` and
+  `VectorOutletGuardFailed`. Exhaustive matches must add both. The skip and
+  aggregate provenance types now provide `PartialEq`, not `Eq`, because guard
+  evidence includes raw `f32` accumulation values.
+- `RefinementOutcome`, `TerminalRefinement`, and `TerminalRefinementDecision`
+  now carry `AppliedRefinementProvenance` or
+  `BestEffortRefinementProvenance` in their matching variants. Replace nested
+  `RefinementProvenance::{Applied, BestEffortSkipped}` patterns with the typed
+  wrapper's `strategy()` and `why()` accessors. The aggregate
+  `RefinementProvenance` enum remains deprecated for record migration only.
+- `Engine::refine_terminal` is the stable staged refinement method.
+  `refine_terminal_placeholder` remains as a deprecated forwarding shim.
+
 ### Added
 
+- Added typed vector-point versus unit-only outlet authority, raster seed-kind
+  provenance, and rich vector-cell guard failures with threshold, mapped-cell,
+  and measured-accumulation evidence.
+- Added an ignored, explicitly blessed local-current-HFX MERIT recapture target
+  that rejects stale D8 v1 input and records exact HFX and adapter versions
+  without publishing licensed raster or geometry data.
 - Accepted public R2 custom-domain dataset roots at
   `https://basin-delineations-public.upstream.tech/...`.
 - Reader floor: pourpoint 0.3.0 for the GRIT address offered by this repository,
@@ -18,6 +65,12 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Vector-cell guarding now accepts HFX GRASS code 0 sinks and signed coverage
+  exits as defined terminal semantics while retaining ESRI code 0 behavior.
+- Vector-resolved outlets now remain authoritative through D8 refinement. They
+  quantize only to their unique containing cell and never fall back to raster
+  ranking. Unit-only containment retains the existing deterministic raster
+  candidate rule.
 - Best-effort refinement now distinguishes and carries the first retained
   unreadable D8-family schema. The new public, exhaustive
   `BestEffortSkipReason::UnreadableD8AuxDeclared` variant is a breaking Rust

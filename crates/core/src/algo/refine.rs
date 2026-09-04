@@ -1,11 +1,9 @@
 //! Terminal unit raster refinement.
 //!
-//! Refines a coarse terminal polygon into a precise watershed by:
-//! 1. Rasterizing the terminal polygon onto the flow raster grid.
-//! 2. Masking both flow-direction and accumulation tiles to that polygon.
-//! 3. Snapping the outlet to the nearest high-accumulation cell.
-//! 4. Tracing all upstream cells from the snapped outlet.
-//! 5. Polygonizing the upstream trace mask back to raster-native coordinates.
+//! terminalCarve : TerminalPolygon × OutletAuthority × D8 → TerminalSubpolygon
+//!
+//! Rasterizes and masks the terminal, derives a seed without relocating vector
+//! authority, traces upstream cells, and polygonizes the contained carve.
 //!
 //! # Semantic divergence from hydra-shed
 //!
@@ -31,12 +29,65 @@ use crate::algo::polygonize::polygonize;
 use crate::algo::projection::{NativeCoord, ProjectionError};
 use crate::algo::raster_tile::RasterTileError;
 use crate::algo::rasterize::rasterize_multi_polygon;
-use crate::algo::snap::{SnapError, SnappedPoint, snap_pour_point};
+use crate::algo::snap::{
+    GridMappingError, SnapError, SnappedPoint, effective_threshold, quantize_grid_cell,
+    snap_pour_point,
+};
 use crate::algo::snap_threshold::SnapThreshold;
 use crate::algo::tile_state::Raw;
 use crate::algo::trace::trace_upstream;
 use crate::algo::traits::{RasterSource, RasterSourceError};
 use crate::support_claims::d8_pair_is_compatible;
+
+/// Authority supplied to raster refinement.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RasterOutlet {
+    /// A vector snap feature already chose the hydrological point.
+    VectorPoint(NativeCoord),
+    /// Containment chose only a terminal unit; the raster ranker must choose a cell.
+    UnitOnly(NativeCoord),
+}
+
+/// The raster seed rule used for an applied carve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RasterSeedKind {
+    /// Unique cell containing the authoritative vector point.
+    VectorQuantized,
+    /// Winner of the threshold candidate ranker for unit-only containment.
+    RasterRanked,
+}
+
+/// Failed conjunct in the vector-cell usability guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VectorOutletGuardFailureKind {
+    /// The projected vector point did not map into the localized half-open raster window.
+    GridMapping,
+    /// The mapped cell is outside the rasterized terminal mask.
+    OutsideTerminalMask,
+    /// The mapped cell has neither a valid D8 direction nor valid terminal semantics.
+    UndefinedFlowDirection,
+    /// The mapped cell has no raw accumulation value.
+    UndefinedAccumulation,
+    /// The mapped cell accumulation is below the effective threshold.
+    BelowThreshold,
+}
+
+/// Complete evidence for a rejected authoritative vector cell.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorOutletGuardFailure {
+    /// Failed guard conjunct.
+    pub kind: VectorOutletGuardFailureKind,
+    /// Requested threshold in upstream cells.
+    pub requested_threshold: SnapThreshold,
+    /// Effective threshold in the declared accumulation units.
+    pub effective_threshold: f32,
+    /// Declared accumulation units.
+    pub units: FlowAccumulationUnits,
+    /// Mapped cell when grid mapping succeeded.
+    pub mapped_cell: Option<crate::algo::coord::GridCoord>,
+    /// Raw accumulation when it was defined.
+    pub measured_accumulation: Option<f32>,
+}
 
 /// Errors from terminal unit raster refinement.
 #[derive(Debug, thiserror::Error)]
@@ -97,6 +148,13 @@ pub enum RefinementError {
         source: SnapError,
     },
 
+    /// The authoritative vector point could not provide a usable containing raster cell.
+    #[error("authoritative vector outlet cell failed usability guard: {failure:?}")]
+    VectorOutletUnusable {
+        /// Complete guard evidence with absence-aware optional measurements.
+        failure: VectorOutletGuardFailure,
+    },
+
     /// Polygonizing the traced catchment mask produced no geometry.
     #[error("trace mask polygonization produced no geometry")]
     EmptyPolygonization,
@@ -145,6 +203,7 @@ impl From<RasterSourceError> for RefinementError {
 #[derive(Debug, Clone)]
 pub struct RefinementResult {
     snapped_point: SnappedPoint,
+    seed_kind: RasterSeedKind,
     polygon: MultiPolygon<f64>,
 }
 
@@ -157,6 +216,11 @@ impl RefinementResult {
     /// Returns the native coordinate of the snapped pour point.
     pub fn snapped_coord(&self) -> NativeCoord {
         self.snapped_point.coord()
+    }
+
+    /// Return the rule that produced the raster seed.
+    pub fn seed_kind(&self) -> RasterSeedKind {
+        self.seed_kind
     }
 
     /// Returns a reference to the refined watershed polygon.
@@ -172,9 +236,11 @@ impl RefinementResult {
 
 /// Refine a terminal polygon into a precise watershed polygon.
 ///
-/// Rasterizes `terminal_polygon` onto the raster grid, masks both tiles to that
-/// footprint, snaps `outlet` to the nearest high-accumulation cell, traces all
-/// upstream cells, and polygonizes the trace mask back to raster-native coordinates.
+/// Rasterizes `terminal_polygon` onto the raster grid. Vector authority is mapped
+/// once to its containing usable cell. Unit-only authority uses the existing
+/// threshold candidate ranker. Callers must choose the authority variant
+/// explicitly. The function then masks, traces upstream from the selected seed,
+/// and polygonizes in raster-native coordinates.
 ///
 /// # Errors
 ///
@@ -184,7 +250,8 @@ impl RefinementResult {
 /// | Flow-dir and accumulation tiles have different geo-transforms | [`RefinementError::GeoTransformMismatch`] |
 /// | Terminal polygon rasterizes to an empty mask | [`RefinementError::EmptyRasterMask`] |
 /// | Tile masking fails due to dimension mismatch | [`RefinementError::MaskFailed`] |
-/// | No cell above threshold near outlet | [`RefinementError::SnapFailed`] |
+/// | Unit-only authority has no threshold candidate | [`RefinementError::SnapFailed`] |
+/// | Vector authority cannot map to a usable containing cell | [`RefinementError::VectorOutletUnusable`] |
 /// | Trace mask polygonizes to nothing | [`RefinementError::EmptyPolygonization`] |
 ///
 /// # Design note — boundary containment
@@ -194,10 +261,10 @@ impl RefinementResult {
 /// If the coarse boundary is too tight relative to the raster-derived
 /// watershed, refinement cannot recover that area. See module-level
 /// documentation for the full rationale.
-#[instrument(skip(terminal_polygon, flow_dir, accumulation))]
+#[instrument(skip(terminal_polygon, outlet, flow_dir, accumulation))]
 pub fn refine_terminal(
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: NativeCoord,
+    outlet: RasterOutlet,
     flow_dir: FlowDirectionTile<Raw>,
     accumulation: AccumulationTile<Raw>,
     threshold: SnapThreshold,
@@ -230,55 +297,114 @@ pub fn refine_terminal(
         });
     }
 
-    // Step 2: Save geo and dims before consuming tiles
+    // Step 2: Save geo and dims before consuming tiles.
     let geo = *flow_dir.geo();
     let dims = flow_dir.dims();
 
-    // Step 3: Rasterize terminal polygon
+    // Step 3: Rasterize terminal polygon and retain the unmasked membership evidence.
     let mask_data = rasterize_multi_polygon(terminal_polygon, &geo, dims);
-
-    // Step 4: Check mask is non-empty
-    if !mask_data.iter().any(|&v| v) {
+    if !mask_data.iter().any(|&value| value) {
         return Err(RefinementError::EmptyRasterMask {
             rows: dims.rows,
             cols: dims.cols,
         });
     }
-
-    let mask_cell_count = mask_data.iter().filter(|&&v| v).count();
+    let mask_cell_count = mask_data.iter().filter(|&&value| value).count();
     debug!(
         mask_cell_count,
         rows = dims.rows,
         cols = dims.cols,
         "rasterized terminal polygon"
     );
-
-    // Step 5: Build CatchmentMask
     let catchment_mask = CatchmentMask::new(mask_data, dims);
+    let threshold_value = effective_threshold(threshold, flow_accumulation_units, &geo);
 
-    // Step 6: Mask BOTH tiles (consume Raw, produce Masked)
+    // Step 4: A vector point is quantized once and guarded before either tile is masked.
+    let vector_seed = match outlet {
+        RasterOutlet::VectorPoint(vector_point) => {
+            let mapped = quantize_grid_cell(vector_point, &geo, dims, epsg).map_err(
+                |_source: GridMappingError| RefinementError::VectorOutletUnusable {
+                    failure: VectorOutletGuardFailure {
+                        kind: VectorOutletGuardFailureKind::GridMapping,
+                        requested_threshold: threshold,
+                        effective_threshold: threshold_value,
+                        units: flow_accumulation_units,
+                        mapped_cell: None,
+                        measured_accumulation: None,
+                    },
+                },
+            )?;
+            let reject = |kind, measured_accumulation| RefinementError::VectorOutletUnusable {
+                failure: VectorOutletGuardFailure {
+                    kind,
+                    requested_threshold: threshold,
+                    effective_threshold: threshold_value,
+                    units: flow_accumulation_units,
+                    mapped_cell: Some(mapped),
+                    measured_accumulation,
+                },
+            };
+            if !catchment_mask.contains(mapped) {
+                return Err(reject(
+                    VectorOutletGuardFailureKind::OutsideTerminalMask,
+                    accumulation.get(mapped),
+                ));
+            }
+            if flow_dir.decoded_cell(mapped).is_none() {
+                return Err(reject(
+                    VectorOutletGuardFailureKind::UndefinedFlowDirection,
+                    accumulation.get(mapped),
+                ));
+            }
+            let measured = accumulation
+                .get(mapped)
+                .ok_or_else(|| reject(VectorOutletGuardFailureKind::UndefinedAccumulation, None))?;
+            if measured < threshold_value {
+                return Err(reject(
+                    VectorOutletGuardFailureKind::BelowThreshold,
+                    Some(measured),
+                ));
+            }
+            Some(SnappedPoint::new(
+                mapped,
+                geo.pixel_to_coord(mapped),
+                measured,
+            ))
+        }
+        RasterOutlet::UnitOnly(_) => None,
+    };
+
+    // Step 5: Mask both tiles to preserve terminal containment.
     let masked_flow_dir = flow_dir
         .apply_mask(&catchment_mask)
-        .map_err(|e| RefinementError::MaskFailed { source: e })?;
+        .map_err(|source| RefinementError::MaskFailed { source })?;
     let masked_acc = accumulation
         .apply_mask(&catchment_mask)
-        .map_err(|e| RefinementError::MaskFailed { source: e })?;
+        .map_err(|source| RefinementError::MaskFailed { source })?;
 
-    // Step 7: Snap pour point
-    let snapped = snap_pour_point(
-        outlet,
-        &masked_acc,
-        threshold,
-        flow_accumulation_units,
-        epsg,
-    )?;
+    // Step 6: Containment authority uses the fixed candidate ranker. Vector authority never does.
+    let (snapped, seed_kind) = match (outlet, vector_seed) {
+        (RasterOutlet::VectorPoint(_), Some(seed)) => (seed, RasterSeedKind::VectorQuantized),
+        (RasterOutlet::UnitOnly(request_point), None) => (
+            snap_pour_point(
+                request_point,
+                &masked_acc,
+                threshold,
+                flow_accumulation_units,
+                epsg,
+            )?,
+            RasterSeedKind::RasterRanked,
+        ),
+        _ => unreachable!("outlet authority and prepared seed must agree"),
+    };
     debug!(
         row = snapped.row(),
         col = snapped.col(),
         x = snapped.x(),
         y = snapped.y(),
         accumulation = snapped.accumulation(),
-        "snapped pour point"
+        ?seed_kind,
+        "selected terminal refinement seed"
     );
 
     // Step 8: Trace upstream on MASKED flow_dir
@@ -296,6 +422,7 @@ pub fn refine_terminal(
 
     Ok(RefinementResult {
         snapped_point: snapped,
+        seed_kind,
         polygon,
     })
 }
@@ -313,14 +440,14 @@ pub fn refine_terminal(
 /// | Terminal polygon has no bounding rect | [`RefinementError::DegenerateTerminalPolygon`] |
 /// | Raster source fails to load a tile | [`RefinementError::RasterLoad`] |
 /// | Any error from [`refine_terminal`] | (propagated) |
-#[instrument(skip(source, terminal_polygon))]
+#[instrument(skip(source, terminal_polygon, outlet))]
 #[allow(clippy::too_many_arguments)]
 pub fn refine_terminal_from_source(
     source: &dyn RasterSource,
     flow_dir_uri: &str,
     flow_acc_uri: &str,
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: NativeCoord,
+    outlet: RasterOutlet,
     threshold: SnapThreshold,
     flow_accumulation_units: FlowAccumulationUnits,
     epsg: u32,
@@ -441,7 +568,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -499,7 +626,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -553,7 +680,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -612,7 +739,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -661,7 +788,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -716,7 +843,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -755,7 +882,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -790,7 +917,7 @@ mod tests {
         // Should succeed: snap finds nearest valid cell
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -822,7 +949,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -874,7 +1001,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -930,7 +1057,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -968,7 +1095,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1005,7 +1132,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1044,7 +1171,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1080,7 +1207,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1113,7 +1240,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1145,7 +1272,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1181,7 +1308,7 @@ mod tests {
 
         let direct_result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir_direct,
             accumulation_direct,
             threshold,
@@ -1224,7 +1351,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1292,7 +1419,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1337,7 +1464,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &rect_polygon(0.0, 0.0, 3.0, -3.0),
-            NativeCoord::new(1.5, -1.5),
+            RasterOutlet::UnitOnly(NativeCoord::new(1.5, -1.5)),
             SnapThreshold::new(500),
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1414,7 +1541,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1504,7 +1631,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            NativeCoord::new(15.0, -15.0),
+            RasterOutlet::UnitOnly(NativeCoord::new(15.0, -15.0)),
             SnapThreshold::new(1_000),
             FlowAccumulationUnits::Km2,
             8857_u32,
@@ -1538,7 +1665,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            NativeCoord::new(0.5, -0.5),
+            RasterOutlet::UnitOnly(NativeCoord::new(0.5, -0.5)),
             flow_dir,
             accumulation,
             SnapThreshold::new(1),

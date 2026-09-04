@@ -42,15 +42,19 @@ pub use export::{
     RowGroupPlan, UnitBundleExportInput, UnitBundleExportOptions, UnitBundleGeoParquetWriter,
     UnitBundleSpatialSortKey,
 };
+#[allow(deprecated)]
 pub use refinement::{
-    AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle,
-    D8RasterRefinementStrategy, D8RefinementPantry, RefinementProvenance, RefinementStrategyName,
+    AppliedRefinementProvenance, AppliedRefinementReason, BestEffortRefinementProvenance,
+    BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle, D8RasterRefinementStrategy,
+    D8RefinementPantry, OutletAuthority, RefinementProvenance, RefinementStrategyName,
     TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
     TerminalRefinementStrategy,
 };
+#[allow(deprecated)]
 pub use resolver::{
-    OutletResolutionError, PipTieBreak, ResolutionMethod, ResolvedOutlet, ResolverConfig,
-    SearchRadiusMetres, SnapStrategy, resolve_outlet, resolve_outlet_at_level,
+    OutletResolution, OutletResolutionError, PipTieBreak, ResolutionMethod, ResolvedOutlet,
+    ResolverConfig, SearchRadiusMetres, SnapStrategy, resolve_outlet, resolve_outlet_at_level,
+    resolve_outlet_authority, resolve_outlet_authority_at_level,
 };
 pub use source::DatasetSource;
 pub use staged::{

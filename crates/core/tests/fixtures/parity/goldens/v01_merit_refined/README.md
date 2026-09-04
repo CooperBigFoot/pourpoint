@@ -1,5 +1,13 @@
 # Oracle C - merit-basins/0.1.0 Refined Goldens
 
+> **Archived evidence:** Oracle C is an immutable HFX v0.1 capture. Its public
+> source was intentionally deleted because this project did not hold the rights
+> needed to redistribute that hosted MERIT-derived dataset. PR #72 and commit
+> `60e4a55` record that decision; both historical manifest URLs now return 404.
+> Upstream source components have their own conditional licenses; this statement
+> describes only this project's rights for the former hosted artifact. The old harness at commit `b25575f` is implementation history,
+> not a supported network route. Do not refresh this file or claim an outage.
+
 These goldens are captured from:
 
 ```text
@@ -56,23 +64,31 @@ and direct terminal-carve output. The C oracle is therefore scoped as: core TIFF
 reader carve proven tile-identical to the GDAL production decode for the
 localized C window.
 
-M4 handoff: `merit/0.2.0`, not this `merit-basins/0.1.0` v0.1 source, is the
-real-data v0.2.1 D8 parity target. This M1 oracle records inert v0.1 behavior
-and remote identity only; offline comparison must not fetch or re-hash its
-remote artifacts.
+This M1 oracle records inert v0.1 behavior and historical remote identity only;
+offline comparison must not fetch or re-hash its remote artifacts. Current
+real-data evidence is separate under
+`crates/gdal/tests/fixtures/merit-current/` and comes from licensed local HFX.
 
 M1 already proved TIFF-vs-GDAL tile identity for the accepted `rhine_basel`
 windows. M4 may reuse the synthetic B proof for byte-identical B rasters, and
 may re-run the C proof if the reader implementation changes.
 
-Refresh command:
+Current local-HFX recapture command:
 
 ```bash
-POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-core --test parity_v01_oracle_capture -- --ignored --nocapture
+POURPOINT_MERIT_RECAPTURE_ROOT="$LICENSED_MERIT_HFX_ROOT" \
+POURPOINT_MERIT_RECAPTURE_OUTPUT="$MERIT_EVIDENCE_OUTPUT" \
+POURPOINT_MERIT_RECAPTURE_HFX_COMMIT=<full-hfx-builder-commit> \
+POURPOINT_MERIT_RECAPTURE_BLESS=1 \
+cargo test -p pourpoint-gdal --test merit_local_recapture -- --ignored --nocapture
 ```
+
+The target rejects stale D8 v1 input and writes no absolute source root. It
+records the manifest adapter version and caller-supplied full HFX builder commit.
+It creates separate current evidence and never rewrites this archived oracle.
 
 Decode proof command, after capture has populated `HFX_CACHE_DIR`:
 
 ```bash
-POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-gdal --test raster_decode_parity merit_c_windows_tiff_match_gdal -- --ignored --nocapture
+# Archived only: the old network-backed MERIT C decode proof cannot be rerun.
 ```

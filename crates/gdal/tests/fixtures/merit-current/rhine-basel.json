@@ -1,0 +1,26 @@
+{
+  "adapter_version": "0.2.0",
+  "area_km2": 36352.575857158256,
+  "canonical_wkb_sha256": "641c26d6f8d2ca989471071c91df8621668df4c1b4a4c2f4897c69af6777bd38",
+  "case": "rhine_basel",
+  "format_version": "0.3.0",
+  "hfx_commit": "5603645f91f80873e3d1cb9c236feb303def949e",
+  "input_outlet": {
+    "lat": 47.5596,
+    "lon": 7.589
+  },
+  "refined_outlet": {
+    "lat": 47.589166666666664,
+    "lon": 7.589166666666668
+  },
+  "refinement": "Applied { refined_outlet: GeoCoord { lon: 7.589166666666668, lat: 47.589166666666664 }, provenance: Applied { strategy: BuiltInD8, why: VectorOutletQuantized { declaration_index: 0 } } }",
+  "resolved_outlet": {
+    "lat": 47.58916666666667,
+    "lon": 7.589166666666664
+  },
+  "search_radius_m": 5000.0,
+  "snap_threshold_cells": 1000,
+  "source": "local-current-hfx",
+  "terminal_id": 23017490,
+  "upstream_unit_count": 761
+}

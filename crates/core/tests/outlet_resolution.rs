@@ -17,9 +17,9 @@ use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use tempfile::TempDir;
 
 use pourpoint_core::algo::coord::GeoCoord;
-use pourpoint_core::resolve_outlet;
+use pourpoint_core::resolve_outlet_authority;
 use pourpoint_core::resolver::{
-    OutletResolutionError, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
+    OutletResolution, OutletResolutionError, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
 };
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
@@ -403,19 +403,36 @@ fn snap_happy_path() {
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(5_000.0).unwrap());
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2);
+    assert_eq!(result.unit_id().get(), 2);
+    assert!(matches!(&result, OutletResolution::VectorPoint { .. }));
+    assert!(result.vector_coord().is_some());
     assert!(
-        matches!(result.method, ResolutionMethod::Snap { .. }),
+        matches!(result.method(), ResolutionMethod::Snap { .. }),
         "expected Snap method, got {:?}",
-        result.method
+        result.method()
     );
 }
 
 // ---------------------------------------------------------------------------
 // Test 2: snap_nearest_wins
 // ---------------------------------------------------------------------------
+
+#[test]
+#[allow(deprecated)]
+fn legacy_resolved_outlet_keeps_fielded_migration_surface() {
+    let (_dir, root) = build_3c_snap_dataset();
+    let session = DatasetSession::open_path(&root).unwrap();
+    let outlet = GeoCoord::new(1.2, 0.2);
+    let legacy = pourpoint_core::resolve_outlet(&session, outlet, &ResolverConfig::default())
+        .expect("legacy resolver wrapper should remain usable during migration");
+
+    assert_eq!(legacy.unit_id.get(), 2);
+    assert_eq!(legacy.input_coord, outlet);
+    assert_eq!(legacy.resolved_coord, outlet);
+    assert!(matches!(legacy.method, ResolutionMethod::Snap { .. }));
+}
 
 #[test]
 fn snap_nearest_wins() {
@@ -428,9 +445,9 @@ fn snap_nearest_wins() {
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(100_000.0).unwrap());
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2, "nearest target should be unit 2");
+    assert_eq!(result.unit_id().get(), 2, "nearest target should be unit 2");
 }
 
 // ---------------------------------------------------------------------------
@@ -466,10 +483,10 @@ fn snap_weight_tie_break() {
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(5_000.0).unwrap());
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         2,
         "higher weight should win tie-break"
     );
@@ -509,10 +526,10 @@ fn snap_mainstem_tie_break() {
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(5_000.0).unwrap());
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         2,
         "mainstem should win tie-break over tributary"
     );
@@ -531,7 +548,7 @@ fn snap_no_candidates() {
     let outlet = GeoCoord::new(50.0, 50.0);
     let config = ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(100.0).unwrap());
 
-    let err = resolve_outlet(&session, outlet, &config).unwrap_err();
+    let err = resolve_outlet_authority(&session, outlet, &config).unwrap_err();
 
     assert!(
         matches!(err, OutletResolutionError::NoSnapCandidates { .. }),
@@ -553,13 +570,15 @@ fn pip_happy_path() {
     let outlet = GeoCoord::new(1.2, 0.2);
     let config = ResolverConfig::new();
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2);
+    assert_eq!(result.unit_id().get(), 2);
+    assert!(matches!(&result, OutletResolution::UnitContainment { .. }));
+    assert!(result.vector_coord().is_none());
     assert!(
-        matches!(result.method, ResolutionMethod::PointInPolygon { .. }),
+        matches!(result.method(), ResolutionMethod::PointInPolygon { .. }),
         "expected PointInPolygon method, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -590,19 +609,19 @@ fn pip_upstream_area_tie_break() {
     let outlet = GeoCoord::new(1.0, 0.2);
     let config = ResolverConfig::new();
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2, "higher upstream_area should win");
+    assert_eq!(result.unit_id().get(), 2, "higher upstream_area should win");
     assert!(
         matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::PointInPolygon {
                 tie_break: Some(pourpoint_core::resolver::PipTieBreak::HighestUpstreamArea),
                 ..
             }
         ),
         "expected HighestUpstreamArea tie-break, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -618,7 +637,7 @@ fn pip_outside_all() {
     let outlet = GeoCoord::new(50.0, 50.0);
     let config = ResolverConfig::new();
 
-    let err = resolve_outlet(&session, outlet, &config).unwrap_err();
+    let err = resolve_outlet_authority(&session, outlet, &config).unwrap_err();
 
     assert!(
         matches!(err, OutletResolutionError::OutsideAllCatchments { .. }),
@@ -660,15 +679,15 @@ fn dispatch_snap_over_pip() {
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(5_000.0).unwrap());
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         1,
         "snap path should return unit 1, not PiP's unit 2"
     );
     assert!(
-        matches!(result.method, ResolutionMethod::Snap { .. }),
+        matches!(result.method(), ResolutionMethod::Snap { .. }),
         "expected Snap method"
     );
 }
@@ -688,13 +707,13 @@ fn dispatch_pip_when_no_snap() {
     let outlet = GeoCoord::new(1.2, 0.2);
     let config = ResolverConfig::new();
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2);
+    assert_eq!(result.unit_id().get(), 2);
     assert!(
-        matches!(result.method, ResolutionMethod::PointInPolygon { .. }),
+        matches!(result.method(), ResolutionMethod::PointInPolygon { .. }),
         "expected PointInPolygon method, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -729,27 +748,28 @@ fn snap_linestring_target() {
     let config =
         ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(100_000.0).unwrap());
 
-    let result = resolve_outlet(&session, outlet, &config).unwrap();
+    let result = resolve_outlet_authority(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         2,
         "should snap to nearest LineString (target 2)"
     );
     assert!(
-        matches!(result.method, ResolutionMethod::Snap { .. }),
+        matches!(result.method(), ResolutionMethod::Snap { .. }),
         "expected Snap method, got {:?}",
-        result.method
+        result.method()
     );
     // Resolved coord should be the projection onto the line, not the input
     assert_ne!(
-        result.resolved_coord, result.input_coord,
+        result.resolved_coord(),
+        result.input_coord(),
         "resolved_coord should differ from input_coord (snapped to line)"
     );
     // The projected point should be near (1.15, 0.2) — the perpendicular drop
     assert!(
-        (result.resolved_coord.lat - 0.2).abs() < 0.001,
+        (result.resolved_coord().lat - 0.2).abs() < 0.001,
         "projected lat should be ~0.2, got {}",
-        result.resolved_coord.lat
+        result.resolved_coord().lat
     );
 }

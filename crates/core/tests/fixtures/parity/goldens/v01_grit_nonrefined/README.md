@@ -36,8 +36,6 @@ Offline comparison command:
 cargo test -p pourpoint-core --test parity_golden_artifacts
 ```
 
-Refresh command:
-
-```bash
-POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-core --test parity_v01_oracle_capture -- --ignored --nocapture
-```
+This archived v0.1 record is not refreshed. The deleted combined capture target
+also depended on a MERIT route that this project lacked rights to redistribute;
+see the parity README for the licensed local-current-HFX replacement.

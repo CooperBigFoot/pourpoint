@@ -54,7 +54,8 @@ Released 0.3.0 includes one-shot and batch calls, the staged API, GeoJSON
 **Main development documentation:** the files on the `main` branch and the
 generated docs site describe the current checkout. They can include Unreleased
 changes. In particular, `BestEffortSkipReason`,
-`DelineationResult.refinement_skip_reason`, and
+`DelineationResult.refinement_skip_reason`,
+`DelineationResult.refinement_seed_kind`, and
 `Engine.unreadable_auxiliary_schemas` are main-only and are not in the 0.3.0
 wheel.
 

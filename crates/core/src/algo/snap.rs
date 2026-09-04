@@ -1,10 +1,14 @@
-//! Pour-point snapping to the nearest high-accumulation cell.
+//! rasterSeed : UnitOnlyOutlet × MaskedAccumulation → GridCoord
+//!
+//! Generates the threshold-qualified raster candidate set separately from the
+//! built-in nearest-distance, higher-accumulation, row-major ranker.
 
 use hfx::FlowAccumulationUnits;
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
 use crate::algo::accumulation_tile::AccumulationTile;
-use crate::algo::coord::GridCoord;
+use crate::algo::coord::{GridCoord, GridDims};
+use crate::algo::geo_transform::GeoTransform;
 use crate::algo::projection::NativeCoord;
 use crate::algo::snap_threshold::SnapThreshold;
 use crate::algo::tile_state::Masked;
@@ -46,7 +50,7 @@ pub enum SnapError {
     },
 }
 
-/// Result of a successful pour-point snap.
+/// Raster seed cell and its native center and accumulation evidence.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SnappedPoint {
     cell: GridCoord,
@@ -55,6 +59,14 @@ pub struct SnappedPoint {
 }
 
 impl SnappedPoint {
+    pub(crate) fn new(cell: GridCoord, coord: NativeCoord, accumulation: f32) -> Self {
+        Self {
+            cell,
+            coord,
+            accumulation,
+        }
+    }
+
     /// Returns the row index of the snapped cell.
     pub fn row(&self) -> usize {
         self.cell.row
@@ -65,12 +77,12 @@ impl SnappedPoint {
         self.cell.col
     }
 
-    /// Returns the native x coordinate of the snapped cell center.
+    /// Returns the native x coordinate of the selected cell center.
     pub fn x(&self) -> f64 {
         self.coord.x()
     }
 
-    /// Returns the native y coordinate of the snapped cell center.
+    /// Returns the native y coordinate of the selected cell center.
     pub fn y(&self) -> f64 {
         self.coord.y()
     }
@@ -85,29 +97,158 @@ impl SnappedPoint {
         self.coord
     }
 
-    /// Returns the flow accumulation value at the snapped cell.
+    /// Returns the flow accumulation value at the selected cell.
     pub fn accumulation(&self) -> f32 {
         self.accumulation
     }
 }
 
-/// Snap an outlet to the nearest high-accumulation cell within a masked accumulation tile.
+/// A threshold-qualified raster seed candidate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RasterSeedCandidate {
+    cell: GridCoord,
+    distance_squared: f64,
+    accumulation: f32,
+}
+
+impl RasterSeedCandidate {
+    /// Return the candidate cell.
+    pub fn cell(&self) -> GridCoord {
+        self.cell
+    }
+
+    /// Return squared distance from the request point in fractional pixel space.
+    pub fn distance_squared(&self) -> f64 {
+        self.distance_squared
+    }
+
+    /// Return the raw accumulation value in declared units.
+    pub fn accumulation(&self) -> f32 {
+        self.accumulation
+    }
+}
+
+/// Rust seam for choosing one seed from the fixed raster candidate domain.
+pub trait RasterSeedRanker {
+    /// Choose one candidate. Candidate generation and eligibility remain engine-owned.
+    fn rank(&self, candidates: &[RasterSeedCandidate]) -> Option<RasterSeedCandidate>;
+}
+
+/// Existing raster rule: nearest center, then higher accumulation, then row-major order.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NearestAccumulationRasterSeedRanker;
+
+impl RasterSeedRanker for NearestAccumulationRasterSeedRanker {
+    fn rank(&self, candidates: &[RasterSeedCandidate]) -> Option<RasterSeedCandidate> {
+        candidates.iter().copied().min_by(|a, b| {
+            a.distance_squared
+                .total_cmp(&b.distance_squared)
+                .then_with(|| b.accumulation.total_cmp(&a.accumulation))
+                .then_with(|| a.cell.row.cmp(&b.cell.row))
+                .then_with(|| a.cell.col.cmp(&b.cell.col))
+        })
+    }
+}
+
+/// Errors from mapping one coordinate to its unique containing raster cell.
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
+pub enum GridMappingError {
+    /// The coordinate is non-finite or outside the half-open raster extent.
+    #[error(
+        "native EPSG:{epsg} outlet x={outlet_x}, y={outlet_y} is outside half-open tile extent ({rows}x{cols})"
+    )]
+    OutsideRasterWindow {
+        /// Numeric declared EPSG identifier.
+        epsg: u32,
+        /// Native x coordinate.
+        outlet_x: f64,
+        /// Native y coordinate.
+        outlet_y: f64,
+        /// Number of rows.
+        rows: usize,
+        /// Number of columns.
+        cols: usize,
+    },
+}
+
+/// Map a native coordinate to its unique containing cell using half-open bounds.
 ///
-/// Converts `outlet` to fractional pixel coordinates, then scans all cells
-/// where the accumulation value is not NaN and `>= threshold.as_f32()`. Picks
-/// the nearest cell by squared Euclidean distance in pixel space. Ties are
-/// broken by higher accumulation.
-///
-/// The `accumulation` tile must already be masked — cells outside the
-/// catchment have been set to NaN by [`AccumulationTile::apply_mask`], so no
-/// separate mask parameter is required.
+/// This function does not clamp, widen the window, or search neighboring cells.
+pub fn quantize_grid_cell(
+    outlet: NativeCoord,
+    geo: &GeoTransform,
+    dims: GridDims,
+    epsg: u32,
+) -> Result<GridCoord, GridMappingError> {
+    let (frac_row, frac_col) = geo.coord_to_pixel_f64(outlet);
+    if !frac_row.is_finite()
+        || !frac_col.is_finite()
+        || frac_row < 0.0
+        || frac_col < 0.0
+        || frac_row >= dims.rows as f64
+        || frac_col >= dims.cols as f64
+    {
+        return Err(GridMappingError::OutsideRasterWindow {
+            epsg,
+            outlet_x: outlet.x(),
+            outlet_y: outlet.y(),
+            rows: dims.rows,
+            cols: dims.cols,
+        });
+    }
+    Ok(GridCoord::new(
+        frac_row.floor() as usize,
+        frac_col.floor() as usize,
+    ))
+}
+
+/// Convert the requested cell-count threshold into the declared accumulation units.
+pub fn effective_threshold(
+    threshold: SnapThreshold,
+    units: FlowAccumulationUnits,
+    geo: &GeoTransform,
+) -> f32 {
+    match units {
+        FlowAccumulationUnits::Cells => threshold.as_f32(),
+        FlowAccumulationUnits::Km2 => {
+            (threshold.pixels() as f64 * geo.pixel_area() / 1_000_000.0) as f32
+        }
+    }
+}
+
+fn raster_seed_candidates(
+    outlet: NativeCoord,
+    accumulation: &AccumulationTile<Masked>,
+    effective_threshold: f32,
+) -> Vec<RasterSeedCandidate> {
+    let (frac_row, frac_col) = accumulation.geo().coord_to_pixel_f64(outlet);
+    let dims = accumulation.dims();
+    let mut candidates = Vec::new();
+    for row in 0..dims.rows {
+        for col in 0..dims.cols {
+            let cell = GridCoord::new(row, col);
+            let value = accumulation.get_raw(cell);
+            if value.is_nan() || value < effective_threshold {
+                continue;
+            }
+            let dr = row as f64 + 0.5 - frac_row;
+            let dc = col as f64 + 0.5 - frac_col;
+            candidates.push(RasterSeedCandidate {
+                cell,
+                distance_squared: dr * dr + dc * dc,
+                accumulation: value,
+            });
+        }
+    }
+    candidates
+}
+
+/// Snap a unit-only outlet to the built-in ranked high-accumulation cell.
 ///
 /// # Errors
 ///
-/// | Condition | Error |
-/// |-----------|-------|
-/// | Outlet falls outside raster extent | [`SnapError::OutletOutOfBounds`] |
-/// | No masked cell exceeds threshold | [`SnapError::NoCellAboveThreshold`] |
+/// Returns [`SnapError::OutletOutOfBounds`] when the point is outside the half-open
+/// tile extent, or [`SnapError::NoCellAboveThreshold`] when the candidate set is empty.
 #[instrument(skip(accumulation))]
 pub fn snap_pour_point(
     outlet: NativeCoord,
@@ -117,89 +258,40 @@ pub fn snap_pour_point(
     epsg: u32,
 ) -> Result<SnappedPoint, SnapError> {
     let dims = accumulation.dims();
-    let rows = dims.rows;
-    let cols = dims.cols;
-    let geo = accumulation.geo();
-
-    // Convert outlet to fractional pixel coordinates
-    let (frac_row, frac_col) = geo.coord_to_pixel_f64(outlet);
-
-    // Check bounds — fractional coords must be within [0, rows) x [0, cols)
-    if frac_row < 0.0 || frac_col < 0.0 || frac_row >= rows as f64 || frac_col >= cols as f64 {
-        return Err(SnapError::OutletOutOfBounds {
+    quantize_grid_cell(outlet, accumulation.geo(), dims, epsg).map_err(|_| {
+        SnapError::OutletOutOfBounds {
             epsg,
             outlet_x: outlet.x(),
             outlet_y: outlet.y(),
-            rows,
-            cols,
-        });
-    }
-
-    debug!(frac_row, frac_col, "outlet pixel coordinates");
-
-    let threshold_f32 = match flow_accumulation_units {
-        FlowAccumulationUnits::Cells => threshold.as_f32(),
-        FlowAccumulationUnits::Km2 => {
-            let threshold_cells = threshold.pixels();
-            let threshold_km2 = threshold_cells as f64
-                * (geo.pixel_width() * geo.pixel_height()).abs()
-                / 1_000_000.0;
-            threshold_km2 as f32
+            rows: dims.rows,
+            cols: dims.cols,
         }
-    };
-    let mut best: Option<(usize, usize, f64, f32)> = None; // (row, col, dist_sq, acc)
-
-    for r in 0..rows {
-        for c in 0..cols {
-            // Get accumulation, skip NaN (masked-out cells are already NaN)
-            let acc = accumulation.get_raw(GridCoord::new(r, c));
-            if acc.is_nan() || acc < threshold_f32 {
-                continue;
-            }
-
-            // Squared Euclidean distance in pixel space (use pixel centers: r+0.5, c+0.5)
-            let dr = (r as f64 + 0.5) - frac_row;
-            let dc = (c as f64 + 0.5) - frac_col;
-            let dist_sq = dr * dr + dc * dc;
-
-            let is_better = match best {
-                None => true,
-                Some((_, _, best_dist, best_acc)) => {
-                    dist_sq < best_dist || (dist_sq == best_dist && acc > best_acc)
-                }
-            };
-
-            if is_better {
-                best = Some((r, c, dist_sq, acc));
-            }
-        }
-    }
-
-    match best {
-        Some((row, col, _, acc)) => {
-            let coord = geo.pixel_to_coord(GridCoord::new(row, col));
-            info!(
-                row,
-                col,
-                x = coord.x(),
-                y = coord.y(),
-                accumulation = acc,
-                "pour point snapped"
-            );
-            Ok(SnappedPoint {
-                cell: GridCoord::new(row, col),
-                coord,
-                accumulation: acc,
-            })
-        }
-        None => Err(SnapError::NoCellAboveThreshold {
+    })?;
+    let threshold_f32 = effective_threshold(threshold, flow_accumulation_units, accumulation.geo());
+    let candidates = raster_seed_candidates(outlet, accumulation, threshold_f32);
+    let candidate = NearestAccumulationRasterSeedRanker
+        .rank(&candidates)
+        .ok_or(SnapError::NoCellAboveThreshold {
             threshold: threshold_f32,
             units: flow_accumulation_units,
             epsg,
             outlet_x: outlet.x(),
             outlet_y: outlet.y(),
-        }),
-    }
+        })?;
+    let coord = accumulation.geo().pixel_to_coord(candidate.cell);
+    info!(
+        row = candidate.cell.row,
+        col = candidate.cell.col,
+        x = coord.x(),
+        y = coord.y(),
+        accumulation = candidate.accumulation,
+        "pour point snapped"
+    );
+    Ok(SnappedPoint {
+        cell: candidate.cell,
+        coord,
+        accumulation: candidate.accumulation,
+    })
 }
 
 #[cfg(test)]
@@ -213,6 +305,59 @@ mod tests {
 
     fn simple_geo() -> GeoTransform {
         GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
+    }
+
+    #[test]
+    fn grid_quantizer_uses_half_open_cell_ownership_without_clamping() {
+        let geo = simple_geo();
+        let dims = GridDims::new(3, 3);
+        assert_eq!(
+            quantize_grid_cell(NativeCoord::new(1.0, -1.5), &geo, dims, 4326).unwrap(),
+            GridCoord::new(1, 1),
+            "an internal vertical boundary belongs to the cell on its half-open right side"
+        );
+        assert_eq!(
+            quantize_grid_cell(NativeCoord::new(1.5, -1.0), &geo, dims, 4326).unwrap(),
+            GridCoord::new(1, 1),
+            "with negative pixel height, an internal horizontal boundary belongs below"
+        );
+        assert_eq!(
+            quantize_grid_cell(NativeCoord::new(0.0, 0.0), &geo, dims, 4326).unwrap(),
+            GridCoord::new(0, 0),
+            "the minimum fractional grid edges are included"
+        );
+        for outside in [
+            NativeCoord::new(3.0, -1.5),
+            NativeCoord::new(1.5, -3.0),
+            NativeCoord::new(-f64::EPSILON, -1.5),
+            NativeCoord::new(f64::NAN, -1.5),
+            NativeCoord::new(1.5, f64::INFINITY),
+        ] {
+            assert!(matches!(
+                quantize_grid_cell(outside, &geo, dims, 4326),
+                Err(GridMappingError::OutsideRasterWindow { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn candidate_ranker_preserves_row_major_order_on_full_tie() {
+        let candidates = vec![
+            RasterSeedCandidate {
+                cell: GridCoord::new(1, 1),
+                distance_squared: 1.0,
+                accumulation: 10.0,
+            },
+            RasterSeedCandidate {
+                cell: GridCoord::new(0, 2),
+                distance_squared: 1.0,
+                accumulation: 10.0,
+            },
+        ];
+        let winner = NearestAccumulationRasterSeedRanker
+            .rank(&candidates)
+            .unwrap();
+        assert_eq!(winner.cell, GridCoord::new(0, 2));
     }
 
     // Test 1: single candidate above threshold is selected

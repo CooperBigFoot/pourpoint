@@ -1,4 +1,4 @@
-//! Typed intermediates for finest-level staged delineation.
+//! stagedDelineation : GeoCoord → OutletResolution → UpstreamUnits → Watershed
 //!
 //! This module names the intermediate values that the staged engine path passes
 //! between independently callable `Engine` methods.
@@ -23,7 +23,7 @@
 //!     upstream: &SameLevelUpstreamUnits,
 //! ) -> Result<PreMergeDrainageUnits, EngineError>;
 //!
-//! pub fn refine_terminal_placeholder(
+//! pub fn refine_terminal(
 //!     &self,
 //!     resolved: &LevelResolvedOutlet,
 //!     units: &PreMergeDrainageUnits,
@@ -68,8 +68,11 @@ use hfx::{Level, OutletCoord, UnitId};
 use crate::algo::coord::GeoCoord;
 use crate::algo::{AreaKm2, UpstreamUnits};
 use crate::refinement::{
-    BestEffortSkipReason, ContainedTerminalPolygon, RefinementProvenance, RefinementStrategyName,
+    AppliedRefinementProvenance, BestEffortRefinementProvenance, BestEffortSkipReason,
+    ContainedTerminalPolygon, RefinementStrategyName,
 };
+use crate::resolver::OutletResolution;
+#[allow(deprecated)]
 use crate::resolver::ResolvedOutlet;
 
 /// Selects the HFX drainage-unit level used for the staged delineation run.
@@ -130,18 +133,27 @@ impl From<bool> for RefinementMode {
 }
 
 /// Outlet resolution result constrained to the selected level.
+///
+/// The typed authority and deprecated legacy view are derived together during
+/// construction. Both fields are private and only shared views are exposed, so
+/// they cannot diverge after construction.
+#[allow(deprecated)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct LevelResolvedOutlet {
     selected_level: SelectedLevel,
-    resolved: ResolvedOutlet,
+    authority: OutletResolution,
+    legacy_resolved: ResolvedOutlet,
 }
 
+#[allow(deprecated)]
 impl LevelResolvedOutlet {
     /// Construct a level-resolved outlet after the resolver stage has constrained it.
-    pub(crate) fn new(selected_level: SelectedLevel, resolved: ResolvedOutlet) -> Self {
+    pub(crate) fn new(selected_level: SelectedLevel, authority: OutletResolution) -> Self {
+        let legacy_resolved = authority.clone().into();
         Self {
             selected_level,
-            resolved,
+            authority,
+            legacy_resolved,
         }
     }
 
@@ -150,9 +162,15 @@ impl LevelResolvedOutlet {
         self.selected_level
     }
 
-    /// Return the resolved outlet payload.
+    /// Return the legacy fielded outlet payload.
+    #[deprecated(note = "use LevelResolvedOutlet::authority for typed outlet authority")]
     pub fn resolved(&self) -> &ResolvedOutlet {
-        &self.resolved
+        &self.legacy_resolved
+    }
+
+    /// Return the typed outlet authority chosen during resolution.
+    pub fn authority(&self) -> &OutletResolution {
+        &self.authority
     }
 }
 
@@ -341,16 +359,16 @@ pub enum TerminalRefinement {
     /// Best-effort refinement was visibly skipped.
     BestEffortSkipped {
         /// Provenance explaining why refinement was skipped.
-        provenance: RefinementProvenance,
+        provenance: BestEffortRefinementProvenance,
     },
     /// Refinement produced a terminal geometry override.
     Applied {
-        /// Refined outlet coordinate returned by raster snapping.
+        /// Refined outlet coordinate at the selected raster seed cell center.
         refined_outlet: GeoCoord,
         /// Refined terminal geometry used instead of the whole terminal polygon.
         geometry: ContainedTerminalPolygon,
         /// Provenance explaining why refinement ran.
-        provenance: RefinementProvenance,
+        provenance: AppliedRefinementProvenance,
     },
 }
 
@@ -358,20 +376,30 @@ impl TerminalRefinement {
     /// Construct a visible best-effort skip for a classified D8-path failure.
     pub fn best_effort_skipped(why: BestEffortSkipReason) -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
                 why,
-            },
+            ),
         }
     }
 
     /// Construct a visible best-effort skip for missing D8 declarations.
     pub fn best_effort_no_d8_aux_declared() -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::NoD8AuxDeclared,
+            ),
+        }
+    }
+
+    /// Construct explicit coarse provenance for unit-only containment without D8.
+    pub fn best_effort_coarse_unit_only_no_d8_aux_declared() -> Self {
+        Self::BestEffortSkipped {
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
+            ),
         }
     }
 
@@ -383,10 +411,10 @@ impl TerminalRefinement {
     /// Construct a visible best-effort skip for a missing raster source.
     pub fn best_effort_no_raster_source_provided() -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoRasterSourceProvided,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::NoRasterSourceProvided,
+            ),
         }
     }
 }

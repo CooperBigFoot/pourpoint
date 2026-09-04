@@ -58,7 +58,7 @@ pub fn produce_pre_merge_units(
     upstream: &SameLevelUpstreamUnits,
 ) -> Result<PreMergeDrainageUnits, EngineError>;
 
-pub fn refine_terminal_placeholder(
+pub fn refine_terminal(
     &self,
     resolved: &LevelResolvedOutlet,
     units: &PreMergeDrainageUnits,
@@ -81,6 +81,11 @@ pub fn compose_result(
     dissolved: DissolvedWatershed,
 ) -> DelineationResult;
 ```
+
+`LevelResolvedOutlet::authority()` returns the typed `OutletResolution` used by
+new staged code. The former `resolved()` accessor remains as a deprecated
+`&ResolvedOutlet` compatibility view, including its public fields. Both views
+are derived together and cannot be mutated through the staged value.
 
 `PreMergeDrainageUnit` is an inspection record for pristine upstream drainage
 units. The collection includes the whole terminal polygon before any terminal
@@ -140,8 +145,13 @@ sequenceDiagram
     T-->>R: FlowDirectionTile<Raw>
     T-->>R: AccumulationTile<Raw>
     A->>A: rasterize native x/y polygon → CatchmentMask
-    A->>A: AccumulationTile.apply_mask → AccumulationTile<Masked>
-    A->>A: snap native x/y outlet → SnappedPoint
+    alt vector point authority
+        A->>A: quantize to unique containing cell and guard raw D8 values
+        A->>A: mask both D8 tiles to terminal
+    else unit-only containment
+        A->>A: mask both D8 tiles to terminal
+        A->>A: generate threshold candidates and rank one
+    end
     A->>A: trace_upstream from native-grid cell → CatchmentMask
     A->>A: polygonize → native x/y MultiPolygon
     A->>A: dissolve → MultiPolygon
@@ -159,31 +169,43 @@ Full auxiliary schema-to-strategy binding, reverse-DNS auxiliary parsing,
 Python-authored strategies, and additional built-in strategies are outside the
 current runtime surface.
 
+Outlet resolution is authoritative. A snap feature produces a vector point;
+refinement only quantizes it to the unique half-open containing cell. That cell
+must be in the terminal mask, have defined D8 semantics (a direction or valid
+GRASS terminal), have defined accumulation, and meet the effective threshold. Any failed conjunct produces a
+rich coarse result in best-effort mode or a precise error in require-D8 mode.
+Refinement never routes vector authority to the raster ranker. Point-in-polygon
+resolution produces unit-only authority, for which the unchanged raster ranker
+selects nearest center, then greater accumulation, then row-major order.
+
 The built-in D8 carve sequence is fixed as:
 
 ```text
-rasterize terminal -> mask flow-dir + accumulation -> snap -> masked trace -> polygonize
+rasterize terminal -> vector guard then mask OR mask then unit rank -> trace -> polygonize
 ```
 
-Inside this carve stack, `GeoTransform`, rasterization, snapping, tracing,
+Inside this carve stack, `GeoTransform`, rasterization, seed selection, tracing,
 polygonization, `SnappedPoint`, and `RefinementResult` use raster-native x/y
 coordinates. The complete data flow is:
 
 ```text
 EPSG:4326 terminal -> per-declaration forward projection -> native coverage and localization
--> native raster carve and snap -> inverse carved rings and outlet only -> EPSG:4326 result
+-> native seed selection and raster carve -> inverse carved rings and seed center only -> EPSG:4326 result
 ```
 
 D8 grids are never warped, resampled, or reprojected. The only auxiliary
 contract consumed by built-in D8 refinement is `hfx.aux.d8_raster.v2`; other D8
 schema versions are not decoded. Supported
 declaration CRSs are exactly EPSG:4326 and EPSG:8857. An unsupported declaration
-CRS is a D8 selection error. The selected carved rings and snapped outlet are
+CRS is a D8 selection error. The selected carved rings and seed-cell center are
 the only values inverse-transformed, and component, ring, and vertex order is
 retained. The EPSG:4326 identity path remains byte-exact because its forward and
 inverse operations only move coordinate fields.
 
-For `cells`, snapping preserves `threshold.as_f32()` behavior. For `km2`, the
+The threshold has two roles. It generates the unit-only raster candidate set, but
+for vector authority it guards one already-chosen containing cell and never
+causes a neighborhood search. For `cells`, conversion preserves
+`threshold.as_f32()` behavior. For `km2`, the
 effective threshold is evaluated as
 `threshold_cells as f64 * (pixel_width * pixel_height).abs() / 1_000_000.0`;
 the completed result is cast exactly once to `f32` and compared directly with
@@ -219,9 +241,10 @@ declaration and logs the discarded candidates at `warn`. This is sound because
 `hfx.aux.d8_raster.v2` requires overlapping entries to be windows of a single
 coherent D8 fabric (byte-identical values in the overlap), and the carve never
 reads outside the terminal bbox, so any covering tile yields the same carve.
-Historical tests with locally compiled MERIT-Hydro `merit/0.2.0` for
-`rhine_basel` carved successfully. This is local adapter evidence, not a claim
-that this project currently hosts a public MERIT dataset.
+Licensed local MERIT evidence for `rhine_basel` was captured from HFX format
+0.3.0 built by adapter 0.2.0 at HFX commit
+`5603645f91f80873e3d1cb9c236feb303def949e`. This is local adapter evidence,
+not a claim that this project hosts or redistributes a public MERIT dataset.
 [`SessionError::AmbiguousD8Coverage`] is retained for callers that need the
 un-collapsed candidate set or for fabrics whose overlap-agreement is not
 guaranteed. `TerminalSpansD8Tiles` (bbox straddles a boundary, no single tile
@@ -260,8 +283,9 @@ They do not execute a live hosted carve.
 | TauDEM D8 | D8 encoding counter-clockwise from east: E=1, NE=2, N=3, NW=4, W=5, SW=6, S=7, SE=8 |
 | Upstream set | All units reachable via upstream adjacency from a terminal unit, inclusive of the terminal itself |
 | Pour point | The outlet cell of a watershed — the single cell where flow exits the catchment |
-| Snap | Moving a pour point to the nearest high-accumulation cell within a catchment mask |
-| SnapThreshold | Minimum flow-accumulation pixel count a cell must exceed to be a snap candidate |
+| Vector quantization | Mapping an authoritative vector point to its unique containing raster cell without search |
+| Raster ranking | Selecting the nearest threshold-qualified masked cell for unit-only containment, with higher accumulation then row-major ties |
+| SnapThreshold | Requested upstream-cell count used for raster candidate generation and the vector-cell usability guard |
 | Dissolve | Boolean union of all catchment polygons in the upstream set into one multi-polygon |
 | CleanEpsilon | Tiny buffer distance (degrees) used in buffer-unbuffer topology cleaning |
 | HoleFillMode | Policy for interior holes: remove all, or keep holes above an area threshold |
@@ -294,9 +318,10 @@ They do not execute a live hosted carve.
 | `RasterTile<T>` | `algo/raster_tile.rs` | Generic row-major tile with OOB-safe `(isize,isize)` indexing |
 | `GeoTransform` | `algo/geo_transform.rs` | Pixel ↔ raster-native x/y coordinate conversion |
 | `FlowDir` | `algo/flow_dir.rs` | D8 direction enum with ESRI and TauDEM decoding |
-| `SnappedPoint` | `algo/snap.rs` | Result of a successful pour-point snap (grid cell + native x/y coordinate + accumulation) |
-| `RefinementResult` | `algo/refine.rs` | Native snapped coordinate and raster-native refined polygon |
-| `snap_pour_point` | `algo/snap.rs` | Snap outlet to nearest masked cell above `SnapThreshold` |
+| `SnappedPoint` | `algo/snap.rs` | Compatibility type carrying a selected raster seed, native center, and accumulation |
+| `RefinementResult` | `algo/refine.rs` | Native seed kind, seed center, and raster-native refined polygon |
+| `quantize_grid_cell` | `algo/snap.rs` | Half-open, fallible mapping of vector authority to one grid cell |
+| `snap_pour_point` | `algo/snap.rs` | Compatibility facade for unit-only candidate generation and ranking |
 | `trace_upstream` | `algo/trace.rs` | DFS upstream traversal returning a `CatchmentMask` |
 | `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` |
 | `dissolve` | `algo/dissolve.rs` | Parallel boolean union of polygon slices |

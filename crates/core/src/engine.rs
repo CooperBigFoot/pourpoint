@@ -1,4 +1,6 @@
-//! Engine composition layer — wires outlet resolution, upstream traversal,
+//! delineate : GeoCoord × HFX × Options → Watershed
+//!
+//! Engine composition layer wires outlet resolution, upstream traversal,
 //! terminal refinement, and watershed assembly into a single `delineate()` call.
 
 use std::collections::HashMap;
@@ -18,13 +20,13 @@ use crate::assembly::{AssemblyOptions, assemble_from_geometries};
 use crate::error::SessionError;
 use crate::reader::catchment_store::CatchmentGeometryQueryError;
 use crate::refinement::{
-    D8RasterRefinementStrategy, D8RefinementPantry, RefinementProvenance,
-    TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
-    TerminalRefinementStrategy, best_effort_skip_reason,
+    AppliedRefinementProvenance, BestEffortRefinementProvenance, D8RasterRefinementStrategy,
+    D8RefinementPantry, TerminalRefinementDecision, TerminalRefinementError,
+    TerminalRefinementInput, TerminalRefinementStrategy, best_effort_skip_reason,
 };
 use crate::resolver::{
     OutletResolutionError, ResolutionMethod, ResolverConfig,
-    resolve_outlet_at_level as resolve_outlet_in_resolver_at_level,
+    resolve_outlet_authority_at_level as resolve_outlet_in_resolver_at_level,
 };
 use crate::session::DatasetSession;
 use crate::staged::{
@@ -41,15 +43,15 @@ use crate::telemetry::{Stage, StageGuard};
 pub enum RefinementOutcome {
     /// Refinement ran successfully and the outlet was snapped.
     Applied {
-        /// The refined outlet coordinate returned by the raster snap.
+        /// The refined outlet coordinate at the selected raster seed cell center.
         refined_outlet: GeoCoord,
         /// Provenance explaining why refinement ran.
-        provenance: RefinementProvenance,
+        provenance: AppliedRefinementProvenance,
     },
     /// Best-effort refinement was visibly skipped.
     BestEffortSkipped {
         /// Provenance explaining why refinement was skipped.
-        provenance: RefinementProvenance,
+        provenance: BestEffortRefinementProvenance,
     },
     /// Refinement was disabled by the caller.
     Disabled,
@@ -590,7 +592,7 @@ impl Engine {
         &self,
         outlet: &LevelResolvedOutlet,
     ) -> Result<SameLevelUpstreamUnits, EngineError> {
-        let terminal = outlet.resolved().unit_id;
+        let terminal = outlet.authority().unit_id();
         let selected_level = outlet.selected_level();
         let upstream = collect_upstream(terminal, self.session.graph()).map_err(|source| {
             EngineError::Traversal {
@@ -728,8 +730,8 @@ impl Engine {
     /// |---|---|
     /// | [`EngineError::PreMergeCatchmentFetch`] | The pre-merge collection does not contain its terminal record |
     /// | [`EngineError::RasterLocalize`] | Remote rasters cannot be materialized locally |
-    /// | [`EngineError::Refinement`] | Raster snap fails or the terminal geometry is degenerate |
-    pub fn refine_terminal_placeholder(
+    /// | [`EngineError::Refinement`] | Raster seed selection or the terminal geometry fails |
+    pub fn refine_terminal(
         &self,
         resolved: &LevelResolvedOutlet,
         units: &PreMergeDrainageUnits,
@@ -744,7 +746,14 @@ impl Engine {
                         schema.to_owned(),
                     ));
                 }
-                return Ok(TerminalRefinement::best_effort_no_d8_aux_declared());
+                return Ok(match resolved.authority() {
+                    crate::resolver::OutletResolution::VectorPoint { .. } => {
+                        TerminalRefinement::best_effort_no_d8_aux_declared()
+                    }
+                    crate::resolver::OutletResolution::UnitContainment { .. } => {
+                        TerminalRefinement::best_effort_coarse_unit_only_no_d8_aux_declared()
+                    }
+                });
             }
             RefinementMode::RequireD8 if !self.session.has_d8_aux() => {
                 return Err(EngineError::D8Selection {
@@ -769,7 +778,7 @@ impl Engine {
         let input = TerminalRefinementInput {
             terminal_unit: terminal,
             terminal_geometry: terminal_polygon,
-            resolved_outlet: resolved.resolved().resolved_coord,
+            outlet_authority: resolved.authority().into(),
             snap_threshold: options.snap_threshold,
         };
         let pantry = D8RefinementPantry {
@@ -781,15 +790,53 @@ impl Engine {
             Ok(decision) => decision,
             Err(error) => match options.refinement_mode {
                 RefinementMode::BestEffort => {
-                    return Ok(TerminalRefinement::best_effort_skipped(
-                        best_effort_skip_reason(&error),
-                    ));
+                    let reason = best_effort_skip_reason(&error);
+                    if let crate::refinement::BestEffortSkipReason::VectorOutletGuardFailed {
+                        kind,
+                        requested_threshold,
+                        effective_threshold,
+                        units,
+                        mapped_cell,
+                        measured_accumulation,
+                    } = &reason
+                    {
+                        let vector_coord = resolved.authority().resolved_coord();
+                        tracing::warn!(
+                            unit_id = terminal.get(),
+                            vector_lon = vector_coord.lon,
+                            vector_lat = vector_coord.lat,
+                            failure_kind = ?kind,
+                            requested_threshold_cells = requested_threshold.pixels(),
+                            effective_threshold = *effective_threshold,
+                            accumulation_units = %units,
+                            mapped_row = mapped_cell.map(|cell| cell.row),
+                            mapped_col = mapped_cell.map(|cell| cell.col),
+                            measured_accumulation = *measured_accumulation,
+                            "retaining coarse terminal after vector outlet cell guard failure"
+                        );
+                    }
+                    return Ok(TerminalRefinement::best_effort_skipped(reason));
                 }
                 RefinementMode::RequireD8 => return Err(EngineError::from(error)),
                 RefinementMode::Disabled => return Ok(TerminalRefinement::Disabled),
             },
         };
         terminal_refinement_from_decision(decision, options.refinement_mode, terminal)
+    }
+
+    /// Compatibility shim for the former provisional staging method name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Engine::refine_terminal`].
+    #[deprecated(note = "use Engine::refine_terminal")]
+    pub fn refine_terminal_placeholder(
+        &self,
+        resolved: &LevelResolvedOutlet,
+        units: &PreMergeDrainageUnits,
+        options: &DelineationOptions,
+    ) -> Result<TerminalRefinement, EngineError> {
+        self.refine_terminal(resolved, units, options)
     }
 
     /// Dissolve pre-merge drainage-unit geometries into the final watershed.
@@ -871,10 +918,10 @@ impl Engine {
         dissolved: DissolvedWatershed,
     ) -> DelineationResult {
         DelineationResult {
-            terminal_unit_id: resolved.resolved().unit_id,
-            input_outlet: resolved.resolved().input_coord,
-            resolved_outlet: resolved.resolved().resolved_coord,
-            resolution_method: resolved.resolved().method.clone(),
+            terminal_unit_id: resolved.authority().unit_id(),
+            input_outlet: resolved.authority().input_coord(),
+            resolved_outlet: resolved.authority().resolved_coord(),
+            resolution_method: resolved.authority().method(),
             upstream_unit_ids: upstream.upstream().unit_ids().to_vec(),
             upstream_units: units
                 .units()
@@ -898,7 +945,7 @@ impl Engine {
     /// | [`EngineError::TerminalCatchmentFetch`] | Terminal catchment row is missing (refinement only) |
     /// | [`EngineError::TerminalCatchmentDecode`] | Terminal catchment WKB is invalid (refinement only) |
     /// | [`EngineError::RasterLocalize`] | Remote rasters cannot be materialized locally (refinement only) |
-    /// | [`EngineError::Refinement`] | Raster snap fails (refinement only) |
+    /// | [`EngineError::Refinement`] | Raster seed selection or carve fails (refinement only) |
     /// | [`EngineError::Assembly`] | Watershed geometry assembly fails |
     #[instrument(skip(self, options), fields(outlet = %outlet))]
     pub fn delineate(
@@ -922,8 +969,7 @@ impl Engine {
         let pre_merge = self.produce_pre_merge_units(&same_level_upstream)?;
 
         // Step 3: Try refinement
-        let terminal_refinement =
-            self.refine_terminal_placeholder(&level_resolved, &pre_merge, options)?;
+        let terminal_refinement = self.refine_terminal(&level_resolved, &pre_merge, options)?;
 
         // Step 4: Assembly
         let dissolved = {
@@ -959,7 +1005,7 @@ impl Engine {
     /// | [`EngineError::TerminalCatchmentFetch`] | Terminal catchment row is missing (refinement only) |
     /// | [`EngineError::TerminalCatchmentDecode`] | Terminal catchment WKB is invalid (refinement only) |
     /// | [`EngineError::RasterLocalize`] | Remote rasters cannot be materialized locally (refinement only) |
-    /// | [`EngineError::Refinement`] | Raster snap fails (refinement only) |
+    /// | [`EngineError::Refinement`] | Raster seed selection or carve fails (refinement only) |
     /// | [`EngineError::Assembly`] | Watershed geometry assembly fails |
     #[instrument(skip(self, options), fields(outlet = %outlet))]
     pub fn delineate_area_only(
@@ -1084,7 +1130,7 @@ impl From<TerminalRefinementError> for EngineError {
 
 #[cfg(test)]
 mod tests {
-    use geo::Rect;
+    use geo::{BoundingRect, Rect};
     use hfx::{FlowAccumulationUnits, FlowDirEncoding};
     use object_store::path::Path as ObjectPath;
 
@@ -1148,6 +1194,7 @@ mod tests {
     }
 
     struct AppliedRefinementRasterSource;
+    struct OutletBoundaryTieRasterSource;
 
     impl RasterSource for AppliedRefinementRasterSource {
         fn load_flow_direction(
@@ -1178,6 +1225,92 @@ mod tests {
         }
     }
 
+    impl RasterSource for OutletBoundaryTieRasterSource {
+        fn load_flow_direction(
+            &self,
+            _uri: &str,
+            _bbox: &Rect<f64>,
+            encoding: FlowDirEncoding,
+        ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+            #[rustfmt::skip]
+            let values = [
+                0, 0, 0, 0, 0,
+                0, 4, 4, 0, 0,
+                0, 16, 4, 0, 0,
+                0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0,
+            ];
+            Ok(make_flow_tile(&values, encoding))
+        }
+
+        fn load_accumulation(
+            &self,
+            _uri: &str,
+            _bbox: &Rect<f64>,
+        ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+            let mut values = [1.0_f32; 25];
+            values[2 * 5 + 1] = 900.0;
+            values[2 * 5 + 2] = 800.0;
+            Ok(make_accumulation_tile(&values))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum VectorGuardFixture {
+        BelowThreshold,
+        UndefinedAccumulation,
+        OutsideTerminalMask,
+        UndefinedFlowDirection,
+        GrassTerminalZero,
+        GrassSignedExit,
+        OutsideRasterWindow,
+    }
+
+    impl RasterSource for VectorGuardFixture {
+        fn load_flow_direction(
+            &self,
+            _uri: &str,
+            _bbox: &Rect<f64>,
+            encoding: FlowDirEncoding,
+        ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+            let mut values = [0_u8; 25];
+            values[2 * 5 + 1] = 4;
+            values[2 * 5 + 2] = match self {
+                Self::UndefinedFlowDirection | Self::GrassTerminalZero => 0,
+                Self::GrassSignedExit => (-2_i8) as u8,
+                _ => 4,
+            };
+            values[2 * 5 + 4] = 4;
+            if matches!(self, Self::GrassSignedExit) {
+                let raw = RasterTile::from_vec(
+                    values.to_vec(),
+                    GridDims::new(5, 5),
+                    (-128_i8) as u8,
+                    test_raster_geo(),
+                )
+                .expect("signed GRASS fixture tile should construct");
+                return FlowDirectionTile::from_raw(raw, encoding).map_err(RasterSourceError::from);
+            }
+            Ok(make_flow_tile(&values, encoding))
+        }
+
+        fn load_accumulation(
+            &self,
+            _uri: &str,
+            _bbox: &Rect<f64>,
+        ) -> Result<AccumulationTile<Raw>, RasterSourceError> {
+            let mut values = [1.0_f32; 25];
+            values[2 * 5 + 1] = 900.0;
+            values[2 * 5 + 2] = match self {
+                Self::BelowThreshold => 100.0,
+                Self::UndefinedAccumulation => f32::NAN,
+                _ => 800.0,
+            };
+            values[2 * 5 + 4] = 800.0;
+            Ok(make_accumulation_tile(&values))
+        }
+    }
+
     // ── engine_single_outlet_no_rasters ──────────────────────────────────────
 
     #[test]
@@ -1197,10 +1330,10 @@ mod tests {
         assert_eq!(
             result.refinement(),
             &RefinementOutcome::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped {
-                    strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                    why: crate::refinement::BestEffortSkipReason::NoD8AuxDeclared,
-                },
+                provenance: BestEffortRefinementProvenance::new(
+                    RefinementStrategyName::BestEffortD8IfPresent,
+                    crate::refinement::BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared
+                ),
             },
             "no D8 aux registered -> visible best-effort skip"
         );
@@ -1360,6 +1493,276 @@ mod tests {
             &RefinementOutcome::Disabled,
             "refinement disabled → Disabled outcome"
         );
+    }
+
+    #[test]
+    fn vector_outlet_on_cell_boundary_keeps_containing_cell_authority() {
+        let (_dir, root) = DatasetBuilder::new(1)
+            .with_rasters()
+            .with_custom_catchments(vec![TestCatchment {
+                id: 1,
+                area_km2: 25.0,
+                up_area_km2: Some(25.0),
+                polygon: (0.0, -5.0, 5.0, 0.0),
+            }])
+            .with_custom_snap_targets(vec![crate::testutil::TestSnapTarget {
+                id: 1,
+                catchment_id: 1,
+                weight: 100.0,
+                is_mainstem: true,
+                geometry: crate::testutil::TestSnapGeometry::Point(2.0, -2.5),
+            }])
+            .build();
+        copy_valid_d8_fixture_tiffs(&root);
+        let session = DatasetSession::open_path(&root).expect("session should open");
+        let engine = Engine::builder(session)
+            .with_raster_source(OutletBoundaryTieRasterSource)
+            .build();
+
+        let result = engine
+            .delineate(
+                GeoCoord::new(2.0, -2.5),
+                &DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500)),
+            )
+            .expect("vector-authoritative delineation should succeed");
+        let RefinementOutcome::Applied {
+            refined_outlet,
+            provenance,
+        } = result.refinement()
+        else {
+            panic!("vector-authoritative refinement should apply");
+        };
+        assert_eq!(
+            provenance,
+            &AppliedRefinementProvenance::new(
+                RefinementStrategyName::BuiltInD8,
+                crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
+                    declaration_index: 0,
+                }
+            )
+        );
+
+        assert_eq!(result.resolved_outlet(), GeoCoord::new(2.0, -2.5));
+        assert_eq!(
+            *refined_outlet,
+            GeoCoord::new(2.5, -2.5),
+            "the containing cell must remain authoritative even when the equally distant other-branch cell has greater accumulation",
+        );
+        let bounds = result
+            .geometry()
+            .bounding_rect()
+            .expect("the two-cell vector branch carve should have bounds");
+        assert_eq!(bounds.min().x, 2.0);
+        assert_eq!(bounds.max().x, 3.0);
+        assert_eq!(bounds.min().y, -3.0);
+        assert_eq!(bounds.max().y, -1.0);
+    }
+
+    fn vector_guard_engine(fixture: VectorGuardFixture) -> (tempfile::TempDir, Engine, GeoCoord) {
+        let (vector_x, terminal_max_x) = match fixture {
+            VectorGuardFixture::OutsideTerminalMask => (4.5, 4.0),
+            VectorGuardFixture::OutsideRasterWindow => (5.5, 5.0),
+            _ => (2.5, 5.0),
+        };
+        let outlet = GeoCoord::new(vector_x, -2.5);
+        let (dir, root) = DatasetBuilder::new(1)
+            .with_rasters()
+            .with_custom_catchments(vec![TestCatchment {
+                id: 1,
+                area_km2: 25.0,
+                up_area_km2: Some(25.0),
+                polygon: (0.0, -5.0, terminal_max_x, 0.0),
+            }])
+            .with_custom_snap_targets(vec![crate::testutil::TestSnapTarget {
+                id: 1,
+                catchment_id: 1,
+                weight: 100.0,
+                is_mainstem: true,
+                geometry: crate::testutil::TestSnapGeometry::Point(vector_x, -2.5),
+            }])
+            .build();
+        if matches!(
+            fixture,
+            VectorGuardFixture::GrassTerminalZero | VectorGuardFixture::GrassSignedExit
+        ) {
+            let manifest_path = root.join("manifest.json");
+            let mut manifest: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&manifest_path).expect("fixture manifest should read"),
+            )
+            .expect("fixture manifest should be JSON");
+            let d8 = manifest["auxiliary"]
+                .as_array_mut()
+                .expect("fixture auxiliary should be an array")
+                .iter_mut()
+                .find(|entry| entry["schema"] == "hfx.aux.d8_raster.v2")
+                .expect("fixture should declare D8 v2");
+            d8["metadata"]["flow_dir_encoding"] = serde_json::Value::String("grass".to_owned());
+            std::fs::write(
+                &manifest_path,
+                serde_json::to_vec_pretty(&manifest).expect("fixture manifest should encode"),
+            )
+            .expect("fixture manifest should write");
+        }
+        copy_valid_d8_fixture_tiffs(&root);
+        let session = DatasetSession::open_path(&root).expect("guard fixture should open");
+        let engine = Engine::builder(session).with_raster_source(fixture).build();
+        (dir, engine, outlet)
+    }
+
+    #[test]
+    fn valid_grass_terminal_vector_cells_apply_under_both_refinement_policies() {
+        for fixture in [
+            VectorGuardFixture::GrassTerminalZero,
+            VectorGuardFixture::GrassSignedExit,
+        ] {
+            let (_dir, engine, outlet) = vector_guard_engine(fixture);
+            let options =
+                DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
+            for mode in [RefinementMode::BestEffort, RefinementMode::RequireD8] {
+                let result = engine
+                    .delineate(outlet, &options.clone().with_refinement_mode(mode))
+                    .expect("valid GRASS terminal vector cell should refine");
+                let RefinementOutcome::Applied { provenance, .. } = result.refinement() else {
+                    panic!("valid GRASS terminal vector cell should produce an applied carve");
+                };
+                assert_eq!(
+                    provenance.why(),
+                    &crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
+                        declaration_index: 0,
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn vector_cell_guard_skips_coarsely_or_fails_precisely_without_raster_fallback() {
+        use crate::algo::VectorOutletGuardFailureKind;
+
+        let cases = [
+            (
+                VectorGuardFixture::BelowThreshold,
+                VectorOutletGuardFailureKind::BelowThreshold,
+                Some(GridCoord::new(2, 2)),
+                Some(100.0),
+            ),
+            (
+                VectorGuardFixture::UndefinedAccumulation,
+                VectorOutletGuardFailureKind::UndefinedAccumulation,
+                Some(GridCoord::new(2, 2)),
+                None,
+            ),
+            (
+                VectorGuardFixture::OutsideTerminalMask,
+                VectorOutletGuardFailureKind::OutsideTerminalMask,
+                Some(GridCoord::new(2, 4)),
+                Some(800.0),
+            ),
+            (
+                VectorGuardFixture::UndefinedFlowDirection,
+                VectorOutletGuardFailureKind::UndefinedFlowDirection,
+                Some(GridCoord::new(2, 2)),
+                Some(800.0),
+            ),
+        ];
+
+        for (fixture, kind, mapped_cell, measured_accumulation) in cases {
+            let (_dir, engine, outlet) = vector_guard_engine(fixture);
+            let options =
+                DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
+            let best_effort = engine
+                .delineate(outlet, &options)
+                .expect("best effort should retain the coarse terminal");
+            let disabled = engine
+                .delineate(
+                    outlet,
+                    &options
+                        .clone()
+                        .with_refinement_mode(RefinementMode::Disabled),
+                )
+                .expect("disabled delineation should succeed");
+            assert_eq!(
+                encode_wkb_multi_polygon(best_effort.geometry()).unwrap(),
+                encode_wkb_multi_polygon(disabled.geometry()).unwrap(),
+                "guard rejection must retain the whole terminal"
+            );
+            assert_eq!(
+                best_effort.refinement(),
+                &RefinementOutcome::BestEffortSkipped {
+                    provenance: BestEffortRefinementProvenance::new(
+                        RefinementStrategyName::BestEffortD8IfPresent,
+                        BestEffortSkipReason::VectorOutletGuardFailed {
+                            kind,
+                            requested_threshold: SnapThreshold::new(500),
+                            effective_threshold: 500.0,
+                            units: FlowAccumulationUnits::Cells,
+                            mapped_cell,
+                            measured_accumulation,
+                        }
+                    ),
+                }
+            );
+
+            let required = engine
+                .delineate(
+                    outlet,
+                    &options
+                        .clone()
+                        .with_refinement_mode(RefinementMode::RequireD8),
+                )
+                .expect_err("RequireD8 must preserve the vector guard failure");
+            assert!(matches!(
+                required,
+                EngineError::Refinement {
+                    source: RefinementError::VectorOutletUnusable { ref failure },
+                    ..
+                } if failure.kind == kind
+                    && failure.mapped_cell == mapped_cell
+                    && failure.measured_accumulation == measured_accumulation
+            ));
+        }
+    }
+
+    #[test]
+    fn vector_point_outside_localized_window_records_absent_mapping_evidence() {
+        use crate::algo::VectorOutletGuardFailureKind;
+
+        let (_dir, engine, outlet) = vector_guard_engine(VectorGuardFixture::OutsideRasterWindow);
+        let options = DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
+        let result = engine
+            .delineate(outlet, &options)
+            .expect("best effort should retain a coarse result");
+        assert_eq!(
+            result.refinement(),
+            &RefinementOutcome::BestEffortSkipped {
+                provenance: BestEffortRefinementProvenance::new(
+                    RefinementStrategyName::BestEffortD8IfPresent,
+                    BestEffortSkipReason::VectorOutletGuardFailed {
+                        kind: VectorOutletGuardFailureKind::GridMapping,
+                        requested_threshold: SnapThreshold::new(500),
+                        effective_threshold: 500.0,
+                        units: FlowAccumulationUnits::Cells,
+                        mapped_cell: None,
+                        measured_accumulation: None,
+                    }
+                ),
+            }
+        );
+        let required = engine
+            .delineate(
+                outlet,
+                &options.with_refinement_mode(RefinementMode::RequireD8),
+            )
+            .expect_err("RequireD8 must expose mapping failure");
+        assert!(matches!(
+            required,
+            EngineError::Refinement {
+                source: RefinementError::VectorOutletUnusable { failure },
+                ..
+            } if failure.kind == VectorOutletGuardFailureKind::GridMapping
+                && failure.mapped_cell.is_none()
+                && failure.measured_accumulation.is_none()
+        ));
     }
 
     #[test]

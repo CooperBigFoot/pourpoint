@@ -12,10 +12,11 @@ use pourpoint_core::algo::{
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::DatasetBuilder;
 use pourpoint_core::{
-    AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, DelineationOptions,
-    Engine, EngineError, LevelSelection, PreMergeDrainageUnit, PreMergeDrainageUnits,
-    RefinementMode, RefinementOutcome, RefinementProvenance, RefinementStrategyName, SelectedLevel,
-    TerminalRefinement,
+    AppliedRefinementProvenance, AppliedRefinementReason, BestEffortRefinementProvenance,
+    BestEffortSkipReason, ContainedTerminalPolygon, DelineationOptions, Engine, EngineError,
+    LevelResolvedOutlet, LevelSelection, OutletResolution, PreMergeDrainageUnit,
+    PreMergeDrainageUnits, RefinementMode, RefinementOutcome, RefinementStrategyName,
+    SelectedLevel, TerminalRefinement,
 };
 use rayon::ThreadPoolBuilder;
 use serde::Deserialize;
@@ -38,6 +39,38 @@ fn staged_level_selection_parses_finest_before_resolution() {
     assert_eq!(selected.level(), Level::new(1).expect("fixture level"));
 }
 
+#[allow(deprecated)]
+fn legacy_staged_unit_id(value: &LevelResolvedOutlet) -> i64 {
+    value.resolved().unit_id.get()
+}
+
+#[test]
+#[allow(deprecated)]
+fn staged_resolved_accessor_preserves_fielded_view_alongside_typed_authority() {
+    let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+    let session = DatasetSession::open_path(&root).expect("nested fixture should open");
+    let engine = Engine::builder(session).build();
+    let selected = engine
+        .select_level(LevelSelection::Finest)
+        .expect("finest level should resolve");
+    let resolved = engine
+        .resolve_outlet_at_level(GeoCoord::new(2.5, -0.5), selected, &Default::default())
+        .expect("fixture outlet should resolve");
+
+    assert_eq!(
+        legacy_staged_unit_id(&resolved),
+        resolved.authority().unit_id().get()
+    );
+    assert!(matches!(
+        resolved.authority(),
+        OutletResolution::UnitContainment { .. }
+    ));
+    assert_eq!(
+        resolved.resolved().resolved_coord,
+        resolved.authority().resolved_coord()
+    );
+}
+
 #[test]
 fn staged_pre_merge_units_are_pristine_terminal_first_records() {
     let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
@@ -58,11 +91,11 @@ fn staged_pre_merge_units_are_pristine_terminal_first_records() {
         .expect("pre-merge units should materialize");
 
     assert_eq!(pre_merge.selected_level(), selected);
-    assert_eq!(pre_merge.terminal(), resolved.resolved().unit_id);
+    assert_eq!(pre_merge.terminal(), resolved.authority().unit_id());
     assert_eq!(pre_merge.units().len(), 3);
     assert_eq!(
         pre_merge.units()[0].id(),
-        resolved.resolved().unit_id,
+        resolved.authority().unit_id(),
         "terminal must be first for typed inspection"
     );
     assert_eq!(
@@ -159,10 +192,10 @@ fn delineate_equals_staged_composition_for_classified_best_effort_skip() {
     assert_eq!(
         direct.refinement(),
         &RefinementOutcome::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: expected_reason,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                expected_reason
+            ),
         }
     );
     assert_eq!(direct.refinement(), staged.refinement());
@@ -210,7 +243,7 @@ fn staged_refine_off_v021_fixture_reproduces_committed_step6_golden() {
 }
 
 #[test]
-fn staged_refine_terminal_placeholder_disabled_reuses_pre_merge_terminal() {
+fn staged_refine_terminal_disabled_reuses_pre_merge_terminal() {
     let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
     let session = DatasetSession::open_path(&root).expect("nested fixture should open");
     let engine = Engine::builder(session).build();
@@ -218,7 +251,7 @@ fn staged_refine_terminal_placeholder_disabled_reuses_pre_merge_terminal() {
     let options = DelineationOptions::default().with_refinement_mode(RefinementMode::Disabled);
 
     let refinement = engine
-        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .refine_terminal(&resolved, &pre_merge, &options)
         .expect("disabled refinement should resolve without raster work");
     let dissolved = engine
         .dissolve_watershed(&pre_merge, &refinement, &options)
@@ -230,7 +263,25 @@ fn staged_refine_terminal_placeholder_disabled_reuses_pre_merge_terminal() {
 }
 
 #[test]
-fn staged_refine_terminal_placeholder_best_effort_no_rasters() {
+#[allow(deprecated)]
+fn deprecated_placeholder_refinement_method_forwards_to_stable_method() {
+    let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+    let session = DatasetSession::open_path(&root).expect("nested fixture should open");
+    let engine = Engine::builder(session).build();
+    let (resolved, pre_merge) = pre_merge_for_nested_fixture(&engine);
+    let options = DelineationOptions::default().with_refinement_mode(RefinementMode::Disabled);
+
+    let stable = engine
+        .refine_terminal(&resolved, &pre_merge, &options)
+        .unwrap();
+    let legacy = engine
+        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .unwrap();
+    assert_eq!(legacy, stable);
+}
+
+#[test]
+fn staged_refine_terminal_best_effort_no_rasters() {
     let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
     let session = DatasetSession::open_path(&root).expect("nested fixture should open");
     let engine = Engine::builder(session).build();
@@ -238,7 +289,7 @@ fn staged_refine_terminal_placeholder_best_effort_no_rasters() {
     let options = DelineationOptions::default();
 
     let refinement = engine
-        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .refine_terminal(&resolved, &pre_merge, &options)
         .expect("best-effort with no rasters should be a typed outcome");
     let dissolved = engine
         .dissolve_watershed(&pre_merge, &refinement, &options)
@@ -246,7 +297,7 @@ fn staged_refine_terminal_placeholder_best_effort_no_rasters() {
 
     assert_eq!(
         refinement,
-        TerminalRefinement::best_effort_no_d8_aux_declared()
+        TerminalRefinement::best_effort_coarse_unit_only_no_d8_aux_declared()
     );
     assert!(!dissolved.geometry().0.is_empty());
 }
@@ -260,7 +311,7 @@ fn staged_require_d8_no_declared_aux_hard_errors_with_schema_name() {
     let options = DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8);
 
     let err = engine
-        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .refine_terminal(&resolved, &pre_merge, &options)
         .expect_err("RequireD8 should fail when hfx.aux.d8_raster.v2 is absent");
 
     assert!(matches!(err, EngineError::D8Selection { .. }));
@@ -287,7 +338,7 @@ fn staged_require_d8_declared_aux_without_raster_source_hard_errors() {
     let options = DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8);
 
     let err = engine
-        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .refine_terminal(&resolved, &pre_merge, &options)
         .expect_err("RequireD8 should fail when no raster source is attached");
 
     assert!(matches!(
@@ -438,7 +489,7 @@ fn explicit_staged_composition(
         engine.resolve_outlet_at_level(outlet, selected_level, options.resolver_config())?;
     let upstream = engine.traverse_upstream_at_level(&resolved)?;
     let pre_merge = engine.produce_pre_merge_units(&upstream)?;
-    let refinement = engine.refine_terminal_placeholder(&resolved, &pre_merge, options)?;
+    let refinement = engine.refine_terminal(&resolved, &pre_merge, options)?;
     let dissolved = engine.dissolve_watershed(&pre_merge, &refinement, options)?;
 
     Ok(engine.compose_result(resolved, upstream, &pre_merge, refinement, dissolved))
@@ -491,10 +542,10 @@ fn assert_visible_no_d8_aux_skip(refinement: &RefinementOutcome) {
     assert_eq!(
         refinement,
         &RefinementOutcome::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared
+            ),
         }
     );
 }
@@ -529,13 +580,13 @@ fn contained(geometry: MultiPolygon<f64>) -> ContainedTerminalPolygon {
         .expect("test refined terminal geometry should be non-empty")
 }
 
-fn applied_provenance() -> RefinementProvenance {
-    RefinementProvenance::Applied {
-        strategy: RefinementStrategyName::BestEffortD8IfPresent,
-        why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
+fn applied_provenance() -> AppliedRefinementProvenance {
+    AppliedRefinementProvenance::new(
+        RefinementStrategyName::BestEffortD8IfPresent,
+        AppliedRefinementReason::RasterOutletRanked {
             declaration_index: 0,
         },
-    }
+    )
 }
 
 fn parity_fixture_path(name: &str) -> PathBuf {

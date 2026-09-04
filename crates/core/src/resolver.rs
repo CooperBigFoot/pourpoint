@@ -1,4 +1,4 @@
-//! Outlet resolution — resolve a user coordinate to a terminal HFX unit ID.
+//! resolve : GeoCoord × SelectedLevel × HFX → OutletResolution
 //!
 //! Two code paths:
 //! - **Snap path** (`snap.parquet` present): nearest-geometry search within a
@@ -193,20 +193,162 @@ pub enum ResolutionMethod {
     },
 }
 
-// ── ResolvedOutlet ────────────────────────────────────────────────────────────
+/// Variant-specific provenance for a vector snap resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorResolutionProvenance {
+    strategy: SnapStrategy,
+    snap_id: SnapId,
+    distance_m: f64,
+    weight: Weight,
+    mainstem_status: Option<StemRole>,
+    candidates_considered: usize,
+}
 
-/// The result of a successful outlet resolution.
+/// Variant-specific provenance for a point-in-polygon resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContainmentResolutionProvenance {
+    candidates_considered: usize,
+    tie_break: Option<PipTieBreak>,
+}
+
+// ── OutletResolution ─────────────────────────────────────────────────────────
+
+/// The single hydrological authority chosen during outlet resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutletResolution {
+    /// A snap feature chose both the terminal unit and authoritative vector point.
+    VectorPoint {
+        /// The HFX unit ID referenced by the winning snap feature.
+        unit_id: UnitId,
+        /// Original coordinate supplied by the caller.
+        input_coord: GeoCoord,
+        /// Nearest point on the winning snap geometry.
+        vector_coord: GeoCoord,
+        /// Snap-path provenance, which cannot represent containment.
+        provenance: VectorResolutionProvenance,
+    },
+    /// Point-in-polygon chose a terminal unit without choosing a network point.
+    UnitContainment {
+        /// The containing HFX unit ID.
+        unit_id: UnitId,
+        /// Original coordinate supplied by the caller and retained as the public resolved outlet.
+        input_coord: GeoCoord,
+        /// Containment-path provenance, which cannot represent vector snapping.
+        provenance: ContainmentResolutionProvenance,
+    },
+}
+
+impl OutletResolution {
+    /// Return the chosen terminal unit.
+    pub fn unit_id(&self) -> UnitId {
+        match self {
+            Self::VectorPoint { unit_id, .. } | Self::UnitContainment { unit_id, .. } => *unit_id,
+        }
+    }
+
+    /// Return the original caller coordinate.
+    pub fn input_coord(&self) -> GeoCoord {
+        match self {
+            Self::VectorPoint { input_coord, .. } | Self::UnitContainment { input_coord, .. } => {
+                *input_coord
+            }
+        }
+    }
+
+    /// Return the public resolved outlet: vector point when snapped, request point under containment.
+    pub fn resolved_coord(&self) -> GeoCoord {
+        match self {
+            Self::VectorPoint { vector_coord, .. } => *vector_coord,
+            Self::UnitContainment { input_coord, .. } => *input_coord,
+        }
+    }
+
+    /// Return resolution provenance through the compatibility sum type.
+    pub fn method(&self) -> ResolutionMethod {
+        match self {
+            Self::VectorPoint { provenance, .. } => ResolutionMethod::Snap {
+                strategy: provenance.strategy,
+                snap_id: provenance.snap_id,
+                distance_m: provenance.distance_m,
+                weight: provenance.weight,
+                mainstem_status: provenance.mainstem_status,
+                candidates_considered: provenance.candidates_considered,
+            },
+            Self::UnitContainment { provenance, .. } => ResolutionMethod::PointInPolygon {
+                candidates_considered: provenance.candidates_considered,
+                tie_break: provenance.tie_break,
+            },
+        }
+    }
+
+    /// Return the authoritative vector point, or `None` for unit-only containment.
+    pub fn vector_coord(&self) -> Option<GeoCoord> {
+        match self {
+            Self::VectorPoint { vector_coord, .. } => Some(*vector_coord),
+            Self::UnitContainment { .. } => None,
+        }
+    }
+}
+
+/// Legacy fielded outlet result retained as a migration bridge.
+///
+/// New code should use [`OutletResolution`] through [`resolve_outlet_authority`]
+/// or [`resolve_outlet_authority_at_level`]. The legacy shape cannot encode the
+/// vector-versus-unit-only authority invariant and will be removed in a future
+/// breaking release.
+#[deprecated(
+    note = "use OutletResolution and resolve_outlet_authority; the legacy fielded shape erases authority"
+)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedOutlet {
     /// The HFX unit ID that the outlet resolved to.
     pub unit_id: UnitId,
     /// The original coordinate supplied by the caller.
     pub input_coord: GeoCoord,
-    /// The coordinate that was actually used for the resolution (may differ
-    /// from `input_coord` after snapping).
+    /// The public resolved coordinate.
     pub resolved_coord: GeoCoord,
-    /// Provenance: which resolution path was taken and why.
+    /// Resolution provenance.
     pub method: ResolutionMethod,
+}
+
+#[allow(deprecated)]
+impl ResolvedOutlet {
+    /// Return the chosen terminal unit.
+    pub fn unit_id(&self) -> UnitId {
+        self.unit_id
+    }
+
+    /// Return the original caller coordinate.
+    pub fn input_coord(&self) -> GeoCoord {
+        self.input_coord
+    }
+
+    /// Return the public resolved coordinate.
+    pub fn resolved_coord(&self) -> GeoCoord {
+        self.resolved_coord
+    }
+
+    /// Return cloned resolution provenance.
+    pub fn method(&self) -> ResolutionMethod {
+        self.method.clone()
+    }
+
+    /// Return the vector coordinate when this legacy result records a snap method.
+    pub fn vector_coord(&self) -> Option<GeoCoord> {
+        matches!(self.method, ResolutionMethod::Snap { .. }).then_some(self.resolved_coord)
+    }
+}
+
+#[allow(deprecated)]
+impl From<OutletResolution> for ResolvedOutlet {
+    fn from(value: OutletResolution) -> Self {
+        Self {
+            unit_id: value.unit_id(),
+            input_coord: value.input_coord(),
+            resolved_coord: value.resolved_coord(),
+            method: value.method(),
+        }
+    }
 }
 
 // ── OutletResolutionError ─────────────────────────────────────────────────────
@@ -309,6 +451,64 @@ struct ScoredCandidate {
     nearest_coord: GeoCoord,
 }
 
+trait VectorCandidateRanker {
+    fn rank(&self, candidates: &[ScoredCandidate]) -> Option<usize>;
+}
+
+struct ConfiguredVectorCandidateRanker {
+    strategy: SnapStrategy,
+    distance_tolerance_m: f64,
+}
+
+impl VectorCandidateRanker for ConfiguredVectorCandidateRanker {
+    fn rank(&self, candidates: &[ScoredCandidate]) -> Option<usize> {
+        match self.strategy {
+            SnapStrategy::DistanceFirst => {
+                let minimum = candidates
+                    .iter()
+                    .map(|candidate| candidate.distance_m)
+                    .min_by(f64::total_cmp)?;
+                let limit = minimum + self.distance_tolerance_m;
+                candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| candidate.distance_m <= limit)
+                    .min_by(|(_, a), (_, b)| vector_dominance_order(a, b, false))
+                    .map(|(index, _)| index)
+            }
+            SnapStrategy::WeightFirst => candidates
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| vector_dominance_order(a, b, true))
+                .map(|(index, _)| index),
+        }
+    }
+}
+
+fn vector_dominance_order(
+    a: &ScoredCandidate,
+    b: &ScoredCandidate,
+    include_distance: bool,
+) -> std::cmp::Ordering {
+    let mainstem_rank = |role: Option<StemRole>| match role {
+        Some(StemRole::Mainstem) => 1_u8,
+        _ => 0_u8,
+    };
+    b.target
+        .weight()
+        .get()
+        .total_cmp(&a.target.weight().get())
+        .then_with(|| mainstem_rank(b.target.stem_role()).cmp(&mainstem_rank(a.target.stem_role())))
+        .then_with(|| {
+            if include_distance {
+                a.distance_m.total_cmp(&b.distance_m)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
+}
+
 fn internal_resolver_inconsistency(detail: impl Into<String>) -> OutletResolutionError {
     OutletResolutionError::DatasetRead {
         source: SessionError::integrity(detail),
@@ -327,7 +527,7 @@ fn resolve_via_snap(
     session: &DatasetSession,
     outlet: GeoCoord,
     config: &ResolverConfig,
-) -> Result<ResolvedOutlet, OutletResolutionError> {
+) -> Result<OutletResolution, OutletResolutionError> {
     let snap_store = session.snap().ok_or_else(|| {
         internal_resolver_inconsistency("resolve_via_snap called without snap store")
     })?;
@@ -344,7 +544,7 @@ fn resolve_via_snap_store(
     outlet: GeoCoord,
     selected_level: Option<SelectedLevel>,
     config: &ResolverConfig,
-) -> Result<ResolvedOutlet, OutletResolutionError> {
+) -> Result<OutletResolution, OutletResolutionError> {
     // 1. Build search bbox.
     let bbox = search_bbox(outlet, config.search_radius().as_f64())?;
 
@@ -429,75 +629,15 @@ fn resolve_via_snap_store(
         });
     }
 
-    // 6. Two-step selection with distance tolerance:
-    //    a) Find the minimum distance among all scored candidates.
-    //    b) Restrict to candidates within min_distance + tolerance.
-    //    c) Among those, rank by weight DESC → mainstem DESC → snap_id ASC.
-    let winner = match config.snap_strategy() {
-        SnapStrategy::DistanceFirst => {
-            let tolerance = config.distance_tolerance_m();
-            let min_distance = scored
-                .iter()
-                .map(|c| c.distance_m)
-                .min_by(f64::total_cmp)
-                .ok_or_else(|| {
-                    internal_resolver_inconsistency(
-                        "distance-first snap selection called with no scored candidates",
-                    )
-                })?;
-            let threshold = min_distance + tolerance;
-
-            scored
-                .into_iter()
-                .filter(|c| c.distance_m <= threshold)
-                .min_by(|a, b| {
-                    // Within the tolerance band: rank by weight, mainstem, then id.
-                    // Distance is NOT used here — all candidates in the band are
-                    // treated as equidistant.
-                    b.target
-                        .weight()
-                        .get()
-                        .total_cmp(&a.target.weight().get())
-                        .then_with(|| {
-                            let mainstem_rank = |s: Option<StemRole>| match s {
-                                Some(StemRole::Mainstem) => 1u8,
-                                _ => 0u8,
-                            };
-                            mainstem_rank(b.target.stem_role())
-                                .cmp(&mainstem_rank(a.target.stem_role()))
-                        })
-                        .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
-                })
-                .ok_or_else(|| {
-                    internal_resolver_inconsistency(
-                        "distance-first tolerance band produced no snap winner",
-                    )
-                })?
-        }
-        SnapStrategy::WeightFirst => scored
-            .into_iter()
-            .min_by(|a, b| {
-                b.target
-                    .weight()
-                    .get()
-                    .total_cmp(&a.target.weight().get())
-                    .then_with(|| {
-                        let mainstem_rank = |s: Option<StemRole>| match s {
-                            Some(StemRole::Mainstem) => 1u8,
-                            _ => 0u8,
-                        };
-                        mainstem_rank(b.target.stem_role())
-                            .cmp(&mainstem_rank(a.target.stem_role()))
-                    })
-                    .then_with(|| a.distance_m.total_cmp(&b.distance_m))
-                    .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
-            })
-            .ok_or_else(|| {
-                internal_resolver_inconsistency(
-                    "weight-first snap selection called with no scored candidates",
-                )
-            })?,
+    // 6. Rank only the radius-qualified candidate domain.
+    let ranker = ConfiguredVectorCandidateRanker {
+        strategy: config.snap_strategy(),
+        distance_tolerance_m: config.distance_tolerance_m(),
     };
+    let winner_index = ranker.rank(&scored).ok_or_else(|| {
+        internal_resolver_inconsistency("vector ranker called with no scored candidates")
+    })?;
+    let winner = &scored[winner_index];
 
     // 7. Build result.
     info!(
@@ -507,11 +647,11 @@ fn resolve_via_snap_store(
         "snap resolved outlet"
     );
 
-    Ok(ResolvedOutlet {
+    Ok(OutletResolution::VectorPoint {
         unit_id: winner.target.unit_id(),
         input_coord: outlet,
-        resolved_coord: winner.nearest_coord,
-        method: ResolutionMethod::Snap {
+        vector_coord: winner.nearest_coord,
+        provenance: VectorResolutionProvenance {
             strategy: config.snap_strategy(),
             snap_id: winner.target.id(),
             distance_m: winner.distance_m,
@@ -533,7 +673,7 @@ fn resolve_via_pip(
     session: &DatasetSession,
     outlet: GeoCoord,
     selected_level: Option<SelectedLevel>,
-) -> Result<ResolvedOutlet, OutletResolutionError> {
+) -> Result<OutletResolution, OutletResolutionError> {
     // 1. Build a small search bbox around the outlet.
     let bbox = search_bbox(outlet, PIP_BUFFER_M)?;
 
@@ -630,11 +770,10 @@ fn resolve_via_pip(
             tie_break = ?Option::<PipTieBreak>::None,
             "PiP resolved outlet"
         );
-        return Ok(ResolvedOutlet {
+        return Ok(OutletResolution::UnitContainment {
             unit_id: winner.id(),
             input_coord: outlet,
-            resolved_coord: outlet,
-            method: ResolutionMethod::PointInPolygon {
+            provenance: ContainmentResolutionProvenance {
                 candidates_considered: decoded.len(),
                 tie_break: None,
             },
@@ -683,11 +822,10 @@ fn resolve_via_pip(
         "PiP resolved outlet with tie-break"
     );
 
-    Ok(ResolvedOutlet {
+    Ok(OutletResolution::UnitContainment {
         unit_id: winner.id(),
         input_coord: outlet,
-        resolved_coord: outlet,
-        method: ResolutionMethod::PointInPolygon {
+        provenance: ContainmentResolutionProvenance {
             candidates_considered: decoded.len(),
             tie_break,
         },
@@ -695,6 +833,36 @@ fn resolve_via_pip(
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
+/// Resolve an outlet through the legacy fielded result shape.
+///
+/// Prefer [`resolve_outlet_authority`], which preserves vector versus
+/// unit-only authority.
+#[deprecated(note = "use resolve_outlet_authority for typed outlet authority")]
+#[allow(deprecated)]
+pub fn resolve_outlet(
+    session: &DatasetSession,
+    outlet: GeoCoord,
+    config: &ResolverConfig,
+) -> Result<ResolvedOutlet, OutletResolutionError> {
+    resolve_outlet_authority(session, outlet, config).map(ResolvedOutlet::from)
+}
+
+/// Resolve an outlet at one selected level through the legacy fielded result
+/// shape.
+///
+/// Prefer [`resolve_outlet_authority_at_level`], which preserves outlet authority.
+#[deprecated(note = "use resolve_outlet_authority_at_level for typed outlet authority")]
+#[allow(deprecated)]
+pub fn resolve_outlet_at_level(
+    session: &DatasetSession,
+    outlet: GeoCoord,
+    selected_level: SelectedLevel,
+    config: &ResolverConfig,
+) -> Result<ResolvedOutlet, OutletResolutionError> {
+    resolve_outlet_authority_at_level(session, outlet, selected_level, config)
+        .map(ResolvedOutlet::from)
+}
 
 /// Resolve a user-provided outlet coordinate to a single terminal HFX unit ID.
 ///
@@ -710,11 +878,11 @@ fn resolve_via_pip(
 /// | [`OutletResolutionError::DatasetRead`] | Parquet store query failed |
 /// | [`OutletResolutionError::AllGeometriesCorrupt`] | All candidate geometries in the search area failed to decode |
 #[instrument(skip(session, config), fields(outlet = %outlet))]
-pub fn resolve_outlet(
+pub fn resolve_outlet_authority(
     session: &DatasetSession,
     outlet: GeoCoord,
     config: &ResolverConfig,
-) -> Result<ResolvedOutlet, OutletResolutionError> {
+) -> Result<OutletResolution, OutletResolutionError> {
     if session.snap().is_some() {
         debug!("snap.parquet present, using snap resolution path");
         resolve_via_snap(session, outlet, config)
@@ -742,12 +910,12 @@ pub fn resolve_outlet(
 /// | [`OutletResolutionError::DatasetRead`] | Parquet store query failed |
 /// | [`OutletResolutionError::AllGeometriesCorrupt`] | All candidate geometries in the search area failed to decode |
 #[instrument(skip(session, config), fields(outlet = %outlet, selected_level = selected_level.level().get()))]
-pub fn resolve_outlet_at_level(
+pub fn resolve_outlet_authority_at_level(
     session: &DatasetSession,
     outlet: GeoCoord,
     selected_level: SelectedLevel,
     config: &ResolverConfig,
-) -> Result<ResolvedOutlet, OutletResolutionError> {
+) -> Result<OutletResolution, OutletResolutionError> {
     if let Some(snap_store) = session.snap_for_level(selected_level.level()) {
         debug!(
             selected_level = selected_level.level().get(),
@@ -1026,15 +1194,15 @@ mod tests {
             .build();
         let session = DatasetSession::open_path(&root).unwrap();
 
-        let result = resolve_outlet(
+        let result = resolve_outlet_authority(
             &session,
             GeoCoord::new(0.2, 0.2),
             &ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst),
         )
         .unwrap();
-        assert_eq!(result.unit_id, UnitId::new(1).unwrap());
+        assert_eq!(result.unit_id(), UnitId::new(1).unwrap());
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::DistanceFirst,
                 snap_id,
@@ -1082,10 +1250,10 @@ mod tests {
         let session = DatasetSession::open_path(&root).unwrap();
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
-        let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.unit_id, UnitId::new(2).unwrap());
+        let result = resolve_outlet_authority(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
+        assert_eq!(result.unit_id(), UnitId::new(2).unwrap());
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::WeightFirst,
                 snap_id,
@@ -1133,8 +1301,8 @@ mod tests {
         let session = DatasetSession::open_path(&root).unwrap();
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
-        let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.unit_id, UnitId::new(2).unwrap());
+        let result = resolve_outlet_authority(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
+        assert_eq!(result.unit_id(), UnitId::new(2).unwrap());
     }
 
     #[test]
@@ -1176,9 +1344,10 @@ mod tests {
         let session = DatasetSession::open_path(&root).unwrap();
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
-        let mainstem_result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
+        let mainstem_result =
+            resolve_outlet_authority(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
         assert!(matches!(
-            mainstem_result.method,
+            mainstem_result.method(),
             ResolutionMethod::Snap {
                 snap_id,
                 strategy: SnapStrategy::WeightFirst,
@@ -1214,9 +1383,10 @@ mod tests {
             .build();
         let session = DatasetSession::open_path(&root).unwrap();
 
-        let distance_result = resolve_outlet(&session, GeoCoord::new(0.202, 0.2), &config).unwrap();
+        let distance_result =
+            resolve_outlet_authority(&session, GeoCoord::new(0.202, 0.2), &config).unwrap();
         assert!(matches!(
-            distance_result.method,
+            distance_result.method(),
             ResolutionMethod::Snap {
                 snap_id,
                 strategy: SnapStrategy::WeightFirst,
@@ -1267,10 +1437,10 @@ mod tests {
             .with_distance_tolerance(0.0)
             .unwrap();
 
-        let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.unit_id, UnitId::new(1).unwrap());
+        let result = resolve_outlet_authority(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
+        assert_eq!(result.unit_id(), UnitId::new(1).unwrap());
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::DistanceFirst,
                 snap_id,
@@ -1325,15 +1495,16 @@ mod tests {
         let session = DatasetSession::open_path(&root).unwrap();
 
         let result =
-            resolve_outlet(&session, GeoCoord::new(10.0, 45.0), &ResolverConfig::new()).unwrap();
+            resolve_outlet_authority(&session, GeoCoord::new(10.0, 45.0), &ResolverConfig::new())
+                .unwrap();
 
         assert_eq!(
-            result.unit_id,
+            result.unit_id(),
             UnitId::new(2).unwrap(),
             "default strategy must pick the mainstem (unit 2), not the coincident tiny stub (unit 1)"
         );
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::WeightFirst,
                 snap_id,

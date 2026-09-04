@@ -55,20 +55,19 @@ cargo test -p pourpoint-core --test parity_golden_artifacts
 cargo test -p pourpoint-core --test staged_delineation
 ```
 
-Network-gated capture and refresh:
+Licensed local current-HFX evidence recapture:
 
 ```bash
-POURPOINT_PARITY_R2_CAPTURE=1 cargo test -p pourpoint-core --test parity_v01_oracle_capture -- --ignored --nocapture
+POURPOINT_MERIT_RECAPTURE_ROOT="$LICENSED_MERIT_HFX_ROOT" \
+POURPOINT_MERIT_RECAPTURE_OUTPUT="$MERIT_EVIDENCE_OUTPUT" \
+POURPOINT_MERIT_RECAPTURE_HFX_COMMIT=<full-hfx-builder-commit> \
+POURPOINT_MERIT_RECAPTURE_BLESS=1 \
+cargo test -p pourpoint-gdal --test merit_local_recapture -- --ignored --nocapture
 ```
 
-Golden refresh is intentionally explicit. Do not regenerate or re-bless M1
-goldens during offline comparison work.
-
-Network-gated M4 ambiguity-boundary proof:
-
-```bash
-POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
-```
+The former public MERIT capture route was intentionally removed because this
+project did not hold redistribution rights for that hosted data (PR #72 / `60e4a55`). Both historical manifests return 404. M1 goldens
+remain immutable offline evidence.
 
 ## Synthetic Refined Raster Fixture
 
@@ -98,9 +97,10 @@ separate `v021_synthetic_refined/` fixture copy and reuses the exact same
 committed M1 TIFFs and the converted v0.2.1 TIFF copy so accidental byte drift
 in either path fails offline after M2.
 
-The B TIFFs are the deterministic, byte-identical M1-to-M4 parity path. For M4
-real-data D8 parity, use `merit/0.2.0`; `merit-basins/0.1.0` is the M1
-real-data v0.1 oracle C input, not the M4 v0.2.1 target.
+The B TIFFs are the deterministic, byte-identical M1-to-M4 parity path.
+`merit-basins/0.1.0` remains the immutable M1 Oracle C input. Current real-data
+MERIT evidence is captured only from a licensed local HFX build and is stored
+as metadata under `crates/gdal/tests/fixtures/merit-current/`.
 
 M4 ships exactly one blessed strategy: built-in D8 raster refinement. The pantry
 is D8-only. Full aux-to-strategy binding, reverse-DNS aux parsing,
@@ -109,7 +109,7 @@ Python-authored strategies, and additional blessed strategies are deferred.
 The real carve sequence is:
 
 ```text
-rasterize -> mask flow-dir + accumulation -> snap -> masked trace -> polygonize
+rasterize -> vector guard then mask OR mask then unit rank -> trace -> polygonize
 ```
 
 There is no clamp, intersection, or cleaning stage in the D8 carve. Final
@@ -119,38 +119,11 @@ inserts the refined terminal geometry, and dissolves. The R3 disagreement is
 therefore intentional: pre-merge terminal records can disagree with final
 refined geometry and `area_km2`.
 
-M4's real-data D8 proof is now an ambiguity-boundary proof, not a successful
-carve assertion. It is both `#[ignore]`d and env-gated, so offline tests compile
-it but do not open the network:
-
-```bash
-POURPOINT_HFX_V02_REAL_D8_REFINEMENT=1 cargo test -p pourpoint-core --test d8_refinement_parity -- --ignored --nocapture
-```
-
-That historical capture opens `https://basin-delineations-public.upstream.tech/merit/0.2.0/`,
-expects format version `0.2.1`, 60 de-blessed `hfx.aux.d8_raster.v1` declarations under
-`aux/d8/pfaf_NN/flow_{dir,acc}.tif`, and one snap declaration. It resolves the
-`rhine_basel` terminal bbox, proves D8 selection uses bounded extent-header
-reads rather than legacy root `flow_dir.tif`/`flow_acc.tif` downloads, and then
-asserts that pourpoint selects the manifest-first covering declaration and carves
-successfully for overlapping Pfaf declarations. D8 coverage uses inclusive
-rectangle semantics, so exact bbox equality and edge-touching count. MERIT-Hydro
-D8 rasters are per-Pfaf-02 basin windows; irregular basins have overlapping
-rectangular extents, so a boundary terminal is fully covered by more than one
-declaration. The historical v1 contract required overlapping entries to be windows
-of a single coherent D8 fabric (identical values in the overlap), so the
-manifest-first covering tile is selected deterministically and the carve never
-reads outside the terminal bbox. The merit adapter is correct; selection is no
-longer a consumer-side gap.
-
-The committed offline fixture now declares `hfx.aux.d8_raster.v2` with required
-`crs`, `flow_dir_encoding`, and `flow_acc_units` metadata. The reader accepts
-`uint8` or `int8` direction samples and `float32` or `int32` accumulation
-samples; signed layouts normalize to `u8` and `f32` before parity comparison.
-
-Release note: real-data carve on overlapping-Pfaf terminals is now exercised by
-the network proof, which asserts an applied contained carve rather than a typed
-ambiguity boundary.
+The former network-backed M4 proof is archived. Its public MERIT route was
+intentionally deleted because this project lacked rights to redistribute the
+hosted dataset. It is not a current validation or
+recapture path. Use `merit_local_recapture` with a licensed local HFX v0.3.0
+build for current vector-quantization evidence.
 
 GDAL parity proof command:
 
@@ -158,9 +131,9 @@ GDAL parity proof command:
 cargo test -p pourpoint-gdal --test raster_decode_parity synthetic_b_tiff_matches_gdal -- --ignored --nocapture
 ```
 
-M1 already proved TIFF-vs-GDAL tile identity for B and for the accepted C
-`rhine_basel` windows. M4 may reuse the B proof for the byte-identical raster
-bytes, or re-run the proof if the reader implementation changes.
+M1 recorded TIFF-vs-GDAL identity for B and the accepted historical C
+`rhine_basel` windows. The C proof is archived with Oracle C. Current validation
+uses the byte-identical B raster proof and the separate local-HFX MERIT capture.
 
 ## Projected GRASS offline golden
 
