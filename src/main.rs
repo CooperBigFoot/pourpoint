@@ -533,9 +533,12 @@ fn format_resolution_method(method: &ResolutionMethod) -> String {
 
 fn format_refinement(r: &RefinementOutcome) -> String {
     match r {
-        RefinementOutcome::Applied { refined_outlet, .. } => {
+        RefinementOutcome::Applied {
+            refined_outlet,
+            provenance,
+        } => {
             format!(
-                "applied(lon={:.6}, lat={:.6})",
+                "applied(lon={:.6}, lat={:.6}, provenance={provenance:?})",
                 refined_outlet.lon, refined_outlet.lat
             )
         }

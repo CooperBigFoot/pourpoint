@@ -63,8 +63,14 @@ pub use raster_tile::{RasterTile, RasterTileError};
 // ── Re-exports: raster algorithms ────────────────────────────────────────────
 pub use polygonize::polygonize;
 pub use rasterize::{rasterize_multi_polygon, rasterize_polygon};
-pub use refine::{RefinementError, RefinementResult, refine_terminal, refine_terminal_from_source};
-pub use snap::{SnapError, SnappedPoint, snap_pour_point};
+pub use refine::{
+    RasterOutlet, RasterSeedKind, RefinementError, RefinementResult, VectorOutletGuardFailure,
+    VectorOutletGuardFailureKind, refine_terminal, refine_terminal_from_source,
+};
+pub use snap::{
+    GridMappingError, NearestAccumulationRasterSeedRanker, RasterSeedCandidate, RasterSeedRanker,
+    SnapError, SnappedPoint, effective_threshold, quantize_grid_cell, snap_pour_point,
+};
 pub use trace::trace_upstream;
 
 // ── Re-exports: graph traversal ──────────────────────────────────────────────

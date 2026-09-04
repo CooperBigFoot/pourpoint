@@ -58,11 +58,11 @@ fn staged_pre_merge_units_are_pristine_terminal_first_records() {
         .expect("pre-merge units should materialize");
 
     assert_eq!(pre_merge.selected_level(), selected);
-    assert_eq!(pre_merge.terminal(), resolved.resolved().unit_id);
+    assert_eq!(pre_merge.terminal(), resolved.resolved().unit_id());
     assert_eq!(pre_merge.units().len(), 3);
     assert_eq!(
         pre_merge.units()[0].id(),
-        resolved.resolved().unit_id,
+        resolved.resolved().unit_id(),
         "terminal must be first for typed inspection"
     );
     assert_eq!(
@@ -246,7 +246,7 @@ fn staged_refine_terminal_placeholder_best_effort_no_rasters() {
 
     assert_eq!(
         refinement,
-        TerminalRefinement::best_effort_no_d8_aux_declared()
+        TerminalRefinement::best_effort_coarse_unit_only_no_d8_aux_declared()
     );
     assert!(!dissolved.geometry().0.is_empty());
 }
@@ -493,7 +493,7 @@ fn assert_visible_no_d8_aux_skip(refinement: &RefinementOutcome) {
         &RefinementOutcome::BestEffortSkipped {
             provenance: RefinementProvenance::BestEffortSkipped {
                 strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
+                why: BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
             },
         }
     );
@@ -532,7 +532,7 @@ fn contained(geometry: MultiPolygon<f64>) -> ContainedTerminalPolygon {
 fn applied_provenance() -> RefinementProvenance {
     RefinementProvenance::Applied {
         strategy: RefinementStrategyName::BestEffortD8IfPresent,
-        why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
+        why: AppliedRefinementReason::RasterOutletRanked {
             declaration_index: 0,
         },
     }

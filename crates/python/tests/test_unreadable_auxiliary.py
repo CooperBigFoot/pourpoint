@@ -141,9 +141,16 @@ def test_empty_auxiliary_reports_no_d8(hfx_dataset):
     result = engine.delineate(lat=0.20, lon=1.70)
     reason = result.refinement_skip_reason
     assert isinstance(reason, pourpoint.BestEffortSkipReason)
-    assert reason.kind == "no_d8_aux_declared"
+    assert reason.kind == "coarse_unit_only_no_d8_aux_declared"
     assert reason.category == "availability"
     assert reason.schema is None
+    assert reason.failure_kind is None
+    assert reason.requested_threshold is None
+    assert reason.effective_threshold is None
+    assert reason.units is None
+    assert reason.mapped_cell is None
+    assert reason.measured_accumulation is None
+    assert result.refinement_seed_kind == "coarse"
 
 
 def test_non_d8_unreadable_declaration_reports_no_d8(
@@ -153,7 +160,7 @@ def test_non_d8_unreadable_declaration_reports_no_d8(
     result = engine.delineate(lat=0.20, lon=1.70)
     reason = result.refinement_skip_reason
     assert isinstance(reason, pourpoint.BestEffortSkipReason)
-    assert reason.kind == "no_d8_aux_declared"
+    assert reason.kind == "coarse_unit_only_no_d8_aux_declared"
     assert reason.category == "availability"
     assert reason.schema is None
 
@@ -166,8 +173,9 @@ def test_readable_d8_takes_precedence_over_non_d8_unreadable(
         lat=0.4166666666666667,
         lon=0.9833333333333333,
     )
-    assert (
-        json.loads(result.to_geojson())["properties"]["refinement"]
-        == "applied(lon=0.986445, lat=0.416385)"
+    assert json.loads(result.to_geojson())["properties"]["refinement"] == (
+        "applied(lon=0.986445, lat=0.416385, provenance="
+        "Applied { strategy: BuiltInD8, why: RasterOutletRanked { declaration_index: 0 } })"
     )
+    assert result.refinement_seed_kind == "raster_ranked"
     assert result.refinement_skip_reason is None

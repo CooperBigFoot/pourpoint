@@ -14,7 +14,7 @@ use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use pourpoint_core::algo::{
-    Crs, GeoCoord, GridCoord, GridDims, NativeCoord, RasterSource, RasterSourceError,
+    Crs, GeoCoord, GridCoord, GridDims, NativeCoord, RasterOutlet, RasterSource, RasterSourceError,
     RefinementError, SnapThreshold, canonical_wkb_multi_polygon, forward,
     refine_terminal_from_source,
 };
@@ -1231,7 +1231,7 @@ fn assert_direct_terminal_carve_matches_gdal(
             &pair.flow_dir.to_string_lossy(),
             &pair.flow_acc.to_string_lossy(),
             terminal_polygon,
-            record.resolved_outlet.into(),
+            RasterOutlet::UnitOnly(NativeCoord::from(record.resolved_outlet)),
             SnapThreshold::DEFAULT,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1242,7 +1242,7 @@ fn assert_direct_terminal_carve_matches_gdal(
             &pair.flow_dir.to_string_lossy(),
             &pair.flow_acc.to_string_lossy(),
             terminal_polygon,
-            record.resolved_outlet.into(),
+            RasterOutlet::UnitOnly(NativeCoord::from(record.resolved_outlet)),
             SnapThreshold::DEFAULT,
             FlowAccumulationUnits::Cells,
             4326_u32,

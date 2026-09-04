@@ -176,7 +176,7 @@ fn projected_grass_offline_golden_is_applied_and_stable() {
         provenance,
         &RefinementProvenance::Applied {
             strategy: RefinementStrategyName::BuiltInD8,
-            why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
+            why: AppliedRefinementReason::RasterOutletRanked {
                 declaration_index: 0,
             },
         }
@@ -248,7 +248,7 @@ fn v021_synthetic_d8_refinement_matches_m1_b_golden() {
             },
             provenance: RefinementProvenance::Applied {
                 strategy: RefinementStrategyName::BuiltInD8,
-                why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
+                why: AppliedRefinementReason::RasterOutletRanked {
                     declaration_index: 0,
                 },
             },
@@ -411,7 +411,7 @@ fn capture_projected_grass(outlet: GeoCoord) -> ProjectedGrassCapture {
         provenance,
         RefinementProvenance::Applied {
             strategy: RefinementStrategyName::BuiltInD8,
-            why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
+            why: AppliedRefinementReason::RasterOutletRanked {
                 declaration_index: 0,
             },
         }

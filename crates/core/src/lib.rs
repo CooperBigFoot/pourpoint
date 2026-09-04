@@ -44,13 +44,13 @@ pub use export::{
 };
 pub use refinement::{
     AppliedRefinementReason, BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle,
-    D8RasterRefinementStrategy, D8RefinementPantry, RefinementProvenance, RefinementStrategyName,
-    TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
-    TerminalRefinementStrategy,
+    D8RasterRefinementStrategy, D8RefinementPantry, OutletAuthority, RefinementProvenance,
+    RefinementStrategyName, TerminalRefinementDecision, TerminalRefinementError,
+    TerminalRefinementInput, TerminalRefinementStrategy,
 };
 pub use resolver::{
-    OutletResolutionError, PipTieBreak, ResolutionMethod, ResolvedOutlet, ResolverConfig,
-    SearchRadiusMetres, SnapStrategy, resolve_outlet, resolve_outlet_at_level,
+    OutletResolution, OutletResolutionError, PipTieBreak, ResolutionMethod, ResolvedOutlet,
+    ResolverConfig, SearchRadiusMetres, SnapStrategy, resolve_outlet, resolve_outlet_at_level,
 };
 pub use source::DatasetSource;
 pub use staged::{

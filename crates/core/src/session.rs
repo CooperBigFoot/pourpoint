@@ -2396,7 +2396,7 @@ mod tests {
                     .with_search_radius(SearchRadiusMetres::new(2_000.0).unwrap()),
             )
             .unwrap();
-            assert_eq!(resolved.unit_id, UnitId::new(1).unwrap());
+            assert_eq!(resolved.unit_id(), UnitId::new(1).unwrap());
             done_tx.send(()).unwrap();
         });
 
@@ -2420,7 +2420,7 @@ mod tests {
             &ResolverConfig::new().with_search_radius(SearchRadiusMetres::new(2_000.0).unwrap()),
         )
         .unwrap();
-        assert_eq!(resolved.unit_id, UnitId::new(1).unwrap());
+        assert_eq!(resolved.unit_id(), UnitId::new(1).unwrap());
         let actual = (
             snap_membership_rows_for_test(),
             snap_geometry_decode_rows_for_test(),

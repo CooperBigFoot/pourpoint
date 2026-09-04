@@ -795,7 +795,7 @@ mod unit_bundle_writer_tests {
     fn applied_provenance() -> RefinementProvenance {
         RefinementProvenance::Applied {
             strategy: RefinementStrategyName::BestEffortD8IfPresent,
-            why: AppliedRefinementReason::D8AuxMatchedTerminalBbox {
+            why: AppliedRefinementReason::RasterOutletRanked {
                 declaration_index: 0,
             },
         }

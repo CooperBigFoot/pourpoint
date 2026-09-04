@@ -1992,7 +1992,7 @@ fn execute_staged_seam_carve() {
         .expect("Zurich seed should resolve at the finest level");
     let seed_unit = search_session
         .catchments()
-        .query_by_ids(&[seed_resolved.resolved().unit_id])
+        .query_by_ids(&[seed_resolved.resolved().unit_id()])
         .expect("seed terminal catchment should query by ID")
         .into_iter()
         .next()
@@ -2109,7 +2109,7 @@ fn execute_staged_seam_carve() {
             };
         let terminal_rows = match search_session
             .catchments()
-            .query_by_ids(&[resolved.resolved().unit_id])
+            .query_by_ids(&[resolved.resolved().unit_id()])
         {
             Ok(rows) if rows.len() == 1 => rows,
             Ok(_) | Err(_) => {
@@ -2136,7 +2136,7 @@ fn execute_staged_seam_carve() {
             crs_from_handle(&handle),
             crs,
             "candidate {} D8 handle CRS must match the observed seed grid CRS",
-            resolved.resolved().unit_id.get()
+            resolved.resolved().unit_id().get()
         );
         let native_bbox = match native_terminal.bounding_rect() {
             Some(bbox) => bbox,
@@ -2167,7 +2167,7 @@ fn execute_staged_seam_carve() {
             terminal_no_seam_rejections += 1;
             continue;
         }
-        let resolved_outlet_native = forward(crs, resolved.resolved().resolved_coord);
+        let resolved_outlet_native = forward(crs, resolved.resolved().resolved_coord());
         let flow_dir_overlap = prove_overlap(
             &search_session,
             &raster_source,
@@ -2176,7 +2176,7 @@ fn execute_staged_seam_carve() {
             flow_dir_grid,
             flow_dir_prediction,
             resolved_outlet_native,
-            resolved.resolved().unit_id.get(),
+            resolved.resolved().unit_id().get(),
         );
         let flow_acc_overlap = prove_overlap(
             &search_session,
@@ -2186,7 +2186,7 @@ fn execute_staged_seam_carve() {
             flow_acc_grid,
             flow_acc_prediction,
             resolved_outlet_native,
-            resolved.resolved().unit_id.get(),
+            resolved.resolved().unit_id().get(),
         );
         if matches!(&flow_dir_overlap, OverlapAttempt::LocalizationFailure)
             || matches!(&flow_acc_overlap, OverlapAttempt::LocalizationFailure)
@@ -2239,7 +2239,7 @@ fn execute_staged_seam_carve() {
 
     let carve_start = concrete_decorator.snapshot();
     let (snap_id, weight, mainstem_status, distance_m, candidates_considered) =
-        match &resolved.resolved().method {
+        match resolved.resolved().method() {
             ResolutionMethod::Snap {
                 strategy,
                 snap_id,
@@ -2281,7 +2281,7 @@ fn execute_staged_seam_carve() {
         .expect("selected-candidate upstream traversal should succeed");
     assert_eq!(
         upstream.terminal(),
-        resolved.resolved().unit_id,
+        resolved.resolved().unit_id(),
         "traversal terminal must equal the resolved unit"
     );
     let upstream_count = upstream.upstream().unit_ids().len();
@@ -2713,14 +2713,14 @@ fn execute_staged_seam_carve() {
     let total_flow_acc = flow_acc_pixels as f64;
     let evidence = Evidence {
         input_coord: [
-            resolved.resolved().input_coord.lon,
-            resolved.resolved().input_coord.lat,
+            resolved.resolved().input_coord().lon,
+            resolved.resolved().input_coord().lat,
         ],
         resolved_coord: [
-            resolved.resolved().resolved_coord.lon,
-            resolved.resolved().resolved_coord.lat,
+            resolved.resolved().resolved_coord().lon,
+            resolved.resolved().resolved_coord().lat,
         ],
-        resolved_terminal_id: resolved.resolved().unit_id.get(),
+        resolved_terminal_id: resolved.resolved().unit_id().get(),
         snap: SnapEvidence {
             method: "Snap",
             strategy: "WeightFirst",
@@ -2773,7 +2773,7 @@ fn execute_staged_seam_carve() {
                 .map(|(_, coordinate)| *coordinate)
                 .collect(),
             selected_candidate_input_coord,
-            selected_resolved_terminal_id: resolved.resolved().unit_id.get(),
+            selected_resolved_terminal_id: resolved.resolved().unit_id().get(),
         },
         terminal_windows,
         overlap: OverlapEvidence {

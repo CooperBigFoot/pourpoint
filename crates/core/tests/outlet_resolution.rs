@@ -19,7 +19,7 @@ use tempfile::TempDir;
 use pourpoint_core::algo::coord::GeoCoord;
 use pourpoint_core::resolve_outlet;
 use pourpoint_core::resolver::{
-    OutletResolutionError, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
+    OutletResolution, OutletResolutionError, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
 };
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
@@ -405,11 +405,13 @@ fn snap_happy_path() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2);
+    assert_eq!(result.unit_id().get(), 2);
+    assert!(matches!(&result, OutletResolution::VectorPoint { .. }));
+    assert!(result.vector_coord().is_some());
     assert!(
-        matches!(result.method, ResolutionMethod::Snap { .. }),
+        matches!(result.method(), ResolutionMethod::Snap { .. }),
         "expected Snap method, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -430,7 +432,7 @@ fn snap_nearest_wins() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2, "nearest target should be unit 2");
+    assert_eq!(result.unit_id().get(), 2, "nearest target should be unit 2");
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +471,7 @@ fn snap_weight_tie_break() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         2,
         "higher weight should win tie-break"
     );
@@ -512,7 +514,7 @@ fn snap_mainstem_tie_break() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         2,
         "mainstem should win tie-break over tributary"
     );
@@ -555,11 +557,13 @@ fn pip_happy_path() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2);
+    assert_eq!(result.unit_id().get(), 2);
+    assert!(matches!(&result, OutletResolution::UnitContainment { .. }));
+    assert!(result.vector_coord().is_none());
     assert!(
-        matches!(result.method, ResolutionMethod::PointInPolygon { .. }),
+        matches!(result.method(), ResolutionMethod::PointInPolygon { .. }),
         "expected PointInPolygon method, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -592,17 +596,17 @@ fn pip_upstream_area_tie_break() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2, "higher upstream_area should win");
+    assert_eq!(result.unit_id().get(), 2, "higher upstream_area should win");
     assert!(
         matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::PointInPolygon {
                 tie_break: Some(pourpoint_core::resolver::PipTieBreak::HighestUpstreamArea),
                 ..
             }
         ),
         "expected HighestUpstreamArea tie-break, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -663,12 +667,12 @@ fn dispatch_snap_over_pip() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         1,
         "snap path should return unit 1, not PiP's unit 2"
     );
     assert!(
-        matches!(result.method, ResolutionMethod::Snap { .. }),
+        matches!(result.method(), ResolutionMethod::Snap { .. }),
         "expected Snap method"
     );
 }
@@ -690,11 +694,11 @@ fn dispatch_pip_when_no_snap() {
 
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
-    assert_eq!(result.unit_id.get(), 2);
+    assert_eq!(result.unit_id().get(), 2);
     assert!(
-        matches!(result.method, ResolutionMethod::PointInPolygon { .. }),
+        matches!(result.method(), ResolutionMethod::PointInPolygon { .. }),
         "expected PointInPolygon method, got {:?}",
-        result.method
+        result.method()
     );
 }
 
@@ -732,24 +736,25 @@ fn snap_linestring_target() {
     let result = resolve_outlet(&session, outlet, &config).unwrap();
 
     assert_eq!(
-        result.unit_id.get(),
+        result.unit_id().get(),
         2,
         "should snap to nearest LineString (target 2)"
     );
     assert!(
-        matches!(result.method, ResolutionMethod::Snap { .. }),
+        matches!(result.method(), ResolutionMethod::Snap { .. }),
         "expected Snap method, got {:?}",
-        result.method
+        result.method()
     );
     // Resolved coord should be the projection onto the line, not the input
     assert_ne!(
-        result.resolved_coord, result.input_coord,
+        result.resolved_coord(),
+        result.input_coord(),
         "resolved_coord should differ from input_coord (snapped to line)"
     );
     // The projected point should be near (1.15, 0.2) — the perpendicular drop
     assert!(
-        (result.resolved_coord.lat - 0.2).abs() < 0.001,
+        (result.resolved_coord().lat - 0.2).abs() < 0.001,
         "projected lat should be ~0.2, got {}",
-        result.resolved_coord.lat
+        result.resolved_coord().lat
     );
 }

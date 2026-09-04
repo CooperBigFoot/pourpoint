@@ -6,6 +6,12 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Added
 
+- Added typed vector-point versus unit-only outlet authority, raster seed-kind
+  provenance, and rich vector-cell guard failures with threshold, mapped-cell,
+  and measured-accumulation evidence.
+- Added an ignored, explicitly blessed local-current-HFX MERIT recapture target
+  that rejects stale D8 v1 input and records exact HFX and adapter versions
+  without publishing licensed raster or geometry data.
 - Accepted public R2 custom-domain dataset roots at
   `https://basin-delineations-public.upstream.tech/...`.
 - Reader floor: pourpoint 0.3.0 for the GRIT address offered by this repository,
@@ -18,6 +24,10 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Vector-resolved outlets now remain authoritative through D8 refinement. They
+  quantize only to their unique containing cell and never fall back to raster
+  ranking. Unit-only containment retains the existing deterministic raster
+  candidate rule.
 - Best-effort refinement now distinguishes and carries the first retained
   unreadable D8-family schema. The new public, exhaustive
   `BestEffortSkipReason::UnreadableD8AuxDeclared` variant is a breaking Rust

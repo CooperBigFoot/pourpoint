@@ -24,9 +24,13 @@ collects all contributing units. It then dissolves their polygons.
 ## Optional terminal refinement
 
 When a compatible `hfx.aux.d8_raster.v2` auxiliary is declared, the engine can
-replace the whole terminal unit with a D8-derived terminal sub-polygon at the
-snapped raster cell. This does not assert an exact watershed boundary at the
-input coordinate. See the bounded [D8 compatibility and remote
+replace the whole terminal unit with a D8-derived terminal sub-polygon. A
+vector-resolved outlet maps to exactly its containing cell and never searches
+another branch. That cell must be inside the terminal mask, have defined flow
+direction and accumulation, and meet the threshold. A containment-only outlet
+retains the nearest-center, higher-accumulation raster ranker. This does not
+assert an exact watershed boundary at the input coordinate. See the bounded
+[D8 compatibility and remote
 layout](guide/datasets.md#d8-compatibility-and-remote-layout) section.
 
 Developers can inspect each operation through the [Staged API](guide/staged-api.md).

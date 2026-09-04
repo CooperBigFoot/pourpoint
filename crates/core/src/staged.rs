@@ -1,4 +1,4 @@
-//! Typed intermediates for finest-level staged delineation.
+//! stagedDelineation : GeoCoord → OutletResolution → UpstreamUnits → Watershed
 //!
 //! This module names the intermediate values that the staged engine path passes
 //! between independently callable `Engine` methods.
@@ -345,7 +345,7 @@ pub enum TerminalRefinement {
     },
     /// Refinement produced a terminal geometry override.
     Applied {
-        /// Refined outlet coordinate returned by raster snapping.
+        /// Refined outlet coordinate at the selected raster seed cell center.
         refined_outlet: GeoCoord,
         /// Refined terminal geometry used instead of the whole terminal polygon.
         geometry: ContainedTerminalPolygon,
@@ -371,6 +371,16 @@ impl TerminalRefinement {
             provenance: RefinementProvenance::BestEffortSkipped {
                 strategy: RefinementStrategyName::BestEffortD8IfPresent,
                 why: BestEffortSkipReason::NoD8AuxDeclared,
+            },
+        }
+    }
+
+    /// Construct explicit coarse provenance for unit-only containment without D8.
+    pub fn best_effort_coarse_unit_only_no_d8_aux_declared() -> Self {
+        Self::BestEffortSkipped {
+            provenance: RefinementProvenance::BestEffortSkipped {
+                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+                why: BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
             },
         }
     }

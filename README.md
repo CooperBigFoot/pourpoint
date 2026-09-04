@@ -114,7 +114,10 @@ The live GRIT manifest declares `hfx.aux.d8_raster.v2` in EPSG:8857 with
 `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. See the bounded
 [D8 compatibility and remote layout](docs/guide/datasets.md#d8-compatibility-and-remote-layout)
 section for the released limits. Refinement returns a terminal sub-polygon at
-the snapped raster cell, not a claim of an exact hydrologic boundary.
+one explicit raster seed. A vector-resolved outlet is quantized to its unique
+containing cell and guarded in place. A containment-only outlet uses the fixed
+threshold candidate ranker. This is not a claim of an exact hydrologic
+boundary.
 
 ### Data license and citations
 

@@ -39,9 +39,9 @@ fn hydrobasins_snap_delineates_without_d8_refinement() {
     let resolved = resolve_outlet(&resolver_session, outlet, &ResolverConfig::default())
         .expect("outlet on the HydroRIVERS LineString should resolve");
     assert!(
-        matches!(resolved.method, ResolutionMethod::Snap { .. }),
+        matches!(resolved.method(), ResolutionMethod::Snap { .. }),
         "declared snap data must dispatch to Snap, got {:?}",
-        resolved.method
+        resolved.method()
     );
 
     let engine_session =

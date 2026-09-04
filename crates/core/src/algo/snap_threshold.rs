@@ -1,4 +1,4 @@
-//! Pour-point snap threshold.
+//! threshold : UpstreamCellCount → SnapThreshold
 //!
 //! A newtype wrapping a `u32` pixel count. Source-fabric-specific conversions
 //! (e.g. from MERIT pixel area) are intentionally omitted here; only the
@@ -15,10 +15,10 @@
 pub struct SnapThreshold(u32);
 
 impl SnapThreshold {
-    /// Default snap threshold aligned with the HFX spec (1,000 upstream cells).
+    /// Engine default of 1,000 upstream cells.
     ///
-    /// Used when the caller does not supply an explicit threshold.
-    /// See HFX v0.1 §5: "configurable, default: 1,000 cells".
+    /// Used when the caller does not supply an explicit threshold. HFX declares
+    /// raster units and encoding but leaves this engine policy unspecified.
     pub const DEFAULT: Self = Self(1000);
 
     /// Creates a new threshold from a raw pixel count.

@@ -443,7 +443,7 @@ fn assert_remote_delineation_succeeds(session: DatasetSession) {
         &RefinementOutcome::BestEffortSkipped {
             provenance: RefinementProvenance::BestEffortSkipped {
                 strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
+                why: BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
             },
         },
         "synthetic remote fixture intentionally has no D8 aux"

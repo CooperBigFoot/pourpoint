@@ -1,4 +1,4 @@
-//! Outlet resolution — resolve a user coordinate to a terminal HFX unit ID.
+//! resolve : GeoCoord × SelectedLevel × HFX → OutletResolution
 //!
 //! Two code paths:
 //! - **Snap path** (`snap.parquet` present): nearest-geometry search within a
@@ -193,21 +193,76 @@ pub enum ResolutionMethod {
     },
 }
 
-// ── ResolvedOutlet ────────────────────────────────────────────────────────────
+// ── OutletResolution ─────────────────────────────────────────────────────────
 
-/// The result of a successful outlet resolution.
+/// The single hydrological authority chosen during outlet resolution.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedOutlet {
-    /// The HFX unit ID that the outlet resolved to.
-    pub unit_id: UnitId,
-    /// The original coordinate supplied by the caller.
-    pub input_coord: GeoCoord,
-    /// The coordinate that was actually used for the resolution (may differ
-    /// from `input_coord` after snapping).
-    pub resolved_coord: GeoCoord,
-    /// Provenance: which resolution path was taken and why.
-    pub method: ResolutionMethod,
+pub enum OutletResolution {
+    /// A snap feature chose both the terminal unit and authoritative vector point.
+    VectorPoint {
+        /// The HFX unit ID referenced by the winning snap feature.
+        unit_id: UnitId,
+        /// Original coordinate supplied by the caller.
+        input_coord: GeoCoord,
+        /// Nearest point on the winning snap geometry.
+        vector_coord: GeoCoord,
+        /// Snap-path provenance.
+        method: ResolutionMethod,
+    },
+    /// Point-in-polygon chose a terminal unit without choosing a network point.
+    UnitContainment {
+        /// The containing HFX unit ID.
+        unit_id: UnitId,
+        /// Original coordinate supplied by the caller and retained as the public resolved outlet.
+        input_coord: GeoCoord,
+        /// Containment-path provenance.
+        method: ResolutionMethod,
+    },
 }
+
+impl OutletResolution {
+    /// Return the chosen terminal unit.
+    pub fn unit_id(&self) -> UnitId {
+        match self {
+            Self::VectorPoint { unit_id, .. } | Self::UnitContainment { unit_id, .. } => *unit_id,
+        }
+    }
+
+    /// Return the original caller coordinate.
+    pub fn input_coord(&self) -> GeoCoord {
+        match self {
+            Self::VectorPoint { input_coord, .. } | Self::UnitContainment { input_coord, .. } => {
+                *input_coord
+            }
+        }
+    }
+
+    /// Return the public resolved outlet: vector point when snapped, request point under containment.
+    pub fn resolved_coord(&self) -> GeoCoord {
+        match self {
+            Self::VectorPoint { vector_coord, .. } => *vector_coord,
+            Self::UnitContainment { input_coord, .. } => *input_coord,
+        }
+    }
+
+    /// Return resolution provenance.
+    pub fn method(&self) -> &ResolutionMethod {
+        match self {
+            Self::VectorPoint { method, .. } | Self::UnitContainment { method, .. } => method,
+        }
+    }
+
+    /// Return the authoritative vector point, or `None` for unit-only containment.
+    pub fn vector_coord(&self) -> Option<GeoCoord> {
+        match self {
+            Self::VectorPoint { vector_coord, .. } => Some(*vector_coord),
+            Self::UnitContainment { .. } => None,
+        }
+    }
+}
+
+/// Compatibility name for the outlet resolution result.
+pub type ResolvedOutlet = OutletResolution;
 
 // ── OutletResolutionError ─────────────────────────────────────────────────────
 
@@ -307,6 +362,64 @@ struct ScoredCandidate {
     target: hfx::SnapTarget,
     distance_m: f64,
     nearest_coord: GeoCoord,
+}
+
+trait VectorCandidateRanker {
+    fn rank(&self, candidates: &[ScoredCandidate]) -> Option<usize>;
+}
+
+struct ConfiguredVectorCandidateRanker {
+    strategy: SnapStrategy,
+    distance_tolerance_m: f64,
+}
+
+impl VectorCandidateRanker for ConfiguredVectorCandidateRanker {
+    fn rank(&self, candidates: &[ScoredCandidate]) -> Option<usize> {
+        match self.strategy {
+            SnapStrategy::DistanceFirst => {
+                let minimum = candidates
+                    .iter()
+                    .map(|candidate| candidate.distance_m)
+                    .min_by(f64::total_cmp)?;
+                let limit = minimum + self.distance_tolerance_m;
+                candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| candidate.distance_m <= limit)
+                    .min_by(|(_, a), (_, b)| vector_dominance_order(a, b, false))
+                    .map(|(index, _)| index)
+            }
+            SnapStrategy::WeightFirst => candidates
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| vector_dominance_order(a, b, true))
+                .map(|(index, _)| index),
+        }
+    }
+}
+
+fn vector_dominance_order(
+    a: &ScoredCandidate,
+    b: &ScoredCandidate,
+    include_distance: bool,
+) -> std::cmp::Ordering {
+    let mainstem_rank = |role: Option<StemRole>| match role {
+        Some(StemRole::Mainstem) => 1_u8,
+        _ => 0_u8,
+    };
+    b.target
+        .weight()
+        .get()
+        .total_cmp(&a.target.weight().get())
+        .then_with(|| mainstem_rank(b.target.stem_role()).cmp(&mainstem_rank(a.target.stem_role())))
+        .then_with(|| {
+            if include_distance {
+                a.distance_m.total_cmp(&b.distance_m)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
 }
 
 fn internal_resolver_inconsistency(detail: impl Into<String>) -> OutletResolutionError {
@@ -429,75 +542,15 @@ fn resolve_via_snap_store(
         });
     }
 
-    // 6. Two-step selection with distance tolerance:
-    //    a) Find the minimum distance among all scored candidates.
-    //    b) Restrict to candidates within min_distance + tolerance.
-    //    c) Among those, rank by weight DESC → mainstem DESC → snap_id ASC.
-    let winner = match config.snap_strategy() {
-        SnapStrategy::DistanceFirst => {
-            let tolerance = config.distance_tolerance_m();
-            let min_distance = scored
-                .iter()
-                .map(|c| c.distance_m)
-                .min_by(f64::total_cmp)
-                .ok_or_else(|| {
-                    internal_resolver_inconsistency(
-                        "distance-first snap selection called with no scored candidates",
-                    )
-                })?;
-            let threshold = min_distance + tolerance;
-
-            scored
-                .into_iter()
-                .filter(|c| c.distance_m <= threshold)
-                .min_by(|a, b| {
-                    // Within the tolerance band: rank by weight, mainstem, then id.
-                    // Distance is NOT used here — all candidates in the band are
-                    // treated as equidistant.
-                    b.target
-                        .weight()
-                        .get()
-                        .total_cmp(&a.target.weight().get())
-                        .then_with(|| {
-                            let mainstem_rank = |s: Option<StemRole>| match s {
-                                Some(StemRole::Mainstem) => 1u8,
-                                _ => 0u8,
-                            };
-                            mainstem_rank(b.target.stem_role())
-                                .cmp(&mainstem_rank(a.target.stem_role()))
-                        })
-                        .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
-                })
-                .ok_or_else(|| {
-                    internal_resolver_inconsistency(
-                        "distance-first tolerance band produced no snap winner",
-                    )
-                })?
-        }
-        SnapStrategy::WeightFirst => scored
-            .into_iter()
-            .min_by(|a, b| {
-                b.target
-                    .weight()
-                    .get()
-                    .total_cmp(&a.target.weight().get())
-                    .then_with(|| {
-                        let mainstem_rank = |s: Option<StemRole>| match s {
-                            Some(StemRole::Mainstem) => 1u8,
-                            _ => 0u8,
-                        };
-                        mainstem_rank(b.target.stem_role())
-                            .cmp(&mainstem_rank(a.target.stem_role()))
-                    })
-                    .then_with(|| a.distance_m.total_cmp(&b.distance_m))
-                    .then_with(|| a.target.id().get().cmp(&b.target.id().get()))
-            })
-            .ok_or_else(|| {
-                internal_resolver_inconsistency(
-                    "weight-first snap selection called with no scored candidates",
-                )
-            })?,
+    // 6. Rank only the radius-qualified candidate domain.
+    let ranker = ConfiguredVectorCandidateRanker {
+        strategy: config.snap_strategy(),
+        distance_tolerance_m: config.distance_tolerance_m(),
     };
+    let winner_index = ranker.rank(&scored).ok_or_else(|| {
+        internal_resolver_inconsistency("vector ranker called with no scored candidates")
+    })?;
+    let winner = &scored[winner_index];
 
     // 7. Build result.
     info!(
@@ -507,10 +560,10 @@ fn resolve_via_snap_store(
         "snap resolved outlet"
     );
 
-    Ok(ResolvedOutlet {
+    Ok(OutletResolution::VectorPoint {
         unit_id: winner.target.unit_id(),
         input_coord: outlet,
-        resolved_coord: winner.nearest_coord,
+        vector_coord: winner.nearest_coord,
         method: ResolutionMethod::Snap {
             strategy: config.snap_strategy(),
             snap_id: winner.target.id(),
@@ -630,10 +683,9 @@ fn resolve_via_pip(
             tie_break = ?Option::<PipTieBreak>::None,
             "PiP resolved outlet"
         );
-        return Ok(ResolvedOutlet {
+        return Ok(OutletResolution::UnitContainment {
             unit_id: winner.id(),
             input_coord: outlet,
-            resolved_coord: outlet,
             method: ResolutionMethod::PointInPolygon {
                 candidates_considered: decoded.len(),
                 tie_break: None,
@@ -683,10 +735,9 @@ fn resolve_via_pip(
         "PiP resolved outlet with tie-break"
     );
 
-    Ok(ResolvedOutlet {
+    Ok(OutletResolution::UnitContainment {
         unit_id: winner.id(),
         input_coord: outlet,
-        resolved_coord: outlet,
         method: ResolutionMethod::PointInPolygon {
             candidates_considered: decoded.len(),
             tie_break,
@@ -1032,14 +1083,14 @@ mod tests {
             &ResolverConfig::new().with_snap_strategy(SnapStrategy::DistanceFirst),
         )
         .unwrap();
-        assert_eq!(result.unit_id, UnitId::new(1).unwrap());
+        assert_eq!(result.unit_id(), UnitId::new(1).unwrap());
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::DistanceFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx::SnapId::new(11).unwrap()
+            } if *snap_id == hfx::SnapId::new(11).unwrap()
         ));
     }
 
@@ -1083,14 +1134,14 @@ mod tests {
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
         let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.unit_id, UnitId::new(2).unwrap());
+        assert_eq!(result.unit_id(), UnitId::new(2).unwrap());
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::WeightFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx::SnapId::new(22).unwrap()
+            } if *snap_id == hfx::SnapId::new(22).unwrap()
         ));
     }
 
@@ -1134,7 +1185,7 @@ mod tests {
         let config = ResolverConfig::new().with_snap_strategy(SnapStrategy::WeightFirst);
 
         let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.unit_id, UnitId::new(2).unwrap());
+        assert_eq!(result.unit_id(), UnitId::new(2).unwrap());
     }
 
     #[test]
@@ -1178,12 +1229,12 @@ mod tests {
 
         let mainstem_result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
         assert!(matches!(
-            mainstem_result.method,
+            mainstem_result.method(),
             ResolutionMethod::Snap {
                 snap_id,
                 strategy: SnapStrategy::WeightFirst,
                 ..
-            } if snap_id == hfx::SnapId::new(22).unwrap()
+            } if *snap_id == hfx::SnapId::new(22).unwrap()
         ));
 
         let distance_catchments = vec![TestCatchment {
@@ -1216,12 +1267,12 @@ mod tests {
 
         let distance_result = resolve_outlet(&session, GeoCoord::new(0.202, 0.2), &config).unwrap();
         assert!(matches!(
-            distance_result.method,
+            distance_result.method(),
             ResolutionMethod::Snap {
                 snap_id,
                 strategy: SnapStrategy::WeightFirst,
                 ..
-            } if snap_id == hfx::SnapId::new(33).unwrap()
+            } if *snap_id == hfx::SnapId::new(33).unwrap()
         ));
     }
 
@@ -1268,14 +1319,14 @@ mod tests {
             .unwrap();
 
         let result = resolve_outlet(&session, GeoCoord::new(0.2, 0.2), &config).unwrap();
-        assert_eq!(result.unit_id, UnitId::new(1).unwrap());
+        assert_eq!(result.unit_id(), UnitId::new(1).unwrap());
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::DistanceFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx::SnapId::new(11).unwrap()
+            } if *snap_id == hfx::SnapId::new(11).unwrap()
         ));
     }
 
@@ -1328,17 +1379,17 @@ mod tests {
             resolve_outlet(&session, GeoCoord::new(10.0, 45.0), &ResolverConfig::new()).unwrap();
 
         assert_eq!(
-            result.unit_id,
+            result.unit_id(),
             UnitId::new(2).unwrap(),
             "default strategy must pick the mainstem (unit 2), not the coincident tiny stub (unit 1)"
         );
         assert!(matches!(
-            result.method,
+            result.method(),
             ResolutionMethod::Snap {
                 strategy: SnapStrategy::WeightFirst,
                 snap_id,
                 ..
-            } if snap_id == hfx::SnapId::new(22).unwrap()
+            } if *snap_id == hfx::SnapId::new(22).unwrap()
         ));
     }
 }

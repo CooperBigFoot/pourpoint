@@ -104,8 +104,9 @@ impl PyEngine {
     ///     HFX v0.2 contract) or `"distance-first"` (opt-in; use for datasets
     ///     whose weights are not hydrologically rank-meaningful).
     /// snap_threshold:
-    ///     Minimum upstream-pixel count for stream-network snapping. Defaults
-    ///     to 1 000 cells.
+    ///     Upstream-cell threshold used to generate containment-path raster
+    ///     candidates and to guard one vector-authoritative cell. Defaults to
+    ///     1 000 cells.
     /// clean_epsilon:
     ///     Topology-cleaning buffer epsilon in degrees. Defaults to 1e-5 deg.
     /// refine:

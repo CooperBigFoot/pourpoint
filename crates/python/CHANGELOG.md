@@ -11,6 +11,9 @@ per-commit Rust crate versioning).
 
 - Added the top-level `pourpoint.BestEffortSkipReason` export and the typed
   `DelineationResult.refinement_skip_reason` accessor.
+- Added `DelineationResult.refinement_seed_kind` and vector guard evidence
+  properties on `BestEffortSkipReason` while retaining the three existing
+  `TerminalRefinement.status` values.
 
 ## [0.3.0] - 2026-07-31
 

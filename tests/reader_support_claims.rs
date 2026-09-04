@@ -932,7 +932,9 @@ fn grass_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence()
     ));
     assert_encoding_outcome_at(
         &projected_grass_fixture(),
-        json!("applied(lon=0.986445, lat=0.416385)"),
+        json!(
+            "applied(lon=0.986445, lat=0.416385, provenance=Applied { strategy: BuiltInD8, why: RasterOutletRanked { declaration_index: 0 } })"
+        ),
         24986.140564067347,
         json!([13, 1289]),
     );
@@ -1126,7 +1128,9 @@ fn taudem_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence(
     ));
     assert_encoding_outcome(
         "taudem",
-        json!("applied(lon=0.986445, lat=0.416385)"),
+        json!(
+            "applied(lon=0.986445, lat=0.416385, provenance=Applied { strategy: BuiltInD8, why: RasterOutletRanked { declaration_index: 0 } })"
+        ),
         24613.14053443639,
         json!([13, 13]),
     );
@@ -1359,7 +1363,7 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
         .as_str()
         .expect("refinement should be a string")
         .to_owned();
-    assert!(snap_v99_refinement.contains("why: NoD8AuxDeclared"));
+    assert!(snap_v99_refinement.contains("why: CoarseUnitOnlyNoD8AuxDeclared"));
     assert!(!snap_v99_refinement.contains("UnreadableD8AuxDeclared"));
     assert!(!snap_v99_refinement.contains("hfx.aux.snap.v99"));
 
@@ -1379,7 +1383,7 @@ fn auxiliary_schema_claims_have_shipped_cli_evidence() {
     calls_completed += 1;
     assert_eq!(
         json["features"][0]["properties"]["refinement"],
-        "applied(lon=0.986445, lat=0.416385)"
+        "applied(lon=0.986445, lat=0.416385, provenance=Applied { strategy: BuiltInD8, why: RasterOutletRanked { declaration_index: 0 } })"
     );
 
     assert_eq!(calls_completed, 11, "all shipped CLI calls must complete");
