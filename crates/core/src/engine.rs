@@ -20,13 +20,13 @@ use crate::assembly::{AssemblyOptions, assemble_from_geometries};
 use crate::error::SessionError;
 use crate::reader::catchment_store::CatchmentGeometryQueryError;
 use crate::refinement::{
-    D8RasterRefinementStrategy, D8RefinementPantry, RefinementProvenance,
-    TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
-    TerminalRefinementStrategy, best_effort_skip_reason,
+    AppliedRefinementProvenance, BestEffortRefinementProvenance, D8RasterRefinementStrategy,
+    D8RefinementPantry, TerminalRefinementDecision, TerminalRefinementError,
+    TerminalRefinementInput, TerminalRefinementStrategy, best_effort_skip_reason,
 };
 use crate::resolver::{
     OutletResolutionError, ResolutionMethod, ResolverConfig,
-    resolve_outlet_at_level as resolve_outlet_in_resolver_at_level,
+    resolve_outlet_authority_at_level as resolve_outlet_in_resolver_at_level,
 };
 use crate::session::DatasetSession;
 use crate::staged::{
@@ -46,12 +46,12 @@ pub enum RefinementOutcome {
         /// The refined outlet coordinate at the selected raster seed cell center.
         refined_outlet: GeoCoord,
         /// Provenance explaining why refinement ran.
-        provenance: RefinementProvenance,
+        provenance: AppliedRefinementProvenance,
     },
     /// Best-effort refinement was visibly skipped.
     BestEffortSkipped {
         /// Provenance explaining why refinement was skipped.
-        provenance: RefinementProvenance,
+        provenance: BestEffortRefinementProvenance,
     },
     /// Refinement was disabled by the caller.
     Disabled,
@@ -731,7 +731,7 @@ impl Engine {
     /// | [`EngineError::PreMergeCatchmentFetch`] | The pre-merge collection does not contain its terminal record |
     /// | [`EngineError::RasterLocalize`] | Remote rasters cannot be materialized locally |
     /// | [`EngineError::Refinement`] | Raster seed selection or the terminal geometry fails |
-    pub fn refine_terminal_placeholder(
+    pub fn refine_terminal(
         &self,
         resolved: &LevelResolvedOutlet,
         units: &PreMergeDrainageUnits,
@@ -824,6 +824,21 @@ impl Engine {
         terminal_refinement_from_decision(decision, options.refinement_mode, terminal)
     }
 
+    /// Compatibility shim for the former provisional staging method name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Engine::refine_terminal`].
+    #[deprecated(note = "use Engine::refine_terminal")]
+    pub fn refine_terminal_placeholder(
+        &self,
+        resolved: &LevelResolvedOutlet,
+        units: &PreMergeDrainageUnits,
+        options: &DelineationOptions,
+    ) -> Result<TerminalRefinement, EngineError> {
+        self.refine_terminal(resolved, units, options)
+    }
+
     /// Dissolve pre-merge drainage-unit geometries into the final watershed.
     ///
     /// When terminal refinement supplies an applied override, the whole
@@ -906,7 +921,7 @@ impl Engine {
             terminal_unit_id: resolved.resolved().unit_id(),
             input_outlet: resolved.resolved().input_coord(),
             resolved_outlet: resolved.resolved().resolved_coord(),
-            resolution_method: resolved.resolved().method().clone(),
+            resolution_method: resolved.resolved().method(),
             upstream_unit_ids: upstream.upstream().unit_ids().to_vec(),
             upstream_units: units
                 .units()
@@ -954,8 +969,7 @@ impl Engine {
         let pre_merge = self.produce_pre_merge_units(&same_level_upstream)?;
 
         // Step 3: Try refinement
-        let terminal_refinement =
-            self.refine_terminal_placeholder(&level_resolved, &pre_merge, options)?;
+        let terminal_refinement = self.refine_terminal(&level_resolved, &pre_merge, options)?;
 
         // Step 4: Assembly
         let dissolved = {
@@ -1247,6 +1261,8 @@ mod tests {
         UndefinedAccumulation,
         OutsideTerminalMask,
         UndefinedFlowDirection,
+        GrassTerminalZero,
+        GrassSignedExit,
         OutsideRasterWindow,
     }
 
@@ -1259,12 +1275,22 @@ mod tests {
         ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
             let mut values = [0_u8; 25];
             values[2 * 5 + 1] = 4;
-            values[2 * 5 + 2] = if matches!(self, Self::UndefinedFlowDirection) {
-                0
-            } else {
-                4
+            values[2 * 5 + 2] = match self {
+                Self::UndefinedFlowDirection | Self::GrassTerminalZero => 0,
+                Self::GrassSignedExit => (-2_i8) as u8,
+                _ => 4,
             };
             values[2 * 5 + 4] = 4;
+            if matches!(self, Self::GrassSignedExit) {
+                let raw = RasterTile::from_vec(
+                    values.to_vec(),
+                    GridDims::new(5, 5),
+                    (-128_i8) as u8,
+                    test_raster_geo(),
+                )
+                .expect("signed GRASS fixture tile should construct");
+                return FlowDirectionTile::from_raw(raw, encoding).map_err(RasterSourceError::from);
+            }
             Ok(make_flow_tile(&values, encoding))
         }
 
@@ -1304,10 +1330,10 @@ mod tests {
         assert_eq!(
             result.refinement(),
             &RefinementOutcome::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped {
-                    strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                    why: crate::refinement::BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
-                },
+                provenance: BestEffortRefinementProvenance::new(
+                    RefinementStrategyName::BestEffortD8IfPresent,
+                    crate::refinement::BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared
+                ),
             },
             "no D8 aux registered -> visible best-effort skip"
         );
@@ -1508,12 +1534,12 @@ mod tests {
         };
         assert_eq!(
             provenance,
-            &RefinementProvenance::Applied {
-                strategy: RefinementStrategyName::BuiltInD8,
-                why: crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
+            &AppliedRefinementProvenance::new(
+                RefinementStrategyName::BuiltInD8,
+                crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
                     declaration_index: 0,
-                },
-            }
+                }
+            )
         );
 
         assert_eq!(result.resolved_outlet(), GeoCoord::new(2.0, -2.5));
@@ -1555,10 +1581,58 @@ mod tests {
                 geometry: crate::testutil::TestSnapGeometry::Point(vector_x, -2.5),
             }])
             .build();
+        if matches!(
+            fixture,
+            VectorGuardFixture::GrassTerminalZero | VectorGuardFixture::GrassSignedExit
+        ) {
+            let manifest_path = root.join("manifest.json");
+            let mut manifest: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&manifest_path).expect("fixture manifest should read"),
+            )
+            .expect("fixture manifest should be JSON");
+            let d8 = manifest["auxiliary"]
+                .as_array_mut()
+                .expect("fixture auxiliary should be an array")
+                .iter_mut()
+                .find(|entry| entry["schema"] == "hfx.aux.d8_raster.v2")
+                .expect("fixture should declare D8 v2");
+            d8["metadata"]["flow_dir_encoding"] = serde_json::Value::String("grass".to_owned());
+            std::fs::write(
+                &manifest_path,
+                serde_json::to_vec_pretty(&manifest).expect("fixture manifest should encode"),
+            )
+            .expect("fixture manifest should write");
+        }
         copy_valid_d8_fixture_tiffs(&root);
         let session = DatasetSession::open_path(&root).expect("guard fixture should open");
         let engine = Engine::builder(session).with_raster_source(fixture).build();
         (dir, engine, outlet)
+    }
+
+    #[test]
+    fn valid_grass_terminal_vector_cells_apply_under_both_refinement_policies() {
+        for fixture in [
+            VectorGuardFixture::GrassTerminalZero,
+            VectorGuardFixture::GrassSignedExit,
+        ] {
+            let (_dir, engine, outlet) = vector_guard_engine(fixture);
+            let options =
+                DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
+            for mode in [RefinementMode::BestEffort, RefinementMode::RequireD8] {
+                let result = engine
+                    .delineate(outlet, &options.clone().with_refinement_mode(mode))
+                    .expect("valid GRASS terminal vector cell should refine");
+                let RefinementOutcome::Applied { provenance, .. } = result.refinement() else {
+                    panic!("valid GRASS terminal vector cell should produce an applied carve");
+                };
+                assert_eq!(
+                    provenance.why(),
+                    &crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
+                        declaration_index: 0,
+                    }
+                );
+            }
+        }
     }
 
     #[test]
@@ -1582,13 +1656,13 @@ mod tests {
                 VectorGuardFixture::OutsideTerminalMask,
                 VectorOutletGuardFailureKind::OutsideTerminalMask,
                 Some(GridCoord::new(2, 4)),
-                None,
+                Some(800.0),
             ),
             (
                 VectorGuardFixture::UndefinedFlowDirection,
                 VectorOutletGuardFailureKind::UndefinedFlowDirection,
                 Some(GridCoord::new(2, 2)),
-                None,
+                Some(800.0),
             ),
         ];
 
@@ -1615,17 +1689,17 @@ mod tests {
             assert_eq!(
                 best_effort.refinement(),
                 &RefinementOutcome::BestEffortSkipped {
-                    provenance: RefinementProvenance::BestEffortSkipped {
-                        strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                        why: BestEffortSkipReason::VectorOutletGuardFailed {
+                    provenance: BestEffortRefinementProvenance::new(
+                        RefinementStrategyName::BestEffortD8IfPresent,
+                        BestEffortSkipReason::VectorOutletGuardFailed {
                             kind,
                             requested_threshold: SnapThreshold::new(500),
                             effective_threshold: 500.0,
                             units: FlowAccumulationUnits::Cells,
                             mapped_cell,
                             measured_accumulation,
-                        },
-                    },
+                        }
+                    ),
                 }
             );
 
@@ -1661,17 +1735,17 @@ mod tests {
         assert_eq!(
             result.refinement(),
             &RefinementOutcome::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped {
-                    strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                    why: BestEffortSkipReason::VectorOutletGuardFailed {
+                provenance: BestEffortRefinementProvenance::new(
+                    RefinementStrategyName::BestEffortD8IfPresent,
+                    BestEffortSkipReason::VectorOutletGuardFailed {
                         kind: VectorOutletGuardFailureKind::GridMapping,
                         requested_threshold: SnapThreshold::new(500),
                         effective_threshold: 500.0,
                         units: FlowAccumulationUnits::Cells,
                         mapped_cell: None,
                         measured_accumulation: None,
-                    },
-                },
+                    }
+                ),
             }
         );
         let required = engine

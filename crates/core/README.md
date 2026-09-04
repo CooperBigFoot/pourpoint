@@ -58,7 +58,7 @@ pub fn produce_pre_merge_units(
     upstream: &SameLevelUpstreamUnits,
 ) -> Result<PreMergeDrainageUnits, EngineError>;
 
-pub fn refine_terminal_placeholder(
+pub fn refine_terminal(
     &self,
     resolved: &LevelResolvedOutlet,
     units: &PreMergeDrainageUnits,
@@ -166,8 +166,8 @@ current runtime surface.
 
 Outlet resolution is authoritative. A snap feature produces a vector point;
 refinement only quantizes it to the unique half-open containing cell. That cell
-must be in the terminal mask, have decoded flow direction and defined
-accumulation, and meet the effective threshold. Any failed conjunct produces a
+must be in the terminal mask, have defined D8 semantics (a direction or valid
+GRASS terminal), have defined accumulation, and meet the effective threshold. Any failed conjunct produces a
 rich coarse result in best-effort mode or a precise error in require-D8 mode.
 Refinement never routes vector authority to the raster ranker. Point-in-polygon
 resolution produces unit-only authority, for which the unchanged raster ranker

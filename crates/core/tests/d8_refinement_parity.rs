@@ -10,8 +10,8 @@ use pourpoint_core::algo::{Crs, canonical_wkb_multi_polygon, forward};
 use pourpoint_core::session::DatasetSession;
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
 use pourpoint_core::{
-    AppliedRefinementReason, DelineationOptions, Engine, LevelSelection, PreMergeDrainageUnit,
-    PreMergeDrainageUnits, RefinementMode, RefinementOutcome, RefinementProvenance,
+    AppliedRefinementProvenance, AppliedRefinementReason, DelineationOptions, Engine,
+    LevelSelection, PreMergeDrainageUnit, PreMergeDrainageUnits, RefinementMode, RefinementOutcome,
     RefinementStrategyName, ResolutionMethod, ResolverConfig, SearchRadiusMetres,
     TerminalRefinement,
 };
@@ -174,12 +174,12 @@ fn projected_grass_offline_golden_is_applied_and_stable() {
     );
     assert_eq!(
         provenance,
-        &RefinementProvenance::Applied {
-            strategy: RefinementStrategyName::BuiltInD8,
-            why: AppliedRefinementReason::RasterOutletRanked {
+        &AppliedRefinementProvenance::new(
+            RefinementStrategyName::BuiltInD8,
+            AppliedRefinementReason::RasterOutletRanked {
                 declaration_index: 0,
-            },
-        }
+            }
+        )
     );
 
     let staged = capture_projected_grass(outlet);
@@ -246,12 +246,12 @@ fn v021_synthetic_d8_refinement_matches_m1_b_golden() {
                     .expect("refined golden should contain a refined outlet");
                 GeoCoord::new(refined.lon, refined.lat)
             },
-            provenance: RefinementProvenance::Applied {
-                strategy: RefinementStrategyName::BuiltInD8,
-                why: AppliedRefinementReason::RasterOutletRanked {
+            provenance: AppliedRefinementProvenance::new(
+                RefinementStrategyName::BuiltInD8,
+                AppliedRefinementReason::RasterOutletRanked {
                     declaration_index: 0,
-                },
-            },
+                }
+            ),
         }
     );
 }
@@ -285,7 +285,7 @@ fn applied_d8_carve_replaces_whole_terminal_in_final_dissolve() {
         .geometry();
 
     let refinement = engine
-        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .refine_terminal(&resolved, &pre_merge, &options)
         .expect("D8 refinement should apply");
     let TerminalRefinement::Applied { geometry, .. } = &refinement else {
         panic!("expected applied D8 refinement, got {refinement:?}");
@@ -397,7 +397,7 @@ fn capture_projected_grass(outlet: GeoCoord) -> ProjectedGrassCapture {
         .bounding_rect()
         .expect("projected terminal geometry should have a bbox");
     let refinement = engine
-        .refine_terminal_placeholder(&resolved, &pre_merge, &options)
+        .refine_terminal(&resolved, &pre_merge, &options)
         .expect("projected D8 refinement should apply");
     let TerminalRefinement::Applied {
         refined_outlet,
@@ -409,12 +409,12 @@ fn capture_projected_grass(outlet: GeoCoord) -> ProjectedGrassCapture {
     };
     assert_eq!(
         provenance,
-        RefinementProvenance::Applied {
-            strategy: RefinementStrategyName::BuiltInD8,
-            why: AppliedRefinementReason::RasterOutletRanked {
+        AppliedRefinementProvenance::new(
+            RefinementStrategyName::BuiltInD8,
+            AppliedRefinementReason::RasterOutletRanked {
                 declaration_index: 0,
-            },
-        }
+            }
+        )
     );
     let native_carve = project_to_epsg8857(geometry.polygon());
     let raw_count = native_carve.unsigned_area() / 1_000_000.0;

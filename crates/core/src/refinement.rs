@@ -54,6 +54,10 @@ impl From<&OutletResolution> for OutletAuthority {
 }
 
 /// Terminal-only input for a refinement strategy.
+///
+/// The former `resolved_outlet: GeoCoord` field is replaced by
+/// [`Self::outlet_authority`]. Custom strategies must select the vector or
+/// unit-only variant explicitly so refinement cannot silently resolve again.
 #[derive(Debug, Clone, Copy)]
 pub struct TerminalRefinementInput<'a> {
     /// Terminal drainage-unit ID.
@@ -114,10 +118,10 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
 
         let Some(raster_source) = pantry.raster_source else {
             return Ok(TerminalRefinementDecision::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped {
-                    strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                    why: BestEffortSkipReason::NoRasterSourceProvided,
-                },
+                provenance: BestEffortRefinementProvenance::new(
+                    RefinementStrategyName::BestEffortD8IfPresent,
+                    BestEffortSkipReason::NoRasterSourceProvided,
+                ),
             });
         };
 
@@ -223,9 +227,9 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
         Ok(TerminalRefinementDecision::Applied {
             refined_outlet,
             geometry,
-            provenance: RefinementProvenance::Applied {
-                strategy: RefinementStrategyName::BuiltInD8,
-                why: match seed_kind {
+            provenance: AppliedRefinementProvenance::new(
+                RefinementStrategyName::BuiltInD8,
+                match seed_kind {
                     RasterSeedKind::VectorQuantized => {
                         AppliedRefinementReason::VectorOutletQuantized {
                             declaration_index: handle.declaration_index(),
@@ -235,7 +239,7 @@ impl TerminalRefinementStrategy for D8RasterRefinementStrategy {
                         declaration_index: handle.declaration_index(),
                     },
                 },
-            },
+            ),
         })
     }
 }
@@ -401,6 +405,74 @@ impl ContainedTerminalPolygon {
     }
 }
 
+/// Provenance that can only accompany an applied terminal refinement.
+#[derive(Clone, PartialEq, Eq)]
+pub struct AppliedRefinementProvenance {
+    strategy: RefinementStrategyName,
+    why: AppliedRefinementReason,
+}
+
+impl AppliedRefinementProvenance {
+    /// Construct applied provenance from one strategy and seed rule.
+    pub fn new(strategy: RefinementStrategyName, why: AppliedRefinementReason) -> Self {
+        Self { strategy, why }
+    }
+
+    /// Return the strategy that produced the carve.
+    pub fn strategy(&self) -> RefinementStrategyName {
+        self.strategy
+    }
+
+    /// Return the applied seed rule.
+    pub fn why(&self) -> &AppliedRefinementReason {
+        &self.why
+    }
+}
+
+impl std::fmt::Debug for AppliedRefinementProvenance {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Applied")
+            .field("strategy", &self.strategy)
+            .field("why", &self.why)
+            .finish()
+    }
+}
+
+/// Provenance that can only accompany a best-effort coarse result.
+#[derive(Clone, PartialEq)]
+pub struct BestEffortRefinementProvenance {
+    strategy: RefinementStrategyName,
+    why: BestEffortSkipReason,
+}
+
+impl BestEffortRefinementProvenance {
+    /// Construct skip provenance from one strategy and typed reason.
+    pub fn new(strategy: RefinementStrategyName, why: BestEffortSkipReason) -> Self {
+        Self { strategy, why }
+    }
+
+    /// Return the strategy that was attempted.
+    pub fn strategy(&self) -> RefinementStrategyName {
+        self.strategy
+    }
+
+    /// Return the typed reason the terminal stayed coarse.
+    pub fn why(&self) -> &BestEffortSkipReason {
+        &self.why
+    }
+}
+
+impl std::fmt::Debug for BestEffortRefinementProvenance {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BestEffortSkipped")
+            .field("strategy", &self.strategy)
+            .field("why", &self.why)
+            .finish()
+    }
+}
+
 /// Strategy-level decision before engine policy is applied.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TerminalRefinementDecision {
@@ -411,16 +483,22 @@ pub enum TerminalRefinementDecision {
         /// Refined terminal geometry.
         geometry: ContainedTerminalPolygon,
         /// Provenance explaining why refinement ran.
-        provenance: RefinementProvenance,
+        provenance: AppliedRefinementProvenance,
     },
     /// Best-effort refinement was visibly skipped.
     BestEffortSkipped {
         /// Provenance explaining why refinement was skipped.
-        provenance: RefinementProvenance,
+        provenance: BestEffortRefinementProvenance,
     },
 }
 
-/// Provenance for the terminal refinement stage.
+/// Legacy aggregate provenance retained for migration and serialized records.
+///
+/// Live refinement outcomes use [`AppliedRefinementProvenance`] or
+/// [`BestEffortRefinementProvenance`] so status and provenance cannot disagree.
+#[deprecated(
+    note = "use AppliedRefinementProvenance or BestEffortRefinementProvenance with the matching outcome variant"
+)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum RefinementProvenance {
     /// Refinement was disabled by caller policy.
@@ -453,6 +531,15 @@ pub enum RefinementStrategyName {
 /// Reasons an applied refinement ran.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppliedRefinementReason {
+    /// Legacy applied reason emitted before seed authority was distinguished.
+    ///
+    /// New engine results emit [`Self::VectorOutletQuantized`] or
+    /// [`Self::RasterOutletRanked`]. This variant is retained for source migration.
+    #[deprecated(note = "match VectorOutletQuantized or RasterOutletRanked instead")]
+    D8AuxMatchedTerminalBbox {
+        /// Zero-based declaration index in manifest order.
+        declaration_index: usize,
+    },
     /// An authoritative vector point was mapped to its unique containing cell.
     VectorOutletQuantized {
         /// Zero-based declaration index in manifest order.

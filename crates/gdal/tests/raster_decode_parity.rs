@@ -781,7 +781,7 @@ fn remote_four_tile_localization_preserves_source_placement_and_gdal_engine_pari
         .produce_pre_merge_units(&upstream)
         .expect("projected pre-merge units should materialize");
     let refinement = engine
-        .refine_terminal_placeholder(&resolved, &units, &options)
+        .refine_terminal(&resolved, &units, &options)
         .expect("required projected D8 refinement should complete");
     assert!(
         matches!(&refinement, TerminalRefinement::Applied { .. }),
@@ -972,7 +972,7 @@ fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
         &flow_dir.path().to_string_lossy(),
         &flow_acc.path().to_string_lossy(),
         &native_terminal,
-        native_outlet,
+        RasterOutlet::UnitOnly(native_outlet),
         SnapThreshold::new(500),
         FlowAccumulationUnits::Km2,
         8857_u32,
@@ -984,7 +984,7 @@ fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
         &flow_dir.path().to_string_lossy(),
         &flow_acc.path().to_string_lossy(),
         &native_terminal,
-        native_outlet,
+        RasterOutlet::UnitOnly(native_outlet),
         SnapThreshold::new(500),
         FlowAccumulationUnits::Km2,
         8857_u32,
@@ -1014,7 +1014,7 @@ fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
         &differential_flow_dir.to_string_lossy(),
         &flow_acc.path().to_string_lossy(),
         &native_terminal,
-        native_outlet,
+        RasterOutlet::UnitOnly(native_outlet),
         SnapThreshold::new(500),
         FlowAccumulationUnits::Km2,
         8857_u32,
@@ -1026,7 +1026,7 @@ fn projected_grass_declaration_drives_gdal_and_changes_geometry() {
         &differential_flow_dir.to_string_lossy(),
         &flow_acc.path().to_string_lossy(),
         &native_terminal,
-        native_outlet,
+        RasterOutlet::UnitOnly(native_outlet),
         SnapThreshold::new(500),
         FlowAccumulationUnits::Km2,
         8857_u32,

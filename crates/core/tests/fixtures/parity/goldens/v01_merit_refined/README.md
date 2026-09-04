@@ -1,9 +1,11 @@
 # Oracle C - merit-basins/0.1.0 Refined Goldens
 
 > **Archived evidence:** Oracle C is an immutable HFX v0.1 capture. Its public
-> source was intentionally deleted because MERIT redistribution is prohibited.
-> PR #72 and commit `60e4a55` record that decision; both historical manifest URLs
-> now return 404. The old harness at commit `b25575f` is implementation history,
+> source was intentionally deleted because this project did not hold the rights
+> needed to redistribute that hosted MERIT-derived dataset. PR #72 and commit
+> `60e4a55` record that decision; both historical manifest URLs now return 404.
+> Upstream source components have their own conditional licenses; this statement
+> describes only this project's rights for the former hosted artifact. The old harness at commit `b25575f` is implementation history,
 > not a supported network route. Do not refresh this file or claim an outage.
 
 These goldens are captured from:

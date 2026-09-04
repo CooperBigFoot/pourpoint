@@ -2249,7 +2249,7 @@ fn execute_staged_seam_carve() {
                 candidates_considered,
             } => {
                 assert_eq!(
-                    *strategy,
+                    strategy,
                     SnapStrategy::WeightFirst,
                     "default resolver must use weight-first snapping"
                 );
@@ -2259,19 +2259,19 @@ fn execute_staged_seam_carve() {
                     "runtime snap weight must be finite and non-negative"
                 );
                 assert!(
-                    distance_m.is_finite() && (0.0..=1_000.0).contains(distance_m),
+                    distance_m.is_finite() && (0.0..=1_000.0).contains(&distance_m),
                     "runtime snap distance must be finite and within 0..=1000 metres"
                 );
                 assert!(
-                    *candidates_considered > 0,
+                    candidates_considered > 0,
                     "runtime snap must consider at least one candidate"
                 );
                 (
                     snap_id.get(),
                     weight.get(),
                     mainstem_status.map(|status| status.to_string()),
-                    *distance_m,
-                    *candidates_considered,
+                    distance_m,
+                    candidates_considered,
                 )
             }
             other => panic!("selected candidate must resolve through Snap, got {other:?}"),
@@ -2289,7 +2289,7 @@ fn execute_staged_seam_carve() {
         .produce_pre_merge_units(&upstream)
         .expect("selected-candidate pre-merge units should materialize");
     let refinement = engine
-        .refine_terminal_placeholder(
+        .refine_terminal(
             &resolved,
             &units,
             &DelineationOptions::default().with_refinement_mode(RefinementMode::RequireD8),

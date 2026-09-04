@@ -23,7 +23,7 @@
 //!     upstream: &SameLevelUpstreamUnits,
 //! ) -> Result<PreMergeDrainageUnits, EngineError>;
 //!
-//! pub fn refine_terminal_placeholder(
+//! pub fn refine_terminal(
 //!     &self,
 //!     resolved: &LevelResolvedOutlet,
 //!     units: &PreMergeDrainageUnits,
@@ -68,9 +68,10 @@ use hfx::{Level, OutletCoord, UnitId};
 use crate::algo::coord::GeoCoord;
 use crate::algo::{AreaKm2, UpstreamUnits};
 use crate::refinement::{
-    BestEffortSkipReason, ContainedTerminalPolygon, RefinementProvenance, RefinementStrategyName,
+    AppliedRefinementProvenance, BestEffortRefinementProvenance, BestEffortSkipReason,
+    ContainedTerminalPolygon, RefinementStrategyName,
 };
-use crate::resolver::ResolvedOutlet;
+use crate::resolver::OutletResolution;
 
 /// Selects the HFX drainage-unit level used for the staged delineation run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,12 +134,12 @@ impl From<bool> for RefinementMode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LevelResolvedOutlet {
     selected_level: SelectedLevel,
-    resolved: ResolvedOutlet,
+    resolved: OutletResolution,
 }
 
 impl LevelResolvedOutlet {
     /// Construct a level-resolved outlet after the resolver stage has constrained it.
-    pub(crate) fn new(selected_level: SelectedLevel, resolved: ResolvedOutlet) -> Self {
+    pub(crate) fn new(selected_level: SelectedLevel, resolved: OutletResolution) -> Self {
         Self {
             selected_level,
             resolved,
@@ -151,7 +152,7 @@ impl LevelResolvedOutlet {
     }
 
     /// Return the resolved outlet payload.
-    pub fn resolved(&self) -> &ResolvedOutlet {
+    pub fn resolved(&self) -> &OutletResolution {
         &self.resolved
     }
 }
@@ -341,7 +342,7 @@ pub enum TerminalRefinement {
     /// Best-effort refinement was visibly skipped.
     BestEffortSkipped {
         /// Provenance explaining why refinement was skipped.
-        provenance: RefinementProvenance,
+        provenance: BestEffortRefinementProvenance,
     },
     /// Refinement produced a terminal geometry override.
     Applied {
@@ -350,7 +351,7 @@ pub enum TerminalRefinement {
         /// Refined terminal geometry used instead of the whole terminal polygon.
         geometry: ContainedTerminalPolygon,
         /// Provenance explaining why refinement ran.
-        provenance: RefinementProvenance,
+        provenance: AppliedRefinementProvenance,
     },
 }
 
@@ -358,30 +359,30 @@ impl TerminalRefinement {
     /// Construct a visible best-effort skip for a classified D8-path failure.
     pub fn best_effort_skipped(why: BestEffortSkipReason) -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
                 why,
-            },
+            ),
         }
     }
 
     /// Construct a visible best-effort skip for missing D8 declarations.
     pub fn best_effort_no_d8_aux_declared() -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoD8AuxDeclared,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::NoD8AuxDeclared,
+            ),
         }
     }
 
     /// Construct explicit coarse provenance for unit-only containment without D8.
     pub fn best_effort_coarse_unit_only_no_d8_aux_declared() -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
+            ),
         }
     }
 
@@ -393,10 +394,10 @@ impl TerminalRefinement {
     /// Construct a visible best-effort skip for a missing raster source.
     pub fn best_effort_no_raster_source_provided() -> Self {
         Self::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::NoRasterSourceProvided,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::NoRasterSourceProvided,
+            ),
         }
     }
 }

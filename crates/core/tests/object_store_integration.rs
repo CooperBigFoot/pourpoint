@@ -25,7 +25,7 @@ use pourpoint_core::refinement::{BestEffortSkipCategory, BestEffortSkipSource};
 use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::testutil::{bbox_struct_array, bbox_struct_field};
 use pourpoint_core::{
-    BestEffortSkipReason, Engine, EngineError, RefinementMode, RefinementProvenance,
+    BestEffortRefinementProvenance, BestEffortSkipReason, Engine, EngineError, RefinementMode,
     RefinementStrategyName, SessionError,
 };
 use tempfile::TempDir;
@@ -163,10 +163,10 @@ fn remote_d8_localization_failure_skips_best_effort_and_stays_fatal_when_require
     assert_eq!(
         best_effort.refinement(),
         &RefinementOutcome::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: expected_reason,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                expected_reason
+            ),
         }
     );
     assert_eq!(
@@ -441,10 +441,10 @@ fn assert_remote_delineation_succeeds(session: DatasetSession) {
     assert_eq!(
         result.refinement(),
         &RefinementOutcome::BestEffortSkipped {
-            provenance: RefinementProvenance::BestEffortSkipped {
-                strategy: RefinementStrategyName::BestEffortD8IfPresent,
-                why: BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared,
-            },
+            provenance: BestEffortRefinementProvenance::new(
+                RefinementStrategyName::BestEffortD8IfPresent,
+                BestEffortSkipReason::CoarseUnitOnlyNoD8AuxDeclared
+            ),
         },
         "synthetic remote fixture intentionally has no D8 aux"
     );

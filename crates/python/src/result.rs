@@ -6,7 +6,7 @@ use geo::BoundingRect;
 use pourpoint_core::algo::encode_wkb_multi_polygon;
 use pourpoint_core::engine::DelineationAreaOnlyResult;
 use pourpoint_core::refinement::{
-    AppliedRefinementReason, BestEffortSkipCategory, BestEffortSkipReason, RefinementProvenance,
+    AppliedRefinementReason, BestEffortSkipCategory, BestEffortSkipReason,
 };
 use pourpoint_core::{DelineationResult, RefinementOutcome};
 use pyo3::prelude::*;
@@ -242,12 +242,10 @@ impl PyDelineationResult {
     #[getter]
     fn refinement_skip_reason(&self) -> Option<PyBestEffortSkipReason> {
         match self.inner.refinement() {
-            RefinementOutcome::BestEffortSkipped {
-                provenance: RefinementProvenance::BestEffortSkipped { why, .. },
-            } => Some(PyBestEffortSkipReason::from_reason(why.clone())),
-            RefinementOutcome::Applied { .. }
-            | RefinementOutcome::Disabled
-            | RefinementOutcome::BestEffortSkipped { .. } => None,
+            RefinementOutcome::BestEffortSkipped { provenance } => Some(
+                PyBestEffortSkipReason::from_reason(provenance.why().clone()),
+            ),
+            RefinementOutcome::Applied { .. } | RefinementOutcome::Disabled => None,
         }
     }
 
@@ -447,25 +445,14 @@ impl PyAreaOnlyResult {
 
 fn refinement_seed_kind(refinement: &RefinementOutcome) -> &'static str {
     match refinement {
-        RefinementOutcome::Applied {
-            provenance:
-                RefinementProvenance::Applied {
-                    why: AppliedRefinementReason::VectorOutletQuantized { .. },
-                    ..
-                },
-            ..
-        } => "vector_quantized",
-        RefinementOutcome::Applied {
-            provenance:
-                RefinementProvenance::Applied {
-                    why: AppliedRefinementReason::RasterOutletRanked { .. },
-                    ..
-                },
-            ..
-        } => "raster_ranked",
+        RefinementOutcome::Applied { provenance, .. } => match provenance.why() {
+            AppliedRefinementReason::VectorOutletQuantized { .. } => "vector_quantized",
+            #[allow(deprecated)]
+            AppliedRefinementReason::D8AuxMatchedTerminalBbox { .. }
+            | AppliedRefinementReason::RasterOutletRanked { .. } => "raster_ranked",
+        },
         RefinementOutcome::BestEffortSkipped { .. } => "coarse",
         RefinementOutcome::Disabled => "disabled",
-        RefinementOutcome::Applied { .. } => "unknown",
     }
 }
 

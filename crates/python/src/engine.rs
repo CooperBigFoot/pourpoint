@@ -321,7 +321,7 @@ impl PyEngine {
         let outlet = outlet.inner.clone();
         let units = units.inner.clone();
         let options = self.config.to_delineation_options()?;
-        py.allow_threads(move || engine.refine_terminal_placeholder(&outlet, &units, &options))
+        py.allow_threads(move || engine.refine_terminal(&outlet, &units, &options))
             .map(PyTerminalRefinement::from_inner)
             .map_err(engine_err_to_py)
     }

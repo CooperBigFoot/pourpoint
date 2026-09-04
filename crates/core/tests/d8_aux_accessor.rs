@@ -20,7 +20,7 @@ use pourpoint_core::session::{DatasetSession, RasterKind};
 use pourpoint_core::test_raster_source::LocalTiffRasterSource;
 use pourpoint_core::{
     BestEffortSkipReason, DelineationOptions, Engine, EngineError, RefinementMode,
-    RefinementOutcome, RefinementProvenance, RefinementStrategyName, SessionError,
+    RefinementOutcome, RefinementStrategyName, SessionError,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -1216,12 +1216,12 @@ fn assert_best_effort_skip_and_disabled_geometry(
             best_effort.refinement()
         );
     };
-    let RefinementProvenance::BestEffortSkipped { strategy, why } = provenance else {
-        panic!("BestEffortSkipped outcome should carry skipped provenance");
-    };
-    assert_eq!(*strategy, RefinementStrategyName::BestEffortD8IfPresent);
-    assert_eq!(why, &expected_reason);
-    assert_eq!(why.category(), expected_reason.category());
+    assert_eq!(
+        provenance.strategy(),
+        RefinementStrategyName::BestEffortD8IfPresent
+    );
+    assert_eq!(provenance.why(), &expected_reason);
+    assert_eq!(provenance.why().category(), expected_reason.category());
     assert_eq!(
         canonical_wkb_multi_polygon(best_effort.geometry())
             .expect("BestEffort geometry should canonicalize"),

@@ -65,8 +65,8 @@ POURPOINT_MERIT_RECAPTURE_BLESS=1 \
 cargo test -p pourpoint-gdal --test merit_local_recapture -- --ignored --nocapture
 ```
 
-The former public MERIT capture route was intentionally removed for licensing
-reasons in PR #72 / `60e4a55`; both historical manifests return 404. M1 goldens
+The former public MERIT capture route was intentionally removed because this
+project did not hold redistribution rights for that hosted data (PR #72 / `60e4a55`). Both historical manifests return 404. M1 goldens
 remain immutable offline evidence.
 
 ## Synthetic Refined Raster Fixture
@@ -120,7 +120,8 @@ therefore intentional: pre-merge terminal records can disagree with final
 refined geometry and `area_km2`.
 
 The former network-backed M4 proof is archived. Its public MERIT route was
-intentionally deleted for licensing reasons. It is not a current validation or
+intentionally deleted because this project lacked rights to redistribute the
+hosted dataset. It is not a current validation or
 recapture path. Use `merit_local_recapture` with a licensed local HFX v0.3.0
 build for current vector-quantization evidence.
 

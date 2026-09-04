@@ -26,8 +26,9 @@ collects all contributing units. It then dissolves their polygons.
 When a compatible `hfx.aux.d8_raster.v2` auxiliary is declared, the engine can
 replace the whole terminal unit with a D8-derived terminal sub-polygon. A
 vector-resolved outlet maps to exactly its containing cell and never searches
-another branch. That cell must be inside the terminal mask, have defined flow
-direction and accumulation, and meet the threshold. A containment-only outlet
+another branch. That cell must be inside the terminal mask, have defined D8
+semantics (including valid GRASS sinks and signed coverage exits), have defined
+accumulation, and meet the threshold. A containment-only outlet
 retains the nearest-center, higher-accumulation raster ranker. This does not
 assert an exact watershed boundary at the input coordinate. See the bounded
 [D8 compatibility and remote

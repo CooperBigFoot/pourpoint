@@ -48,12 +48,6 @@ pub enum RasterOutlet {
     UnitOnly(NativeCoord),
 }
 
-impl From<NativeCoord> for RasterOutlet {
-    fn from(value: NativeCoord) -> Self {
-        Self::UnitOnly(value)
-    }
-}
-
 /// The raster seed rule used for an applied carve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RasterSeedKind {
@@ -70,7 +64,7 @@ pub enum VectorOutletGuardFailureKind {
     GridMapping,
     /// The mapped cell is outside the rasterized terminal mask.
     OutsideTerminalMask,
-    /// The mapped cell has no decoded D8 direction.
+    /// The mapped cell has neither a valid D8 direction nor valid terminal semantics.
     UndefinedFlowDirection,
     /// The mapped cell has no raw accumulation value.
     UndefinedAccumulation,
@@ -244,9 +238,9 @@ impl RefinementResult {
 ///
 /// Rasterizes `terminal_polygon` onto the raster grid. Vector authority is mapped
 /// once to its containing usable cell. Unit-only authority uses the existing
-/// threshold candidate ranker. A bare [`NativeCoord`] is accepted for compatibility
-/// and means [`RasterOutlet::UnitOnly`]. The function then masks, traces upstream from the
-/// selected seed, and polygonizes in raster-native coordinates.
+/// threshold candidate ranker. Callers must choose the authority variant
+/// explicitly. The function then masks, traces upstream from the selected seed,
+/// and polygonizes in raster-native coordinates.
 ///
 /// # Errors
 ///
@@ -270,14 +264,13 @@ impl RefinementResult {
 #[instrument(skip(terminal_polygon, outlet, flow_dir, accumulation))]
 pub fn refine_terminal(
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: impl Into<RasterOutlet>,
+    outlet: RasterOutlet,
     flow_dir: FlowDirectionTile<Raw>,
     accumulation: AccumulationTile<Raw>,
     threshold: SnapThreshold,
     flow_accumulation_units: FlowAccumulationUnits,
     epsg: u32,
 ) -> Result<RefinementResult, RefinementError> {
-    let outlet = outlet.into();
     let crs_declaration = format!("EPSG:{epsg}");
     let flow_accumulation_units_declaration = flow_accumulation_units.to_string();
     if !d8_pair_is_compatible(&crs_declaration, &flow_accumulation_units_declaration) {
@@ -354,13 +347,13 @@ pub fn refine_terminal(
             if !catchment_mask.contains(mapped) {
                 return Err(reject(
                     VectorOutletGuardFailureKind::OutsideTerminalMask,
-                    None,
+                    accumulation.get(mapped),
                 ));
             }
-            if flow_dir.get(mapped).is_none() {
+            if flow_dir.decoded_cell(mapped).is_none() {
                 return Err(reject(
                     VectorOutletGuardFailureKind::UndefinedFlowDirection,
-                    None,
+                    accumulation.get(mapped),
                 ));
             }
             let measured = accumulation
@@ -454,7 +447,7 @@ pub fn refine_terminal_from_source(
     flow_dir_uri: &str,
     flow_acc_uri: &str,
     terminal_polygon: &MultiPolygon<f64>,
-    outlet: impl Into<RasterOutlet>,
+    outlet: RasterOutlet,
     threshold: SnapThreshold,
     flow_accumulation_units: FlowAccumulationUnits,
     epsg: u32,
@@ -575,7 +568,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -633,7 +626,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -687,7 +680,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -746,7 +739,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -795,7 +788,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -850,7 +843,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -889,7 +882,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -924,7 +917,7 @@ mod tests {
         // Should succeed: snap finds nearest valid cell
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -956,7 +949,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1008,7 +1001,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1064,7 +1057,7 @@ mod tests {
 
         let result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1102,7 +1095,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1139,7 +1132,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1178,7 +1171,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1214,7 +1207,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1247,7 +1240,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1279,7 +1272,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir,
             accumulation,
             threshold,
@@ -1315,7 +1308,7 @@ mod tests {
 
         let direct_result = refine_terminal(
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             flow_dir_direct,
             accumulation_direct,
             threshold,
@@ -1358,7 +1351,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1426,7 +1419,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1471,7 +1464,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &rect_polygon(0.0, 0.0, 3.0, -3.0),
-            NativeCoord::new(1.5, -1.5),
+            RasterOutlet::UnitOnly(NativeCoord::new(1.5, -1.5)),
             SnapThreshold::new(500),
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1548,7 +1541,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            outlet,
+            RasterOutlet::UnitOnly(outlet),
             threshold,
             FlowAccumulationUnits::Cells,
             4326_u32,
@@ -1638,7 +1631,7 @@ mod tests {
             "flow.tif",
             "acc.tif",
             &terminal_polygon,
-            NativeCoord::new(15.0, -15.0),
+            RasterOutlet::UnitOnly(NativeCoord::new(15.0, -15.0)),
             SnapThreshold::new(1_000),
             FlowAccumulationUnits::Km2,
             8857_u32,
@@ -1672,7 +1665,7 @@ mod tests {
 
         let err = refine_terminal(
             &terminal_polygon,
-            NativeCoord::new(0.5, -0.5),
+            RasterOutlet::UnitOnly(NativeCoord::new(0.5, -0.5)),
             flow_dir,
             accumulation,
             SnapThreshold::new(1),

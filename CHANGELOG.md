@@ -4,6 +4,39 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ## Unreleased
 
+### Rust API migration
+
+- `resolve_outlet` and `resolve_outlet_at_level` remain available as deprecated
+  wrappers returning the original public-field `ResolvedOutlet` struct. New code
+  must use `resolve_outlet_authority` and `resolve_outlet_authority_at_level` to
+  receive the typed `OutletResolution` authority sum.
+- `TerminalRefinementInput.resolved_outlet` is intentionally replaced by
+  `outlet_authority`. Custom strategy implementations must choose
+  `OutletAuthority::VectorPoint(coord)` or `OutletAuthority::UnitOnly(coord)`;
+  implicit coordinate conversion is not supported because it would erase the
+  invariant this release adds.
+- `algo::refine_terminal` and `algo::refine_terminal_from_source` now require
+  an explicit `RasterOutlet`. Replace a former bare `NativeCoord` argument with
+  `RasterOutlet::UnitOnly(coord)` for containment behavior or
+  `RasterOutlet::VectorPoint(coord)` for authoritative vector behavior. The old
+  implicit conversion is intentionally unavailable because it could silently
+  recreate second resolution.
+- `AppliedRefinementReason::D8AuxMatchedTerminalBbox` remains as a deprecated
+  source bridge. Engine-produced results use `VectorOutletQuantized` or
+  `RasterOutletRanked`; exhaustive matches must add those variants.
+- `BestEffortSkipReason` adds `CoarseUnitOnlyNoD8AuxDeclared` and
+  `VectorOutletGuardFailed`. Exhaustive matches must add both. The skip and
+  aggregate provenance types now provide `PartialEq`, not `Eq`, because guard
+  evidence includes raw `f32` accumulation values.
+- `RefinementOutcome`, `TerminalRefinement`, and `TerminalRefinementDecision`
+  now carry `AppliedRefinementProvenance` or
+  `BestEffortRefinementProvenance` in their matching variants. Replace nested
+  `RefinementProvenance::{Applied, BestEffortSkipped}` patterns with the typed
+  wrapper's `strategy()` and `why()` accessors. The aggregate
+  `RefinementProvenance` enum remains deprecated for record migration only.
+- `Engine::refine_terminal` is the stable staged refinement method.
+  `refine_terminal_placeholder` remains as a deprecated forwarding shim.
+
 ### Added
 
 - Added typed vector-point versus unit-only outlet authority, raster seed-kind
@@ -24,6 +57,8 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
+- Vector-cell guarding now accepts HFX GRASS code 0 sinks and signed coverage
+  exits as defined terminal semantics while retaining ESRI code 0 behavior.
 - Vector-resolved outlets now remain authoritative through D8 refinement. They
   quantize only to their unique containing cell and never fall back to raster
   ranking. Unit-only containment retains the existing deterministic raster

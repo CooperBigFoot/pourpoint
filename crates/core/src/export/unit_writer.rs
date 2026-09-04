@@ -359,7 +359,7 @@ mod unit_bundle_writer_tests {
         UnitBundleSpatialSortKey, unit_bundle_export_schema,
     };
     use crate::refinement::{
-        AppliedRefinementReason, ContainedTerminalPolygon, RefinementProvenance,
+        AppliedRefinementProvenance, AppliedRefinementReason, ContainedTerminalPolygon,
         RefinementStrategyName,
     };
     use crate::session::DatasetSession;
@@ -792,13 +792,13 @@ mod unit_bundle_writer_tests {
             .expect("test refined terminal geometry should be non-empty")
     }
 
-    fn applied_provenance() -> RefinementProvenance {
-        RefinementProvenance::Applied {
-            strategy: RefinementStrategyName::BestEffortD8IfPresent,
-            why: AppliedRefinementReason::RasterOutletRanked {
+    fn applied_provenance() -> AppliedRefinementProvenance {
+        AppliedRefinementProvenance::new(
+            RefinementStrategyName::BestEffortD8IfPresent,
+            AppliedRefinementReason::RasterOutletRanked {
                 declaration_index: 0,
             },
-        }
+        )
     }
 
     fn rect(minx: f64, miny: f64, maxx: f64, maxy: f64) -> Polygon<f64> {
