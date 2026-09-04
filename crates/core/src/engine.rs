@@ -592,7 +592,7 @@ impl Engine {
         &self,
         outlet: &LevelResolvedOutlet,
     ) -> Result<SameLevelUpstreamUnits, EngineError> {
-        let terminal = outlet.resolved().unit_id();
+        let terminal = outlet.authority().unit_id();
         let selected_level = outlet.selected_level();
         let upstream = collect_upstream(terminal, self.session.graph()).map_err(|source| {
             EngineError::Traversal {
@@ -746,7 +746,7 @@ impl Engine {
                         schema.to_owned(),
                     ));
                 }
-                return Ok(match resolved.resolved() {
+                return Ok(match resolved.authority() {
                     crate::resolver::OutletResolution::VectorPoint { .. } => {
                         TerminalRefinement::best_effort_no_d8_aux_declared()
                     }
@@ -778,7 +778,7 @@ impl Engine {
         let input = TerminalRefinementInput {
             terminal_unit: terminal,
             terminal_geometry: terminal_polygon,
-            outlet_authority: resolved.resolved().into(),
+            outlet_authority: resolved.authority().into(),
             snap_threshold: options.snap_threshold,
         };
         let pantry = D8RefinementPantry {
@@ -800,7 +800,7 @@ impl Engine {
                         measured_accumulation,
                     } = &reason
                     {
-                        let vector_coord = resolved.resolved().resolved_coord();
+                        let vector_coord = resolved.authority().resolved_coord();
                         tracing::warn!(
                             unit_id = terminal.get(),
                             vector_lon = vector_coord.lon,
@@ -918,10 +918,10 @@ impl Engine {
         dissolved: DissolvedWatershed,
     ) -> DelineationResult {
         DelineationResult {
-            terminal_unit_id: resolved.resolved().unit_id(),
-            input_outlet: resolved.resolved().input_coord(),
-            resolved_outlet: resolved.resolved().resolved_coord(),
-            resolution_method: resolved.resolved().method(),
+            terminal_unit_id: resolved.authority().unit_id(),
+            input_outlet: resolved.authority().input_coord(),
+            resolved_outlet: resolved.authority().resolved_coord(),
+            resolution_method: resolved.authority().method(),
             upstream_unit_ids: upstream.upstream().unit_ids().to_vec(),
             upstream_units: units
                 .units()

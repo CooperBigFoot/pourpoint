@@ -72,6 +72,8 @@ use crate::refinement::{
     ContainedTerminalPolygon, RefinementStrategyName,
 };
 use crate::resolver::OutletResolution;
+#[allow(deprecated)]
+use crate::resolver::ResolvedOutlet;
 
 /// Selects the HFX drainage-unit level used for the staged delineation run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,18 +133,27 @@ impl From<bool> for RefinementMode {
 }
 
 /// Outlet resolution result constrained to the selected level.
+///
+/// The typed authority and deprecated legacy view are derived together during
+/// construction. Both fields are private and only shared views are exposed, so
+/// they cannot diverge after construction.
+#[allow(deprecated)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct LevelResolvedOutlet {
     selected_level: SelectedLevel,
-    resolved: OutletResolution,
+    authority: OutletResolution,
+    legacy_resolved: ResolvedOutlet,
 }
 
+#[allow(deprecated)]
 impl LevelResolvedOutlet {
     /// Construct a level-resolved outlet after the resolver stage has constrained it.
-    pub(crate) fn new(selected_level: SelectedLevel, resolved: OutletResolution) -> Self {
+    pub(crate) fn new(selected_level: SelectedLevel, authority: OutletResolution) -> Self {
+        let legacy_resolved = authority.clone().into();
         Self {
             selected_level,
-            resolved,
+            authority,
+            legacy_resolved,
         }
     }
 
@@ -151,9 +162,15 @@ impl LevelResolvedOutlet {
         self.selected_level
     }
 
-    /// Return the resolved outlet payload.
-    pub fn resolved(&self) -> &OutletResolution {
-        &self.resolved
+    /// Return the legacy fielded outlet payload.
+    #[deprecated(note = "use LevelResolvedOutlet::authority for typed outlet authority")]
+    pub fn resolved(&self) -> &ResolvedOutlet {
+        &self.legacy_resolved
+    }
+
+    /// Return the typed outlet authority chosen during resolution.
+    pub fn authority(&self) -> &OutletResolution {
+        &self.authority
     }
 }
 

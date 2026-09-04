@@ -6,6 +6,11 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Rust API migration
 
+- `LevelResolvedOutlet::resolved()` remains available as a deprecated legacy
+  view returning `&ResolvedOutlet`, so existing public-field access and struct
+  patterns continue to compile. New staged callers use
+  `LevelResolvedOutlet::authority()` to receive `&OutletResolution` with typed
+  vector-versus-unit-only authority.
 - `resolve_outlet` and `resolve_outlet_at_level` remain available as deprecated
   wrappers returning the original public-field `ResolvedOutlet` struct. New code
   must use `resolve_outlet_authority` and `resolve_outlet_authority_at_level` to
@@ -24,6 +29,9 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 - `AppliedRefinementReason::D8AuxMatchedTerminalBbox` remains as a deprecated
   source bridge. Engine-produced results use `VectorOutletQuantized` or
   `RasterOutletRanked`; exhaustive matches must add those variants.
+- `algo::RefinementError` adds `VectorOutletUnusable`. Exhaustive matches must
+  add that variant. It reports vector-cell guard failures when D8 refinement is
+  required instead of permitting raster re-ranking.
 - `BestEffortSkipReason` adds `CoarseUnitOnlyNoD8AuxDeclared` and
   `VectorOutletGuardFailed`. Exhaustive matches must add both. The skip and
   aggregate provenance types now provide `PartialEq`, not `Eq`, because guard

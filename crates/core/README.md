@@ -82,6 +82,11 @@ pub fn compose_result(
 ) -> DelineationResult;
 ```
 
+`LevelResolvedOutlet::authority()` returns the typed `OutletResolution` used by
+new staged code. The former `resolved()` accessor remains as a deprecated
+`&ResolvedOutlet` compatibility view, including its public fields. Both views
+are derived together and cannot be mutated through the staged value.
+
 `PreMergeDrainageUnit` is an inspection record for pristine upstream drainage
 units. The collection includes the whole terminal polygon before any terminal
 refinement. This distinction is intentional: pre-merge drainage-unit records

@@ -14,8 +14,9 @@ use pourpoint_core::testutil::DatasetBuilder;
 use pourpoint_core::{
     AppliedRefinementProvenance, AppliedRefinementReason, BestEffortRefinementProvenance,
     BestEffortSkipReason, ContainedTerminalPolygon, DelineationOptions, Engine, EngineError,
-    LevelSelection, PreMergeDrainageUnit, PreMergeDrainageUnits, RefinementMode, RefinementOutcome,
-    RefinementStrategyName, SelectedLevel, TerminalRefinement,
+    LevelResolvedOutlet, LevelSelection, OutletResolution, PreMergeDrainageUnit,
+    PreMergeDrainageUnits, RefinementMode, RefinementOutcome, RefinementStrategyName,
+    SelectedLevel, TerminalRefinement,
 };
 use rayon::ThreadPoolBuilder;
 use serde::Deserialize;
@@ -38,6 +39,38 @@ fn staged_level_selection_parses_finest_before_resolution() {
     assert_eq!(selected.level(), Level::new(1).expect("fixture level"));
 }
 
+#[allow(deprecated)]
+fn legacy_staged_unit_id(value: &LevelResolvedOutlet) -> i64 {
+    value.resolved().unit_id.get()
+}
+
+#[test]
+#[allow(deprecated)]
+fn staged_resolved_accessor_preserves_fielded_view_alongside_typed_authority() {
+    let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
+    let session = DatasetSession::open_path(&root).expect("nested fixture should open");
+    let engine = Engine::builder(session).build();
+    let selected = engine
+        .select_level(LevelSelection::Finest)
+        .expect("finest level should resolve");
+    let resolved = engine
+        .resolve_outlet_at_level(GeoCoord::new(2.5, -0.5), selected, &Default::default())
+        .expect("fixture outlet should resolve");
+
+    assert_eq!(
+        legacy_staged_unit_id(&resolved),
+        resolved.authority().unit_id().get()
+    );
+    assert!(matches!(
+        resolved.authority(),
+        OutletResolution::UnitContainment { .. }
+    ));
+    assert_eq!(
+        resolved.resolved().resolved_coord,
+        resolved.authority().resolved_coord()
+    );
+}
+
 #[test]
 fn staged_pre_merge_units_are_pristine_terminal_first_records() {
     let (_dir, root) = DatasetBuilder::new(1).with_multilevel_nested().build();
@@ -58,11 +91,11 @@ fn staged_pre_merge_units_are_pristine_terminal_first_records() {
         .expect("pre-merge units should materialize");
 
     assert_eq!(pre_merge.selected_level(), selected);
-    assert_eq!(pre_merge.terminal(), resolved.resolved().unit_id());
+    assert_eq!(pre_merge.terminal(), resolved.authority().unit_id());
     assert_eq!(pre_merge.units().len(), 3);
     assert_eq!(
         pre_merge.units()[0].id(),
-        resolved.resolved().unit_id(),
+        resolved.authority().unit_id(),
         "terminal must be first for typed inspection"
     );
     assert_eq!(
