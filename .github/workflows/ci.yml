@@ -36,6 +36,10 @@ jobs:
 
       - name: Install GDAL build dependencies
         run: |
+          # These jobs do not use Chrome. The runner removes its legacy .list,
+          # but Chrome now also creates a dedicated deb822 .sources file.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang \
@@ -67,6 +71,10 @@ jobs:
 
       - name: Install GDAL build dependencies
         run: |
+          # These jobs do not use Chrome. The runner removes its legacy .list,
+          # but Chrome now also creates a dedicated deb822 .sources file.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang \
@@ -108,6 +116,10 @@ jobs:
 
       - name: Install GDAL build dependencies
         run: |
+          # These jobs do not use Chrome. The runner removes its legacy .list,
+          # but Chrome now also creates a dedicated deb822 .sources file.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang \

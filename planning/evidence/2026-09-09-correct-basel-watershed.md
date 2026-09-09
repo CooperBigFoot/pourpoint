@@ -220,3 +220,36 @@ Production names describe geometry responsibilities. The touched assembly and
 its directly dependent comments no longer use delivery-component names. Existing
 COG milestone labels remain only as unrelated historical regression traceability;
 no broad naming cleanup or PCE artifact rename is included.
+
+## Hosted CI setup isolation
+
+Three hosted CI attempts failed before any Rust or Python build at
+`apt-get update`: the unused Google Chrome repository returned an index whose
+hash did not match its signed metadata. The retained final failure is workflow
+run `34384346467`. This is separate from geometry correctness and from the local
+macOS Python test-linkage issue described above.
+
+Source inspection located the layout mismatch. The runner-image Chrome install
+script removes `google-chrome.list`; current Chromium Debian packaging creates
+`$APT_SOURCESDIR/@@PACKAGE.sources`. For the stable channel, `PACKAGE` remains
+`google-chrome`, and the generated URI is
+`https://dl.google.com/linux/chrome-stable/deb/`. The dedicated new deb822 source
+therefore survives the runner's legacy cleanup.
+
+The three affected CI jobs (Rust clippy, Rust tests, Python wheel smoke) now
+remove only `/etc/apt/sources.list.d/google-chrome.list` and
+`/etc/apt/sources.list.d/google-chrome.sources` before their existing apt update.
+These jobs do not use Chrome. Ubuntu and Microsoft sources remain unchanged.
+All apt errors still fail the job; index/signature verification is not bypassed.
+The required `clang`, `gdal-bin`, `libclang-dev`, `libgdal-dev`, and `pkg-config`
+installation and every subsequent build/test command remain byte-for-byte
+unchanged. The manylinux wheel workflow uses dnf and is not modified.
+
+Local validation parsed the workflow, verified that only the three intended
+setup blocks changed, checked the original apt/install suffix byte-for-byte,
+executed the exact removal arguments against fixture source files, verified
+unrelated sources remained byte-identical, and proved repeat execution with
+absent Chrome files is safe. All three exact setup scripts pass `bash -n`.
+This checks scope and syntax, not hosted package availability. The new hosted
+CI run is the acceptance path for the setup repair. Failure logs, upstream
+source snapshots and the scope-probe result are retained privately.
