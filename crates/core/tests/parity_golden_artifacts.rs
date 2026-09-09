@@ -499,7 +499,18 @@ fn committed_merit_refined_c_goldens_validate_schema_and_metadata_offline() {
 
 #[test]
 fn committed_projected_grass_golden_validates_offline_contract() {
-    let record = read_golden_record(PROJECTED_GRASS_GOLDEN);
+    assert_projected_grass_golden_contract(PROJECTED_GRASS_GOLDEN);
+}
+
+#[test]
+fn ogc_projected_grass_golden_validates_offline_contract() {
+    assert_projected_grass_golden_contract(
+        "goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined_ogc.json",
+    );
+}
+
+fn assert_projected_grass_golden_contract(path: &str) {
+    let record = read_golden_record(path);
     assert_record_contract(&record);
     assert_eq!(record.refinement_outcome.status, "Applied");
     assert!(record.refinement_outcome.reason.is_none());
@@ -529,6 +540,52 @@ fn committed_projected_grass_golden_validates_offline_contract() {
 
     assert_projected_manifest_contract();
     assert_projected_fixture_provenance(&record);
+}
+
+#[test]
+fn ogc_projected_grass_golden_preserves_the_recorded_footprint() {
+    use geo::{Area, BooleanOps, Distance, Euclidean, Point};
+    use pourpoint_core::algo::geometry_validity::validate_multi_polygon;
+
+    let decode = |path: &str| {
+        let record = read_golden_record(path);
+        let bytes = decode_hex(&record.canonical_wkb_hex);
+        let geo::Geometry::MultiPolygon(geometry) = Wkb(&bytes).to_geo().expect("valid WKB") else {
+            panic!("expected MultiPolygon golden");
+        };
+        geometry
+    };
+    let old = decode(PROJECTED_GRASS_GOLDEN);
+    let new = decode("goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined_ogc.json");
+    validate_multi_polygon(&old).expect("historical canonical golden is valid");
+    validate_multi_polygon(&new).expect("current canonical golden is valid");
+    assert_eq!(old.0.len(), new.0.len());
+    assert!(old.0.iter().chain(&new.0).all(|p| p.interiors().is_empty()));
+    assert!(old.xor(&new).unsigned_area() <= 1e-10);
+
+    // Compare samples to exact opposing segments, not only to opposing vertices.
+    // This mirrors the independent GEOS densify=0.1 diagnostic. It is a bounded
+    // compatibility regression, not exact geometric equality or a general oracle.
+    for (source, target) in [(&old, &new), (&new, &old)] {
+        let target_edges: Vec<_> = target.0.iter().flat_map(|p| p.exterior().lines()).collect();
+        for edge in source.0.iter().flat_map(|p| p.exterior().lines()) {
+            for step in 0..=10 {
+                let t = f64::from(step) / 10.0;
+                let point = Point::new(
+                    edge.start.x + t * (edge.end.x - edge.start.x),
+                    edge.start.y + t * (edge.end.y - edge.start.y),
+                );
+                let nearest = target_edges
+                    .iter()
+                    .map(|line| Euclidean.distance(&point, line))
+                    .fold(f64::INFINITY, f64::min);
+                assert!(
+                    nearest <= 1e-8,
+                    "canonical boundary moved {nearest} degrees"
+                );
+            }
+        }
+    }
 }
 
 #[test]

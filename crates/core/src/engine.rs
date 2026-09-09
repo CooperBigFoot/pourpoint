@@ -414,7 +414,7 @@ pub enum EngineError {
 
     /// Fired when a loaded dataset has no stored session level index entries.
     ///
-    /// This is unreachable after M2 graph/catchment validation for a valid HFX
+    /// This is unreachable after graph/catchment validation for a valid HFX
     /// dataset. Treat it as an integrity error if tests can trigger it.
     #[error(
         "session level index is empty for loaded dataset {fabric:?} with {unit_count} manifest units"
@@ -428,7 +428,7 @@ pub enum EngineError {
 
     /// Fired when same-level traversal returns an unit outside the selected level.
     ///
-    /// M2 graph/catchment validation requires graph edges to stay within one
+    /// Graph/catchment validation requires graph edges to stay within one
     /// level, so this indicates an invalid loaded session or a stale level
     /// index.
     #[error("unit {unit_id} is not at selected level {selected_level:?}; found {actual_level:?}")]

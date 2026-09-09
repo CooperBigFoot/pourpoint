@@ -116,7 +116,8 @@ def test_merit_reduction_survives_sixty_unreadable_v1_declarations():
     ] * 60
     result = engine.delineate(lat=47.37, lon=8.54)
     assert result.terminal_unit_id == 23017694
-    assert result.area_km2 == pytest.approx(2231.9425272184967, rel=0, abs=1e-9)
+    # OGC reconstruction and mitre closing; declared unreadable auxiliary policy is unchanged.
+    assert result.area_km2 == pytest.approx(2231.942527250235, rel=0, abs=1e-9)
     reason = result.refinement_skip_reason
     assert isinstance(reason, pourpoint.BestEffortSkipReason)
     assert reason.kind == "unreadable_d8_aux_declared"

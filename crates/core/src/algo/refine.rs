@@ -14,7 +14,7 @@
 //! This implementation masks **both** tiles, so the trace is strictly contained
 //! within the terminal polygon. This guarantees the refined polygon is a
 //! sub-polygon of the coarse terminal, preventing overlap with upstream units
-//! in Component 6's dissolve step. The tradeoff is that raster-supported area
+//! in final watershed assembly. The tradeoff is that raster-supported area
 //! outside the coarse boundary is lost — if the coarse polygon is too tight,
 //! refinement can only shrink, never correct outward.
 

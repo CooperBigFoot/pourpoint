@@ -1,9 +1,9 @@
-//! Dissolve a set of polygons into a single multi-polygon via iterative union.
+//! dissolve : Vec<Polygon> → MultiPolygon, the deterministic union of drainage-unit regions.
 //!
-//! `geo` does not expose a dedicated unary-union API, but `MultiPolygon`
-//! implements [`BooleanOps`]. Unioning a flat `MultiPolygon` against an empty
-//! `MultiPolygon` is not a viable replacement in `geo` 0.29 because overlapping
-//! members are not dissolved; the raw comparison is kept for benchmarks only.
+//! Spatially sorted, pairwise BooleanOps unions reconstruct OGC shells and
+//! holes. `geo` 0.33 enables this reconstruction; the former 0.29 overlay could
+//! encode a point-tangent hole as a self-touching shell. A flat even-odd bag of
+//! overlapping members is not a set union and is retained only for comparison.
 
 use geo::{Area, BooleanOps, BoundingRect, MultiPolygon, Polygon};
 use tracing::{debug, instrument};
@@ -18,9 +18,9 @@ pub enum DissolveError {
 
 /// Dissolve polygons into a unified multi-polygon.
 ///
-/// Performs an iterative boolean union: seeds the accumulator with the first
-/// polygon, then folds each subsequent polygon into the result via
-/// [`BooleanOps::union`].
+/// Sorts spatially, then unions a fixed recursive pairwise reduction tree via
+/// [`BooleanOps::union`]. Polygon regions remain separate operands so overlap
+/// is accumulated rather than cancelled by even-odd filling.
 ///
 /// # Errors
 ///
@@ -169,9 +169,13 @@ fn interleave_bits(mut value: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        DissolveError, dissolve, dissolve_reduce_strategy, dissolve_spatial_reduce_strategy,
+        dissolve_unary_union_strategy,
+    };
     use crate::algo::canonical_wkb_multi_polygon;
     use geo::LineString;
+    use geo::{Area, MultiPolygon, Polygon};
     use rayon::ThreadPoolBuilder;
 
     fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Polygon<f64> {

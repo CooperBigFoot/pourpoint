@@ -45,7 +45,7 @@ impl fmt::Display for DistanceMetres {
 pub fn geodesic_distance(a: GeoCoord, b: GeoCoord) -> DistanceMetres {
     let pa = geo::Point::new(a.lon, a.lat);
     let pb = geo::Point::new(b.lon, b.lat);
-    let metres = Geodesic::distance(pa, pb);
+    let metres = Geodesic.distance(pa, pb);
     DistanceMetres::new(metres)
 }
 

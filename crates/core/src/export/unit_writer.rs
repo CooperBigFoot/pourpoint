@@ -607,7 +607,7 @@ mod unit_bundle_writer_tests {
         let dissolved_bbox = dissolved.geometry().bounding_rect().expect("bbox");
 
         assert!(f64::from(maxx.value(terminal_row)) >= 3.0);
-        assert_eq!(dissolved_bbox.max().x, 2.0);
+        assert!((dissolved_bbox.max().x - 2.0).abs() < 1e-12);
     }
 
     struct BundleFixture {

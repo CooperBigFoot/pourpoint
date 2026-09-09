@@ -241,3 +241,14 @@ cargo test -p pourpoint-core --test d8_aux_accessor
 cargo test -p pourpoint-core --test parity_golden_artifacts
 cargo test -p pourpoint-core --test staged_delineation
 ```
+
+## OGC watershed assembly golden
+
+`goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined_ogc.json`
+is the current exact-byte geometry golden for OGC reconstruction and mitre
+closing. `projected_grass_refined.json` remains unchanged as historical evidence.
+The same raster fixture, selected terminal, upstream IDs and 374 derived carved
+cells are preserved. Only final geometry assembly and its resulting area change.
+Runtime parity tests keep exact WKB equality and the existing area tolerances;
+no comparison policy is relaxed. See the Basel geometry correction evidence for
+the measured old/new footprint.
