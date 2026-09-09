@@ -131,9 +131,11 @@ slit observed in the rejected manual-offset experiment is absent.
 
 Against the default-policy reference, the densified discrete boundary Hausdorff
 measurement is **0.003063592 m**. Boundaries are projected to EPSG:3035 and divided
-into segments no longer than 10 m. Each sample is measured against the exact
+into segments no longer than 1 m in the final supplemental measurement (about
+2.04 million samples per boundary). Each sample is measured against the exact
 opposing projected segments, in both directions. This is a sampled measurement;
-the conservative continuous upper bound is the reported value plus 5 m. Against
+the conservative continuous upper bound is **0.503063592 m**. The original 10 m
+sampling measurement and its wider bound are retained separately. Against
 the hole-preserved reference, the 32.59 m boundary difference includes intentional
 hole removal. Geometry accuracy below the overlay's extent-dependent integer
 grid is not guaranteed by validity alone.
@@ -154,6 +156,17 @@ The original projected-GRASS golden remains unchanged. A separate
 runtime comparisons and existing tolerances remain enforced. The same input
 fixture, terminal, upstream IDs and 374 derived carved cells are preserved,
 including twenty-process determinism and GDAL/local raster-source parity.
+Independent GEOS comparison confirms that **both historical and new canonical
+MultiPolygons are valid**, have 2 parts and no holes. This migration is justified
+by the corrected assembly, not by claiming the old canonical golden is invalid.
+The canonical symmetric difference is about 0.862746 m² in EPSG:8857, with
+boundary Hausdorff about 0.0001232 m after geographic-edge densification. The
+engine's unrounded area metadata changes by -3.38260 m²; this is a different
+quantity from the area of six-decimal canonical WKB (which changes by about
++0.861624 m² under independent WGS84 geodesic calculation). A separate artifact
+regression retains both valid geometries and bounds canonical symmetric
+difference to 1e-10 degrees² and densified point-to-segment boundary distance to
+1e-8 degrees. It does not weaken the runtime exact-WKB assertions.
 The historical synthetic D8 golden still passes unchanged. One exact projected
 bounding-box assertion now uses a 1e-12 degree tolerance for a 2e-16 degree
 arithmetic change. The unreadable-auxiliary Python test retains its original
@@ -161,7 +174,7 @@ arithmetic change. The unreadable-auxiliary Python test retains its original
 
 - `cargo fmt --all`: pass.
 - `cargo clippy --workspace --all-targets`: pass; existing test warnings only.
-- Workspace tests: **848 passed, 14 ignored**, 31 test-result groups.
+- Workspace tests: **849 passed, 14 ignored**, 31 test-result groups.
 - Python offline tests: **48 passed, 1 skipped, 7 network tests deselected**.
 - Predicate-specific tests: 15 passed, including a 100,000-vertex ring.
 - Independent GEOS adversarial corpus: 14 topology cases agree, including valid
