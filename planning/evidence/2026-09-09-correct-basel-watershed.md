@@ -63,6 +63,9 @@ a neck splitting into multiple retained lobes, filled-hole/island union, and an
 explicit repair returning `MULTIPOLYGON(EMPTY)` that previously succeeded with
 area zero. Separate failing logs preceded each correction. The final guard also
 has endpoint-touch, shared-edge, overlap and disconnected-interior coverage.
+Polygon, ring, coordinate and segment diagnostic positions have distinct public
+newtypes; a compile-fail test prevents cross-kind index swaps while error text
+remains numeric and readable.
 
 Sequencing record: an independent worker wrote an unwired validity module before
 the captured Basel replay ran. It was isolated, and its Cargo/module changes were
@@ -174,9 +177,10 @@ arithmetic change. The unreadable-auxiliary Python test retains its original
 
 - `cargo fmt --all`: pass.
 - `cargo clippy --workspace --all-targets`: pass; existing test warnings only.
-- Workspace tests: **849 passed, 14 ignored**, 31 test-result groups.
+- Workspace tests: **850 passed, 14 ignored**, 32 test-result groups.
 - Python offline tests: **48 passed, 1 skipped, 7 network tests deselected**.
-- Predicate-specific tests: 15 passed, including a 100,000-vertex ring.
+- Predicate-specific tests: 15 passed, including a 100,000-vertex ring;
+  an additional compile-fail doctest proves index kinds cannot be swapped.
 - Independent GEOS adversarial corpus: 14 topology cases agree, including valid
   multi-ring point contacts and invalid disconnected interiors.
 - Controlled default Basel consumer runs: valid WKB and GeoJSON; exact original

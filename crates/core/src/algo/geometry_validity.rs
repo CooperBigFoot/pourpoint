@@ -22,54 +22,132 @@ use rstar::{AABB, RTree, RTreeObject};
 use thiserror::Error;
 use tracing::instrument;
 
+/// Zero-based polygon-member position in a MultiPolygon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PolygonIndex(usize);
+
+impl PolygonIndex {
+    pub fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl std::fmt::Display for PolygonIndex {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
+/// Zero-based boundary-ring position; zero denotes the exterior shell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RingIndex(usize);
+
+impl RingIndex {
+    pub fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl std::fmt::Display for RingIndex {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
+/// Zero-based coordinate position in the original boundary ring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoordinateIndex(usize);
+
+impl CoordinateIndex {
+    pub fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl std::fmt::Display for CoordinateIndex {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
+/// Zero-based segment position after consecutive duplicate coordinates are removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SegmentIndex(usize);
+
+impl SegmentIndex {
+    pub fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl std::fmt::Display for SegmentIndex {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
 /// A violation of planar polygon topology. Ring zero denotes the exterior.
+/// Diagnostic positions have distinct types and cannot be swapped accidentally.
+///
+/// ```compile_fail
+/// use pourpoint_core::algo::geometry_validity::{GeometryValidityError, PolygonIndex, RingIndex};
+/// fn swapped(polygon: PolygonIndex, ring: RingIndex) -> GeometryValidityError {
+///     GeometryValidityError::DegenerateRing { polygon: ring, ring: polygon }
+/// }
+/// ```
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum GeometryValidityError {
     /// A coordinate is NaN or infinite, before any geometric predicate is used.
     #[error("polygon {polygon}, ring {ring}, coordinate {coordinate} is not finite")]
     NonFinite {
-        polygon: usize,
-        ring: usize,
-        coordinate: usize,
+        polygon: PolygonIndex,
+        ring: RingIndex,
+        coordinate: CoordinateIndex,
     },
     /// A nonempty ring is unclosed or has fewer than three distinct vertices.
     #[error("polygon {polygon}, ring {ring} is not a closed surface boundary")]
-    DegenerateRing { polygon: usize, ring: usize },
+    DegenerateRing {
+        polygon: PolygonIndex,
+        ring: RingIndex,
+    },
     /// Nonadjacent segments touch/cross, or segments overlap, in one ring.
     #[error(
         "polygon {polygon}, ring {ring}, segments {first_segment} and {second_segment} intersect"
     )]
     RingIntersection {
-        polygon: usize,
-        ring: usize,
-        first_segment: usize,
-        second_segment: usize,
+        polygon: PolygonIndex,
+        ring: RingIndex,
+        first_segment: SegmentIndex,
+        second_segment: SegmentIndex,
     },
     /// Rings cross or share a nonzero length boundary.
     #[error("polygon {polygon}, rings {first_ring} and {second_ring} cross or overlap")]
     RingConflict {
-        polygon: usize,
-        first_ring: usize,
-        second_ring: usize,
+        polygon: PolygonIndex,
+        first_ring: RingIndex,
+        second_ring: RingIndex,
     },
     /// A hole has points outside the closed shell disk.
     #[error("polygon {polygon}, hole ring {ring} is outside its shell")]
-    HoleOutsideShell { polygon: usize, ring: usize },
+    HoleOutsideShell {
+        polygon: PolygonIndex,
+        ring: RingIndex,
+    },
     /// Two hole disks intersect in their interiors, including containment.
     #[error("polygon {polygon}, holes {first_ring} and {second_ring} have overlapping interiors")]
     HoleOverlap {
-        polygon: usize,
-        first_ring: usize,
-        second_ring: usize,
+        polygon: PolygonIndex,
+        first_ring: RingIndex,
+        second_ring: RingIndex,
     },
     /// The ring/contact incidence graph has a cycle, disconnecting the interior.
     #[error("polygon {polygon} has disconnected interior")]
-    DisconnectedInterior { polygon: usize },
+    DisconnectedInterior { polygon: PolygonIndex },
     /// Distinct polygon members share interior or a nonzero length boundary.
     #[error("polygons {first_polygon} and {second_polygon} overlap or share a boundary line")]
     PolygonConflict {
-        first_polygon: usize,
-        second_polygon: usize,
+        first_polygon: PolygonIndex,
+        second_polygon: PolygonIndex,
     },
 }
 
@@ -133,9 +211,9 @@ pub fn validate_multi_polygon(geometry: &MultiPolygon<f64>) -> Result<(), Geomet
             for (coordinate, c) in boundary.0.iter().enumerate() {
                 if !c.x.is_finite() || !c.y.is_finite() {
                     return Err(GeometryValidityError::NonFinite {
-                        polygon,
-                        ring,
-                        coordinate,
+                        polygon: PolygonIndex(polygon),
+                        ring: RingIndex(ring),
+                        coordinate: CoordinateIndex(coordinate),
                     });
                 }
             }
@@ -156,8 +234,8 @@ pub fn validate_multi_polygon(geometry: &MultiPolygon<f64>) -> Result<(), Geomet
                     > Dimensions::ZeroDimensional
             {
                 return Err(GeometryValidityError::PolygonConflict {
-                    first_polygon: item.index,
-                    second_polygon: other.index,
+                    first_polygon: PolygonIndex(item.index),
+                    second_polygon: PolygonIndex(other.index),
                 });
             }
         }
@@ -182,7 +260,10 @@ fn validate_polygon(part: &Polygon<f64>, polygon: usize) -> Result<(), GeometryV
         let mut coords = boundary.0.clone();
         coords.dedup();
         if coords.len() < 4 || coords.first() != coords.last() {
-            return Err(GeometryValidityError::DegenerateRing { polygon, ring });
+            return Err(GeometryValidityError::DegenerateRing {
+                polygon: PolygonIndex(polygon),
+                ring: RingIndex(ring),
+            });
         }
         let normalized = LineString::new(coords);
         for (index, line) in normalized.lines().enumerate() {
@@ -226,10 +307,10 @@ fn validate_polygon(part: &Polygon<f64>, polygon: usize) -> Result<(), GeometryV
                     continue;
                 }
                 return Err(GeometryValidityError::RingIntersection {
-                    polygon,
-                    ring: first.ring,
-                    first_segment: first.index,
-                    second_segment: second.index,
+                    polygon: PolygonIndex(polygon),
+                    ring: RingIndex(first.ring),
+                    first_segment: SegmentIndex(first.index),
+                    second_segment: SegmentIndex(second.index),
                 });
             }
             match hit {
@@ -247,9 +328,9 @@ fn validate_polygon(part: &Polygon<f64>, polygon: usize) -> Result<(), GeometryV
                 }
                 _ => {
                     return Err(GeometryValidityError::RingConflict {
-                        polygon,
-                        first_ring: first.ring,
-                        second_ring: second.ring,
+                        polygon: PolygonIndex(polygon),
+                        first_ring: RingIndex(first.ring),
+                        second_ring: RingIndex(second.ring),
                     });
                 }
             }
@@ -257,7 +338,10 @@ fn validate_polygon(part: &Polygon<f64>, polygon: usize) -> Result<(), GeometryV
     }
     for ring in 1..rings.len() {
         if !rings[ring].exterior().0.is_empty() && !rings[0].relate(&rings[ring]).is_covers() {
-            return Err(GeometryValidityError::HoleOutsideShell { polygon, ring });
+            return Err(GeometryValidityError::HoleOutsideShell {
+                polygon: PolygonIndex(polygon),
+                ring: RingIndex(ring),
+            });
         }
     }
     let ring_tree = component_index(&rings);
@@ -272,9 +356,9 @@ fn validate_polygon(part: &Polygon<f64>, polygon: usize) -> Result<(), GeometryV
                 != Dimensions::Empty
             {
                 return Err(GeometryValidityError::HoleOverlap {
-                    polygon,
-                    first_ring: item.index,
-                    second_ring: other.index,
+                    polygon: PolygonIndex(polygon),
+                    first_ring: RingIndex(item.index),
+                    second_ring: RingIndex(other.index),
                 });
             }
         }
@@ -289,7 +373,9 @@ fn validate_polygon(part: &Polygon<f64>, polygon: usize) -> Result<(), GeometryV
                 let a = root(&mut parents, first);
                 let b = root(&mut parents, second);
                 if a == b {
-                    return Err(GeometryValidityError::DisconnectedInterior { polygon });
+                    return Err(GeometryValidityError::DisconnectedInterior {
+                        polygon: PolygonIndex(polygon),
+                    });
                 }
                 parents[b] = a;
             }
@@ -362,10 +448,22 @@ mod tests {
             (2., 0.),
             (0., 0.),
         ])]);
-        assert!(matches!(
-            validate_multi_polygon(&value),
-            Err(GeometryValidityError::NonFinite { .. })
-        ));
+        let error = validate_multi_polygon(&value).expect_err("nonfinite coordinate");
+        assert_eq!(
+            error.to_string(),
+            "polygon 0, ring 0, coordinate 1 is not finite"
+        );
+        let GeometryValidityError::NonFinite {
+            polygon,
+            ring,
+            coordinate,
+        } = error
+        else {
+            panic!("expected nonfinite diagnostic");
+        };
+        assert_eq!(polygon.get(), 0);
+        assert_eq!(ring.get(), 0);
+        assert_eq!(coordinate.get(), 1);
     }
 
     #[test]
