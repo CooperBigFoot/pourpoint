@@ -499,7 +499,18 @@ fn committed_merit_refined_c_goldens_validate_schema_and_metadata_offline() {
 
 #[test]
 fn committed_projected_grass_golden_validates_offline_contract() {
-    let record = read_golden_record(PROJECTED_GRASS_GOLDEN);
+    assert_projected_grass_golden_contract(PROJECTED_GRASS_GOLDEN);
+}
+
+#[test]
+fn ogc_projected_grass_golden_validates_offline_contract() {
+    assert_projected_grass_golden_contract(
+        "goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined_ogc.json",
+    );
+}
+
+fn assert_projected_grass_golden_contract(path: &str) {
+    let record = read_golden_record(path);
     assert_record_contract(&record);
     assert_eq!(record.refinement_outcome.status, "Applied");
     assert!(record.refinement_outcome.reason.is_none());

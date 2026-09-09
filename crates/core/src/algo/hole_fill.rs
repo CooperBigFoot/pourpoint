@@ -1,4 +1,4 @@
-//! Remove small interior holes from multi-polygon geometries.
+//! fill_holes : MultiPolygon × HoleFillMode → MultiPolygon, union of the filled regions.
 
 use geo::{Area, LineString, MultiPolygon, Polygon};
 use tracing::{debug, instrument};
@@ -66,12 +66,20 @@ pub fn fill_holes(geom: MultiPolygon<f64>, mode: HoleFillMode) -> MultiPolygon<f
 
     debug!(removed = removed, total = total_holes, "filled holes");
 
-    MultiPolygon::new(polygons)
+    if removed > 0 && polygons.len() > 1 {
+        // Filling a shell's hole can cover a separate island. Union regions
+        // pairwise, rather than returning overlapping MultiPolygon members or
+        // applying even-odd filling to a flattened bag of overlapping rings.
+        crate::algo::dissolve::dissolve_spatial_reduce_strategy(polygons)
+    } else {
+        MultiPolygon::new(polygons)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{DEFAULT_FILL_THRESHOLD_PX, HoleFillMode, fill_holes};
+    use geo::{LineString, MultiPolygon, Polygon};
 
     /// Unit square exterior ring.
     fn unit_square() -> LineString<f64> {

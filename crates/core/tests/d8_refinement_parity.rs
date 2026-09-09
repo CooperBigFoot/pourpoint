@@ -21,7 +21,7 @@ const PARITY_FIXTURE_DIR: &str = "tests/fixtures/parity";
 const V021_SYNTHETIC_REFINED_DIR: &str = "v021_synthetic_refined";
 const PROJECTED_GRASS_DIR: &str = "tiny-with-aux-d8-projected-grass";
 const PROJECTED_GRASS_GOLDEN: &str =
-    "goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined.json";
+    "goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined_ogc.json";
 const PROJECTED_GRASS_CAPTURE_PREFIX: &str = "POURPOINT_PROJECTED_GRASS_CAPTURE:";
 const PROJECTED_GRASS_CAPTURE_PROCESSES: usize = 20;
 const PROJECTED_GRASS_INTEGRALITY_TOLERANCE: f64 = 1e-6;

@@ -37,7 +37,7 @@ const MERIT_GOLDEN: &str =
     "../core/tests/fixtures/parity/goldens/v01_merit_refined/oracle_c_merit_refined.json";
 const MERIT_WINDOW_ROOT: &str = "merit_basins/0.1.0/raster-windows";
 const PROJECTED_GRASS_ROOT: &str = "../core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass";
-const PROJECTED_GRASS_GOLDEN: &str = "../core/tests/fixtures/parity/goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined.json";
+const PROJECTED_GRASS_GOLDEN: &str = "../core/tests/fixtures/parity/goldens/tiny-with-aux-d8-projected-grass/projected_grass_refined_ogc.json";
 const PROJECTED_GRASS_FLOW_DIR: &str =
     "../core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass/aux/d8/projected/flow_dir.tif";
 const PROJECTED_GRASS_FLOW_ACC: &str =

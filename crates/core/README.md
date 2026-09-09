@@ -2,6 +2,55 @@
 
 Pure-Rust core library for the pourpoint watershed extraction engine. It handles two responsibilities: loading HFX datasets from disk (`session` + `reader`), and providing all watershed-delineation algorithms (`algo`). External capabilities — GDAL raster I/O, GEOS geometry repair — are kept behind traits defined here and implemented in `pourpoint-gdal`, so the hot path has no native dependencies.
 
+## Watershed Geometry
+
+```mermaid
+flowchart LR
+    inputs[Selected drainage-unit polygons] --> union[Deterministic OGC union]
+    union --> expand[Outward mitre buffer]
+    expand --> reconstruct1[OGC ring reconstruction]
+    reconstruct1 --> contract[Inward mitre buffer]
+    contract --> reconstruct2[OGC ring reconstruction]
+    reconstruct2 --> holes[Existing hole policy]
+    holes --> parts[Union filled parts when needed]
+    parts --> winding[Canonical winding]
+    winding --> validity[Full MultiPolygon validity]
+    validity --> area[Geodesic area and result]
+```
+
+`clean_topology` computes morphological closing with the existing epsilon
+(default `0.00001` degrees) and mitre limit five. It retains all noncollapsed
+parts. Offsets normalize winding on both passes. Ring reconstruction runs before
+hole handling, so a point-tangent hole remains a hole rather than an exterior
+self-touch. Filling holes can cover separate islands; those regions are then
+united rather than returned as overlapping MultiPolygon members.
+
+`geometry_validity::validate_multi_polygon` checks finite coordinates, simple
+closed rings (including endpoint contacts), hole containment and disjointness,
+connected polygon interiors, and all MultiPolygon relationships. Isolated point
+touches between rings or parts are allowed when OGC-valid. Segment R-trees avoid
+an unconditional quadratic ring scan. A ring/contact incidence cycle detects
+disconnected interiors. This is planar validity in the geometry's coordinate
+space, not spherical topology. Assembly applies the same final check to default
+Rust cleaning and explicitly supplied geometry repair backends. Invalid output
+fails before area computation and export.
+
+`WatershedGeometry` states describe processing order, not validity proofs.
+`AssemblyResult` is created only after complete validity succeeds.
+
+Geometry operations use `geo` 0.33, whose BooleanOps enables OGC contour
+reconstruction. This raises the dependency MSRV to Rust 1.88. Public geo-types
+Polygon/MultiPolygon carriers remain on 0.7. Dependencies and numeric algorithms
+changed; byte-identical geometry with older releases is not promised. Boolean
+and offset operations still use an extent-scaled integer grid. They apply no
+fragment-area cutoff, but subgrid features can collapse. Empty or invalid final
+watersheds fail explicitly. The full validity check is separate from geometric
+accuracy and does not certify preservation below that grid precision.
+
+Glossary: **shell** is an exterior ring; **hole** is an interior ring;
+**closing** is outward then inward buffering; **contact** is an isolated shared
+boundary point; **epsilon** is the configured buffer distance in degrees.
+
 ## Snap Strategy
 
 `ResolverConfig::new()` defaults to `SnapStrategy::WeightFirst`. A declared

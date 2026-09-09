@@ -1,4 +1,7 @@
-//! Typestate pipeline for watershed geometry post-processing.
+//! postprocess : WatershedGeometry<Dissolved> → WatershedGeometry<HolesFilled>.
+//!
+//! States prove processing order, not OGC validity. Final watershed assembly
+//! validates the whole MultiPolygon after hole filling and winding normalization.
 
 use std::marker::PhantomData;
 
@@ -21,7 +24,7 @@ pub struct Dissolved;
 #[derive(Debug)]
 pub struct TopologyCleaned;
 
-/// State marker: holes have been filled; geometry is ready for extraction.
+/// State marker: hole policy has run; final assembly must still check validity.
 #[derive(Debug)]
 pub struct HolesFilled;
 

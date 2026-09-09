@@ -31,6 +31,7 @@ pub mod upstream;
 pub mod canonical_wkb;
 pub mod clean_topology;
 pub mod dissolve;
+pub mod geometry_validity;
 pub mod hole_fill;
 pub mod largest_polygon;
 pub mod watershed_area;

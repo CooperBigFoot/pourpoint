@@ -1,12 +1,15 @@
-//! Component 6 orchestration: fetch catchment geometries and assemble the final watershed.
+//! assemble : Vec<MultiPolygon> × AssemblyOptions → Result<AssemblyResult, AssemblyError>.
+//!
+//! Dissolve, clean, apply hole policy, then verify the complete polygonal region.
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-use geo::{MultiPolygon, Polygon};
+use geo::{HasDimensions, MultiPolygon, Polygon};
 use hfx::UnitId;
 use tracing::{debug, instrument};
 
+use crate::algo::geometry_validity::{GeometryValidityError, validate_multi_polygon};
 use crate::algo::{
     AreaKm2, CleanEpsilon, DissolveError, GeometryRepair, GeometryRepairError, HoleFillMode,
     UpstreamUnits, WatershedAreaError, WatershedGeometry, WkbDecodeError, dissolve,
@@ -131,6 +134,13 @@ pub(crate) enum AssemblyError {
     /// The assembled geometry vanished during cleanup or repair.
     #[error("assembled watershed geometry is empty after cleanup")]
     EmptyAssembledGeometry,
+
+    /// Final rings or polygon relationships violate planar OGC validity.
+    #[error("assembled watershed geometry is invalid: {source}")]
+    InvalidAssembledGeometry {
+        /// The first ring, hole, or polygon relationship that is invalid.
+        source: GeometryValidityError,
+    },
 
     /// Final geodesic area computation failed.
     #[error("failed to compute final area: {source}")]
@@ -258,9 +268,12 @@ pub(crate) fn assemble_from_geometries(
     };
 
     let geometry = filled.into_canonical_multi_polygon();
-    if geometry.0.is_empty() {
+    if geometry.is_empty() {
         return Err(AssemblyError::EmptyAssembledGeometry);
     }
+
+    validate_multi_polygon(&geometry)
+        .map_err(|source| AssemblyError::InvalidAssembledGeometry { source })?;
 
     let area = crate::algo::geodesic_area_multi(&geometry)
         .map_err(|source| AssemblyError::Area { source })?;
@@ -282,11 +295,221 @@ mod tests {
     use parquet::file::properties::{EnabledStatistics, WriterProperties};
     use tempfile::NamedTempFile;
 
-    use super::*;
+    use super::{
+        AssemblyError, AssemblyOptions, assemble_from_geometries, assemble_watershed,
+        index_catchments_by_id,
+    };
+    use crate::algo::{CleanEpsilon, GeometryRepair, UpstreamUnits, dissolve};
     use crate::algo::{
         DEFAULT_CLEANING_EPSILON, GeometryRepairError, HoleFillMode, collect_upstream,
     };
+    use crate::reader::catchment_store::{CatchmentStore, DecodedCatchmentGeometryRow};
     use crate::testutil::{bbox_struct_array, bbox_struct_field};
+    use hfx::UnitId;
+
+    /// Replay captured stored catchments through the production assembly path.
+    /// Run explicitly with POURPOINT_GEOMETRY_INPUTS and POURPOINT_GEOMETRY_OUTPUT.
+    #[test]
+    #[ignore = "requires a private captured catchment set and a fresh output directory"]
+    fn captured_catchments_produce_valid_watershed() {
+        use crate::algo::{
+            clean_topology, decode_wkb_multi_polygon, encode_wkb_multi_polygon, fill_holes,
+        };
+        use std::collections::BTreeMap;
+        let input = std::path::PathBuf::from(std::env::var("POURPOINT_GEOMETRY_INPUTS").unwrap());
+        let output = std::path::PathBuf::from(std::env::var("POURPOINT_GEOMETRY_OUTPUT").unwrap());
+        std::fs::create_dir(&output).unwrap();
+        let mut by_id = BTreeMap::new();
+        for entry in std::fs::read_dir(input).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) != Some("wkb") {
+                continue;
+            }
+            let id: i64 = path.file_stem().unwrap().to_str().unwrap().parse().unwrap();
+            let raw = hfx::WkbGeometry::new(std::fs::read(path).unwrap()).unwrap();
+            by_id.insert(id, decode_wkb_multi_polygon(&raw).unwrap());
+        }
+        assert!(!by_id.is_empty());
+        let geometries: Vec<_> = by_id.into_values().collect();
+        let dissolved = dissolve(geometries.iter().flat_map(|g| g.0.clone()).collect()).unwrap();
+        std::fs::write(
+            output.join("dissolved.wkb"),
+            encode_wkb_multi_polygon(&dissolved).unwrap(),
+        )
+        .unwrap();
+        let cleaned = clean_topology(dissolved, DEFAULT_CLEANING_EPSILON);
+        std::fs::write(
+            output.join("cleaned.wkb"),
+            encode_wkb_multi_polygon(&cleaned).unwrap(),
+        )
+        .unwrap();
+        let filled = fill_holes(cleaned, HoleFillMode::RemoveAll);
+        std::fs::write(
+            output.join("filled.wkb"),
+            encode_wkb_multi_polygon(&filled).unwrap(),
+        )
+        .unwrap();
+        let assembled = assemble_from_geometries(
+            geometries,
+            AssemblyOptions::new(HoleFillMode::RemoveAll, DEFAULT_CLEANING_EPSILON),
+        )
+        .unwrap();
+        std::fs::write(
+            output.join("assembled.wkb"),
+            encode_wkb_multi_polygon(assembled.geometry()).unwrap(),
+        )
+        .unwrap();
+        // GEOS is independent of the production overlay and checks the entire MultiPolygon.
+        let python = std::env::var("POURPOINT_VALIDATION_PYTHON").unwrap();
+        let status = std::process::Command::new(python).args(["-c", "import sys; from pathlib import Path; from shapely import from_wkb, is_valid, is_valid_reason; g=from_wkb(Path(sys.argv[1]).read_bytes()); assert not g.is_empty; assert is_valid(g), is_valid_reason(g)"]).arg(output.join("assembled.wkb")).status().unwrap();
+        assert!(
+            status.success(),
+            "full independent geometry validity failed"
+        );
+    }
+
+    #[test]
+    fn point_tangent_hole_is_recognized_and_filled() {
+        let wkb = hfx::WkbGeometry::new(
+            include_bytes!("../tests/fixtures/geometry/point-tangent-hole.wkb").to_vec(),
+        )
+        .unwrap();
+        let input = crate::algo::decode_wkb_multi_polygon(&wkb).unwrap();
+        let result = assemble_from_geometries(
+            vec![input],
+            AssemblyOptions::new(HoleFillMode::RemoveAll, DEFAULT_CLEANING_EPSILON),
+        )
+        .unwrap();
+        let area = result.geometry().unsigned_area();
+        assert!(
+            (area - 16.0).abs() < 0.001,
+            "point-tangent hole was embedded in shell instead of filled: {area}"
+        );
+    }
+
+    #[test]
+    fn filled_hole_unites_island_instead_of_overlapping_it() {
+        let shell = Polygon::new(
+            rect(0.0, 0.0, 4.0, 4.0).exterior().clone(),
+            vec![rect(1.0, 1.0, 3.0, 3.0).exterior().clone()],
+        );
+        let island = rect(1.5, 1.5, 2.5, 2.5);
+        let result = assemble_from_geometries(
+            vec![MultiPolygon::new(vec![shell, island])],
+            AssemblyOptions::new(HoleFillMode::RemoveAll, DEFAULT_CLEANING_EPSILON),
+        )
+        .unwrap();
+        assert_eq!(
+            result.geometry().0.len(),
+            1,
+            "filled hole must absorb its island by union"
+        );
+        assert!((result.geometry().unsigned_area() - 16.0).abs() < 0.001);
+    }
+
+    struct SuppliedGeometryRepair(MultiPolygon<f64>);
+
+    impl GeometryRepair for SuppliedGeometryRepair {
+        fn repair(
+            &self,
+            _geometry: MultiPolygon<f64>,
+            _epsilon: CleanEpsilon,
+        ) -> Result<MultiPolygon<f64>, GeometryRepairError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn final_guard_rejects_endpoint_touches_and_invalid_polygon_relationships() {
+        let pinched = Polygon::new(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (4.0, 0.0),
+                (2.0, 2.0),
+                (4.0, 4.0),
+                (0.0, 4.0),
+                (2.0, 2.0),
+                (0.0, 0.0),
+            ]),
+            vec![],
+        );
+        let disconnected = Polygon::new(
+            rect(0.0, 0.0, 4.0, 4.0).exterior().clone(),
+            vec![LineString::from(vec![
+                (0.0, 2.0),
+                (2.0, 1.0),
+                (4.0, 2.0),
+                (2.0, 3.0),
+                (0.0, 2.0),
+            ])],
+        );
+        for invalid in [
+            MultiPolygon::new(vec![pinched]),
+            MultiPolygon::new(vec![rect(0.0, 0.0, 2.0, 2.0), rect(1.0, 1.0, 3.0, 3.0)]),
+            MultiPolygon::new(vec![rect(0.0, 0.0, 1.0, 1.0), rect(1.0, 0.0, 2.0, 1.0)]),
+            MultiPolygon::new(vec![disconnected]),
+        ] {
+            let repair = SuppliedGeometryRepair(invalid);
+            let error = assemble_from_geometries(
+                vec![MultiPolygon::new(vec![rect(0.0, 0.0, 4.0, 4.0)])],
+                AssemblyOptions::new(
+                    HoleFillMode::BelowThreshold {
+                        threshold_pixels: 0,
+                        pixel_area: 0.0,
+                    },
+                    DEFAULT_CLEANING_EPSILON,
+                )
+                .with_geometry_repair(&repair),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(error, AssemblyError::InvalidAssembledGeometry { .. }),
+                "unexpected error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_polygon_from_repair_is_not_a_nonempty_watershed() {
+        let repair = SuppliedGeometryRepair(MultiPolygon::new(vec![Polygon::empty()]));
+        let error = assemble_from_geometries(
+            vec![MultiPolygon::new(vec![rect(0.0, 0.0, 1.0, 1.0)])],
+            AssemblyOptions::new(HoleFillMode::RemoveAll, DEFAULT_CLEANING_EPSILON)
+                .with_geometry_repair(&repair),
+        )
+        .unwrap_err();
+        assert!(matches!(error, AssemblyError::EmptyAssembledGeometry));
+    }
+
+    #[test]
+    fn point_tangent_hole_can_be_retained_without_exterior_self_touch() {
+        let wkb = hfx::WkbGeometry::new(
+            include_bytes!("../tests/fixtures/geometry/point-tangent-hole.wkb").to_vec(),
+        )
+        .unwrap();
+        let input = crate::algo::decode_wkb_multi_polygon(&wkb).unwrap();
+        let result = assemble_from_geometries(
+            vec![input],
+            AssemblyOptions::new(
+                HoleFillMode::BelowThreshold {
+                    threshold_pixels: 0,
+                    pixel_area: 0.0,
+                },
+                DEFAULT_CLEANING_EPSILON,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            result
+                .geometry()
+                .0
+                .iter()
+                .map(|p| p.interiors().len())
+                .sum::<usize>(),
+            1
+        );
+        assert!((result.geometry().unsigned_area() - 14.0).abs() < 0.001);
+    }
 
     #[derive(Clone)]
     struct CatchmentRow {
