@@ -1,0 +1,1080 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
+   Compiling pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/gdal)
+   Compiling pourpoint v0.1.189 (/Users/nicolaslazaro/Desktop/work/pourpoint)
+   Compiling pourpoint-python v0.3.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/python)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.30s
+     Running unittests src/main.rs (target/debug/deps/pourpoint-dee03b8ae9083433)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_integration.rs (target/debug/deps/cli_integration-21da28025dd68885)
+
+running 9 tests
+test cli_help_succeeds ... ok
+test cli_delineate_help_succeeds ... ok
+test cli_single_outlet_invalid_coord ... ok
+test cli_missing_dataset ... ok
+test cli_json_envelope ... ok
+test cli_single_outlet_geojson ... ok
+test cli_json_batch_with_failure ... ok
+test cli_no_refine_flag ... ok
+test cli_batch_csv ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+     Running tests/reader_floor_check.rs (target/debug/deps/reader_floor_check-1a7525caaf9318d5)
+
+running 4 tests
+Initialized empty Git repository in /Users/nicolaslazaro/Desktop/work/pourpoint/target/reader-floor-probes/.tmpGCQ3N8/.git/
+Initialized empty Git repository in /Users/nicolaslazaro/Desktop/work/pourpoint/target/reader-floor-probes/.tmpM22Mc0/.git/
+Initialized empty Git repository in /Users/nicolaslazaro/Desktop/work/pourpoint/target/reader-floor-probes/.tmpZQm8Nk/.git/
+Initialized empty Git repository in /Users/nicolaslazaro/Desktop/work/pourpoint/target/reader-floor-probes/.tmpvVcPmU/.git/
+test excludes_mkdocs_excluded_readme ... ok
+test rejects_bare_address_on_published_quickstart ... ok
+test excludes_dated_release_evidence ... ok
+test excludes_readme_below_test_fixture_and_golden_directories ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/reader_support_claims.rs (target/debug/deps/reader_support_claims-f72f17ff4cd8969e)
+
+running 12 tests
+test d8_metadata_inventory_is_typed ... ok
+test auxiliary_schema_inventory_is_typed ... ok
+test core_manifest_inventory_is_typed ... ok
+test mechanically_declared_reader_support_inventories_have_witness_correspondence ... ok
+test esri_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence ... ok
+test grass_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence ... ok
+test taudem_flow_direction_encoding_claim_has_discriminating_shipped_cli_evidence ... ok
+test dataset_crs_claim_has_shipped_cli_evidence ... ok
+test format_version_claim_has_shipped_cli_evidence ... ok
+test projected_d8_claims_have_shipped_cli_evidence ... ok
+test geographic_d8_claims_have_shipped_cli_evidence ... ok
+test auxiliary_schema_claims_have_shipped_cli_evidence ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.48s
+
+     Running tests/released_wheel_proof.rs (target/debug/deps/released_wheel_proof-39fa766cfec3f759)
+
+running 1 test
+test offline_self_tests_reject_every_named_corruption ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.36s
+
+     Running unittests src/lib.rs (target/debug/deps/pourpoint_core-6d590f579301a0fc)
+
+running 625 tests
+test algo::accumulation_tile::tests::exceeds_threshold_nan ... ok
+test algo::accumulation_tile::tests::exceeds_threshold_true ... ok
+test algo::accumulation_tile::tests::exceeds_threshold_false ... ok
+test algo::accumulation_tile::tests::get_checked_oob_returns_none ... ok
+test algo::accumulation_tile::tests::get_nan_returns_none ... ok
+test algo::accumulation_tile::tests::from_raw_wraps_tile ... ok
+test algo::accumulation_tile::tests::is_nodata_nan_aware ... ok
+test algo::accumulation_tile::tests::new_creates_nan_tile ... ok
+test algo::accumulation_tile::tests::set_and_get_valid ... ok
+test algo::accumulation_tile::tests::apply_mask_dimension_mismatch ... ok
+test algo::accumulation_tile::tests::apply_mask_all_false ... ok
+test algo::accumulation_tile::tests::apply_mask_all_true ... ok
+test algo::accumulation_tile::tests::apply_mask_checkerboard ... ok
+test algo::area::tests::equality ... ok
+test algo::accumulation_tile::tests::stream_mask_all_above ... ok
+test algo::area::tests::new_and_as_f64 ... ok
+test algo::accumulation_tile::tests::stream_mask_threshold_exact ... ok
+test algo::area::tests::display ... ok
+test algo::accumulation_tile::tests::stream_mask_basic ... ok
+test algo::area::tests::from_hfx_area_km2 ... ok
+test algo::area::tests::partial_ord ... ok
+test algo::canonical_wkb::tests::records_precision_contract ... ok
+test algo::catchment_mask::tests::cell_count_all_false ... ok
+test algo::catchment_mask::tests::cell_count_all_true ... ok
+test algo::catchment_mask::tests::cell_count_mixed ... ok
+test algo::catchment_mask::tests::dims_accessors ... ok
+test algo::catchment_mask::tests::from_traced_constructs_mask ... ok
+test algo::catchment_mask::tests::into_data_round_trip ... ok
+test algo::catchment_mask::tests::data_slice ... ok
+test algo::catchment_mask::tests::new_and_contains ... ok
+test algo::clean_epsilon::tests::construction_and_accessor ... ok
+test algo::clean_epsilon::tests::const_construction ... ok
+test algo::clean_epsilon::tests::default_value ... ok
+test algo::clean_epsilon::tests::equality ... ok
+test algo::canonical_wkb::tests::canonicalizes_hole_orientation_and_ordering ... ok
+test algo::canonical_wkb::tests::canonicalizes_ring_closure_orientation_and_start_vertex ... ok
+test algo::canonical_wkb::tests::canonicalizes_component_ordering_with_full_sequence_tie_break ... ok
+test algo::canonical_wkb::tests::canonical_wkb_is_idempotent_for_nested_geometry ... ok
+test algo::canonical_wkb::tests::idempotence_survives_duplicate_vertices_after_rounding ... ok
+test algo::coord::tests::geo_coord_new ... ok
+test algo::coord::tests::geo_coord_display ... ok
+test algo::coord::tests::grid_coord_new ... ok
+test algo::coord::tests::geo_coord_to_point_round_trip ... ok
+test algo::coord::tests::grid_dims_cell_count ... ok
+test algo::coord::tests::grid_dims_equality ... ok
+test algo::clean_topology::tests::clean_topology_empty ... ok
+test algo::coord::tests::point_to_geo_coord_round_trip ... ok
+test algo::dissolve::tests::empty_input_returns_error ... ok
+test algo::dissolve::tests::single_polygon ... ok
+test algo::clean_topology::tests::erosion_retains_both_lobes_when_a_neck_splits ... ok
+test algo::clean_topology::tests::clean_topology_preserves_shape ... ok
+test algo::clean_topology::tests::closing_preserves_a_satellite_smaller_than_epsilon ... ok
+test algo::clean_topology::tests::clean_topology_closes_sliver ... ok
+test algo::clean_topology::tests::cleanup_square_is_independent_of_input_winding ... ok
+test algo::distance::tests::as_km_conversion ... ok
+test algo::distance::tests::antipodal_points ... ok
+test algo::distance::tests::coincident_points ... ok
+test algo::distance::tests::display_formatting ... ok
+test algo::distance::tests::equality ... ok
+test algo::distance::tests::nyc_to_london ... ok
+test algo::distance::tests::partial_ord ... ok
+test algo::distance::tests::short_snap_distance ... ok
+test algo::distance::tests::symmetry ... ok
+test algo::flow_dir::tests::all_matches_esri_order ... ok
+test algo::flow_dir::tests::esri_round_trip ... ok
+test algo::flow_dir::tests::dx_dy_all_directions ... ok
+test algo::flow_dir::tests::from_encoded_esri_dispatch ... ok
+test algo::flow_dir::tests::from_encoded_invalid_esri ... ok
+test algo::dissolve::tests::two_overlapping_polygons ... ok
+test algo::flow_dir::tests::from_encoded_invalid_taudem ... ok
+test algo::flow_dir::tests::from_encoded_taudem_dispatch ... ok
+test algo::dissolve::tests::two_disjoint_polygons ... ok
+test algo::dissolve::tests::three_polygons_chain ... ok
+test algo::flow_dir::tests::from_esri_nodata ... ok
+test algo::flow_dir::tests::grass_literal_table_decodes_and_encodes ... ok
+test algo::flow_dir::tests::from_esri_invalid ... ok
+test algo::flow_dir::tests::grass_out_of_range_magnitudes_are_invalid ... ok
+test algo::flow_dir::tests::grass_positive_directions_round_trip ... ok
+test algo::flow_dir::tests::grass_zero_and_signed_exits_are_terminal ... ok
+test algo::flow_dir::tests::opposite_correctness ... ok
+test algo::flow_dir::tests::opposite_symmetry ... ok
+test algo::dissolve::tests::strategies_match_for_refinement_like_fixture ... ok
+test algo::dissolve::tests::strategies_match_for_overlapping_chain ... ok
+test algo::flow_dir::tests::taudem_all_directions ... ok
+test algo::flow_dir::tests::taudem_invalid ... ok
+test algo::flow_dir::tests::taudem_nodata ... ok
+test algo::flow_dir::tests::taudem_round_trip ... ok
+test algo::flow_dir::tests::to_encoded_esri_dispatch ... ok
+test algo::flow_dir::tests::to_encoded_taudem_dispatch ... ok
+test algo::flow_dir::tests::try_from_valid ... ok
+test algo::flow_dir::tests::try_from_zero_is_err ... ok
+test algo::flow_direction_tile::tests::apply_mask_all_false ... ok
+test algo::flow_direction_tile::tests::apply_mask_all_true ... ok
+test algo::flow_direction_tile::tests::apply_mask_checkerboard ... ok
+test algo::flow_direction_tile::tests::apply_mask_dimension_mismatch ... ok
+test algo::flow_direction_tile::tests::decoded_cell_distinguishes_grass_terminals_from_nodata_and_invalid_codes ... ok
+test algo::flow_direction_tile::tests::decoded_cell_preserves_esri_zero_as_absent ... ok
+test algo::flow_direction_tile::tests::encoding_accessor_esri ... ok
+test algo::flow_direction_tile::tests::encoding_accessor_taudem ... ok
+test algo::flow_direction_tile::tests::esri_and_taudem_tiles_decode_independently ... ok
+test algo::flow_direction_tile::tests::from_raw_accepts_non_direction_nodata_for_every_encoding ... ok
+test algo::flow_direction_tile::tests::from_raw_rejects_directional_nodata_for_every_encoding ... ok
+test algo::flow_direction_tile::tests::from_raw_wraps_tile ... ok
+test algo::flow_direction_tile::tests::get_checked_oob_returns_none ... ok
+test algo::flow_direction_tile::tests::get_checked_valid ... ok
+test algo::flow_direction_tile::tests::get_invalid_returns_none ... ok
+test algo::flow_direction_tile::tests::get_nodata_returns_none ... ok
+test algo::flow_direction_tile::tests::get_zero_returns_none ... ok
+test algo::flow_direction_tile::tests::grass_out_of_range_codes_are_terminal_at_accessor ... ok
+test algo::flow_direction_tile::tests::grass_signed_exit_codes_are_terminal_by_bit_pattern ... ok
+test algo::flow_direction_tile::tests::inner_escape_hatch ... ok
+test algo::flow_direction_tile::tests::invalid_in_window_byte_remains_absent ... ok
+test algo::flow_direction_tile::tests::new_creates_nodata_tile ... ok
+test algo::flow_direction_tile::tests::set_and_get_valid_dir ... ok
+test algo::flow_direction_tile::tests::taudem_apply_mask_preserves_encoding ... ok
+test algo::flow_direction_tile::tests::taudem_get_checked_decodes_correctly ... ok
+test algo::flow_direction_tile::tests::taudem_get_decodes_correctly ... ok
+test algo::flow_direction_tile::tests::taudem_get_zero_returns_none ... ok
+test algo::flow_direction_tile::tests::taudem_invalid_byte_returns_none ... ok
+test algo::flow_direction_tile::tests::taudem_new_creates_nodata_tile ... ok
+test algo::geo_transform::tests::coord_to_pixel_f64_center ... ok
+test algo::geo_transform::tests::coord_to_pixel_round_trip ... ok
+test algo::geo_transform::tests::negative_pixel_height ... ok
+test algo::geo_transform::tests::pixel_area_is_positive ... ok
+test algo::geo_transform::tests::pixel_to_coord_origin_zero ... ok
+test algo::geometry_validity::tests::rejects_nonfinite_before_predicates ... ok
+test algo::geometry_validity::tests::rejects_crossings_endpoint_touches_and_overlapping_ring_edges ... ok
+test algo::dissolve::tests::strategies_match_for_disjoint_grid ... ok
+test algo::geometry_validity::tests::empty_holes_are_valid_but_nonempty_holes_need_a_shell ... ok
+test algo::geometry_validity::tests::empty_and_duplicate_coordinates_are_valid ... ok
+test algo::hole_fill::tests::large_hole_kept ... ok
+test algo::geometry_validity::tests::hole_chain_from_shell_to_shell_disconnects_interior ... ok
+test algo::hole_fill::tests::mixed_holes ... ok
+test algo::geometry_validity::tests::holes_outside_crossing_overlapping_and_nested_are_invalid ... ok
+test algo::geometry_validity::tests::double_touch_disconnects_interior ... ok
+test algo::hole_fill::tests::no_holes_unchanged ... ok
+test algo::hole_fill::tests::threshold_zero_removes_all ... ok
+test algo::geometry_validity::tests::hole_cycle_disconnects_interior ... ok
+test algo::geometry_validity::tests::shell_hole_single_and_separate_multiple_tangencies_are_valid ... ok
+test algo::geometry_validity::tests::three_rings_at_one_contact_do_not_form_a_cycle ... ok
+test algo::largest_polygon::tests::identical_areas_returns_one ... ok
+test algo::largest_polygon::tests::largest_of_three ... ok
+test algo::geometry_validity::tests::polygon_pairs_reject_overlap_containment_duplicate_and_shared_line ... ok
+test algo::largest_polygon::tests::empty_multi_polygon_returns_none ... ok
+test algo::hole_fill::tests::small_hole_removed ... ok
+test algo::hole_fill::tests::multiple_polygons ... ok
+test algo::largest_polygon::tests::single_polygon_returned ... ok
+test algo::geometry_validity::tests::hole_contact_tree_does_not_disconnect_interior ... ok
+test algo::geometry_validity::tests::interior_holes_sharing_one_point_remain_connected ... ok
+test algo::geometry_validity::tests::three_polygons_at_one_point_and_islands_in_holes_are_valid ... ok
+test algo::polygonize::tests::empty_mask_returns_none ... ok
+test algo::polygonize::tests::disconnected_mask_returns_two_polygons ... ok
+test algo::polygonize::tests::exterior_ring_is_ccw_in_native_space ... ok
+test algo::polygonize::tests::donut_hole_returns_one_polygon_with_hole ... ok
+test algo::polygonize::tests::donut_with_hole ... ok
+test algo::polygonize::tests::full_tile ... ok
+test algo::polygonize::tests::l_shape ... ok
+test algo::polygonize::tests::geodesic_area_is_not_earth_complement ... ok
+test algo::polygonize::tests::native_coordinates ... ok
+test algo::polygonize::tests::single_pixel ... ok
+test algo::polygonize::tests::two_by_two_block ... ok
+test algo::raster_tile::tests::dims_accessors ... ok
+test algo::raster_tile::tests::from_vec_dimension_mismatch ... ok
+test algo::raster_tile::tests::from_vec_empty_tile ... ok
+test algo::raster_tile::tests::geo_accessor ... ok
+test algo::raster_tile::tests::from_vec_valid ... ok
+test algo::raster_tile::tests::get_checked_in_bounds ... ok
+test algo::raster_tile::tests::get_checked_oob_negative ... ok
+test algo::raster_tile::tests::get_checked_oob_positive ... ok
+test algo::raster_tile::tests::index_in_bounds ... ok
+test algo::raster_tile::tests::index_oob_returns_nodata ... ok
+test algo::raster_tile::tests::is_nodata_check ... ok
+test algo::raster_tile::tests::new_fills_with_nodata ... ok
+test algo::raster_tile::tests::one_by_one_tile ... ok
+test algo::raster_tile::tests::set_and_get ... ok
+test algo::rasterize::tests::full_coverage ... ok
+test algo::rasterize::tests::l_shape ... ok
+test algo::rasterize::tests::multi_polygon_two_components ... ok
+test algo::rasterize::tests::multi_polygon_with_hole ... ok
+test algo::rasterize::tests::partial_overlap ... ok
+test algo::rasterize::tests::polygon_outside_tile ... ok
+test algo::polygonize::tests::repeated_polygonization_has_stable_raw_geometry ... ok
+test algo::rasterize::tests::polygon_with_hole ... ok
+test algo::rasterize::tests::single_pixel ... ok
+test algo::rasterize::tests::small_triangle ... ok
+test algo::refine::tests::empty_raster_mask ... ok
+test algo::refine::tests::all_masked_out_nan ... ok
+test algo::refine::tests::full_tile_convergence ... ok
+test algo::refine::tests::geographic_km2_is_rejected_before_snapping ... ok
+test algo::refine::tests::loader_preserves_directional_nodata_source_error ... ok
+test algo::refine::tests::loader_delegates_to_pure_function ... ok
+test algo::refine::tests::loader_computes_correct_bbox ... ok
+test algo::refine::tests::loader_forwards_bbox_accumulation_units_and_epsg ... ok
+test algo::refine::tests::loader_propagates_raster_source_error ... ok
+test algo::refine::tests::no_cell_above_threshold ... ok
+test algo::refine::tests::nearest_wins_over_highest ... ok
+test algo::refine::tests::non_unit_geo_transform ... ok
+test algo::refine::tests::outlet_outside_tile ... ok
+test algo::refine::tests::outlet_on_polygon_edge ... ok
+test algo::refine::tests::single_cell_result ... ok
+test algo::refine::tests::simple_convergent_5x5 ... ok
+test algo::refine::tests::snap_to_offset_pour_point ... ok
+test algo::refine::tests::sub_polygon_within_terminal ... ok
+test algo::refine::tests::taudem_encoding ... ok
+test algo::refine::tests::tile_dimension_mismatch ... ok
+test algo::refine::tests::tiebreak_by_accumulation ... ok
+test algo::refine::tests::tile_geo_transform_mismatch ... ok
+test algo::rasterize::tests::large_grid_parallel_path ... ok
+test algo::self_intersection::tests::self_intersection_empty ... ok
+test algo::self_intersection::tests::self_intersection_hole_self_intersects ... ok
+test algo::refine::tests::y_shaped_watershed ... ok
+test algo::self_intersection::tests::self_intersection_l_shape ... ok
+test algo::self_intersection::tests::self_intersection_multi_one_bad ... ok
+test algo::self_intersection::tests::self_intersection_true_bowtie ... ok
+test algo::self_intersection::tests::self_intersection_valid_polygon_with_hole ... ok
+test algo::self_intersection::tests::self_intersection_valid_square ... ok
+test algo::snap::tests::candidate_ranker_preserves_row_major_order_on_full_tie ... ok
+test algo::snap::tests::empty_mask_error ... ok
+test algo::snap::tests::exact_threshold ... ok
+test algo::snap::tests::grid_quantizer_uses_half_open_cell_ownership_without_clamping ... ok
+test algo::snap::tests::mask_constrains_search ... ok
+test algo::snap::tests::nan_skipped ... ok
+test algo::snap::tests::nearest_of_multiple ... ok
+test algo::snap::tests::no_candidates_error ... ok
+test algo::snap::tests::outlet_already_on_stream ... ok
+test algo::snap::tests::outlet_out_of_bounds ... ok
+test algo::snap::tests::projected_km2_threshold_accepts_boundary_and_rejects_preceding_f32 ... ok
+test algo::snap::tests::single_candidate ... ok
+test algo::snap::tests::tie_break_by_accumulation ... ok
+test algo::snap_threshold::tests::as_f32_conversion ... ok
+test algo::snap_threshold::tests::default_constant ... ok
+test algo::snap_threshold::tests::new_and_pixels_round_trip ... ok
+test algo::snap_threshold::tests::new_max ... ok
+test algo::snap_threshold::tests::new_zero ... ok
+test algo::snap_threshold::tests::ordering ... ok
+test algo::trace::tests::convergent_y_shape ... ok
+test algo::trace::tests::checked_construction_rejects_directional_nodata_before_trace ... ok
+test algo::trace::tests::directional_nodata_at_column_zero_does_not_enter_trace ... ok
+test algo::trace::tests::disconnected_excluded ... ok
+test algo::trace::tests::edge_pour_point ... ok
+test algo::trace::tests::five_by_five_partial_watershed ... ok
+test algo::trace::tests::linear_chain_east ... ok
+test algo::trace::tests::nodata_stops_trace ... ok
+test algo::trace::tests::out_of_bounds_directional_nodata_does_not_change_geometry ... ok
+test algo::trace::tests::single_cell ... ok
+test algo::trace::tests::star_3x3_all_flow_to_center ... ok
+test algo::traits::tests::directional_nodata_construction_error_maps_without_erasure ... ok
+test algo::upstream::tests::contains_false_for_absent_unit ... ok
+test algo::upstream::tests::dangling_upstream_ref_at_terminal ... ok
+test algo::upstream::tests::dangling_ref_display_contains_ids ... ok
+test algo::upstream::tests::bfs_visits_shallower_levels_before_deeper_levels ... ok
+test algo::upstream::tests::dangling_upstream_ref_deep ... ok
+test algo::upstream::tests::disconnected_headwaters ... ok
+test algo::upstream::tests::error_display_contains_unit_id ... ok
+test algo::upstream::tests::diamond_dag_no_duplicates ... ok
+test algo::upstream::tests::deep_chain_100 ... ok
+test algo::upstream::tests::into_iterator_yields_all ... ok
+test algo::upstream::tests::into_unit_ids_consumes ... ok
+test algo::upstream::tests::is_empty_always_false ... ok
+test algo::upstream::tests::iter_count_matches_len ... ok
+test algo::upstream::tests::large_unit_ids ... ok
+test algo::upstream::tests::linear_chain ... ok
+test algo::upstream::tests::partial_eq_is_set_based ... ok
+test algo::upstream::tests::multi_level_tree ... ok
+test algo::upstream::tests::single_headwater ... ok
+test algo::upstream::tests::terminal_is_first_chain ... ok
+test algo::upstream::tests::terminal_is_first_dag ... ok
+test algo::upstream::tests::terminal_is_first_headwater ... ok
+test algo::upstream::tests::terminal_not_found ... ok
+test algo::upstream::tests::traversal_from_interior_node ... ok
+test algo::watershed_area::tests::empty_multi_polygon_error ... ok
+test algo::upstream::tests::y_confluence ... ok
+test algo::watershed_area::tests::non_finite_check_valid_polygon_passes ... ok
+test algo::watershed_area::tests::multi_polygon_sums_areas ... ok
+test algo::upstream::tests::wide_fan_in ... ok
+test algo::watershed_area::tests::one_degree_square_at_60n ... ok
+test algo::watershed_area::tests::one_degree_square_at_equator ... ok
+test algo::watershed_area::tests::returns_area_km2_newtype ... ok
+test algo::watershed_area::tests::small_watershed_polygon ... ok
+test algo::watershed_geometry::tests::assume_clean_topology_skips_cleaning ... ok
+test algo::watershed_area::tests::polygon_with_hole ... ok
+test algo::watershed_geometry::tests::dissolved_into_inner ... ok
+test algo::watershed_geometry::tests::empty_geometry ... ok
+test algo::watershed_geometry::tests::repair_topology_passthrough ... ok
+test algo::watershed_geometry::tests::repair_topology_propagates_error ... ok
+test algo::watershed_geometry::tests::full_pipeline ... ok
+test algo::watershed_geometry::tests::into_inner_returns_multi_polygon ... ok
+test algo::wkb::tests::decode_wkb_invalid_bytes_returns_error ... ok
+test algo::watershed_geometry::tests::pipeline_preserves_area ... ok
+test algo::watershed_geometry::tests::topology_cleaned_into_inner ... ok
+test algo::wkb::tests::decode_wkb_multi_polygon_from_multi_polygon ... ok
+test algo::wkb::tests::decode_wkb_multi_polygon_from_polygon ... ok
+test algo::wkb::tests::decode_wkb_multi_polygon_variant ... ok
+test algo::wkb::tests::decode_wkb_multi_polygon_wrong_type_returns_error ... ok
+test algo::wkb::tests::decode_wkb_polygon_from_multi_polygon_returns_error ... ok
+test algo::wkb::tests::decode_wkb_polygon_succeeds ... ok
+test algo::wkb::tests::decode_wkb_polygon_variant ... ok
+test algo::wkb::tests::decode_wkb_polygon_wrong_type_returns_error ... ok
+test algo::wkb::tests::encode_decode_round_trip ... ok
+test algo::wkb::tests::encode_empty_multi_polygon ... ok
+test assembly::tests::captured_catchments_produce_valid_watershed ... ignored, requires a private captured catchment set and a fresh output directory
+test assembly::tests::canonicalization_prevents_bad_geodesic_area_behavior_on_reversed_input ... ok
+test assembly::tests::duplicate_fetched_id_is_hard_failure ... ok
+test assembly::tests::empty_polygon_from_repair_is_not_a_nonempty_watershed ... ok
+test assembly::tests::final_geometry_is_canonicalized_before_storage ... ok
+test assembly::tests::disjoint_inputs_remain_multipolygon_and_area_uses_all_parts ... ok
+test assembly::tests::repair_returning_empty_geometry_is_hard_failure ... ok
+test assembly::tests::point_tangent_hole_is_recognized_and_filled ... ok
+test assembly::tests::repairer_is_invoked_when_present ... ok
+test assembly::tests::filled_hole_unites_island_instead_of_overlapping_it ... ok
+test assembly::tests::final_guard_rejects_endpoint_touches_and_invalid_polygon_relationships ... ok
+test assembly::tests::point_tangent_hole_can_be_retained_without_exterior_self_touch ... ok
+test cache::tests::id_index_path_uses_artifact_cache_dir ... ok
+test cache::tests::validation_sidecar_artifact_metadata_changes_invalidate ... ok
+test cache::tests::validation_sidecar_graph_metadata_mismatch_fails_closed ... ok
+test cache::tests::validation_sidecar_logic_version_change_invalidates ... ok
+test cache::tests::validation_sidecar_matches_absent_snap ... ok
+test cache::tests::legacy_validation_sidecar_without_manifest_attestation_fails_closed ... ok
+test cache::tests::validation_sidecar_matches_exact_metadata_and_version ... ok
+test cache::tests::validation_sidecar_matches_two_snaps_regardless_of_declaration_order ... ok
+test cache::tests::validation_sidecar_old_open_reuse_logic_version_fails_closed ... ok
+test cog::tests::bbox_to_pixel_window_clamps_and_pads ... ok
+test cache::tests::validation_sidecar_patch_version_change_does_not_invalidate_v2_token ... ok
+test cog::tests::covered_chunks_reject_individual_compressed_ceiling ... ok
+test cog::tests::covered_chunks_reject_aggregate_compressed_ceiling ... ok
+test assembly::tests::decode_failure_is_hard_failure ... ok
+test assembly::tests::wrong_geometry_type_is_hard_failure ... ok
+test assembly::tests::terminal_override_does_not_rescue_missing_terminal_catchment ... ok
+test assembly::tests::empty_refined_terminal_override_is_hard_failure ... ok
+test cog::tests::decode_window_prefills_i8_nodata_as_stored_byte ... ok
+test cog::tests::decode_window_rejects_unrepresentable_direction_nodata ... ok
+test cog::tests::decoded_chunk_ceiling_is_fixed_with_defended_headroom ... ok
+test assembly::tests::assemble_watershed_succeeds_with_coarse_catchments_only ... ok
+test assembly::tests::terminal_override_bypasses_bad_terminal_wkb ... ok
+test assembly::tests::terminal_override_replaces_coarse_terminal_geometry ... ok
+test cog::tests::decode_window_preserves_declared_nodata_for_unwritten_spanned_tile ... ok
+test cog::tests::owned_decode_predictor_three_uses_padded_plane_stride_on_edge_tile ... ok
+test cog::tests::owned_decode_preserves_all_sample_types ... ok
+test algo::dissolve::tests::overlapping_dissolve_is_byte_identical_across_parallel_runs ... ok
+test cog::tests::materialized_window_geotiff_preserves_pixels_and_transform_tags ... ok
+test cog::tests::classic_fixture_round_trips_magic_and_four_byte_offsets ... ok
+test cog::tests::cog_fixture_counting_store_charges_non_range_gets ... ok
+test cog::tests::owned_ifd_walker_reads_bigtiff_metadata_without_materializing_indexes ... ok
+test cog::tests::owned_ifd_walker_reads_classic_metadata_without_materializing_indexes ... ok
+test cog::tests::covered_index_resolution_rejects_short_response ... ok
+test cog::tests::classic_remote_extent_reads_owned_layout ... ok
+test cog::tests::owned_ifd_walker_rejects_big_endian_byte_order ... ok
+test cog::tests::owned_ifd_walker_rejects_bad_magic ... ok
+test cog::tests::owned_ifd_walker_rejects_declared_object_too_small_for_ifd_entries ... ok
+test cog::tests::owned_ifd_walker_rejects_empty_ifd ... ok
+test cog::tests::owned_ifd_walker_rejects_ifd_entry_byte_ceiling ... ok
+test cog::tests::owned_ifd_walker_rejects_ifd_entry_count_ceiling ... ok
+test cog::tests::owned_ifd_walker_rejects_descriptor_count_mismatch ... ok
+test cog::tests::planetary_fixture_exceeds_legacy_header_bounds ... ok
+test cog::tests::cross_tile_fixture_oracle_locks_observation_geometry ... ok
+test cog::tests::owned_ifd_walker_rejects_metadata_value_byte_ceiling ... ok
+test cog::tests::owned_ifd_walker_rejects_out_of_range_metadata_value_offset ... ok
+test cog::tests::owned_ifd_walker_rejects_unsupported_field_type ... ok
+test cog::tests::remote_ascii_reads_one_bounded_out_of_line_range ... ok
+test cog::tests::owned_ifd_walker_rejects_wrong_model_pixel_scale_count ... ok
+test cog::tests::owned_ifd_walker_rejects_wrong_model_pixel_scale_field_type ... ok
+test cog::tests::compressed_chunk_fetch_rejects_short_response ... ok
+test cog::tests::planetary_extent_reads_without_materializing_tile_indexes ... ok
+test cog::tests::planetary_window_resolves_covered_tile_indexes_with_bounded_reads ... ok
+test cog::tests::tile_plan_rejects_planned_tile_ceiling ... ok
+test cog::tests::tile_plan_returns_intersecting_ranges ... ok
+test cog::tests::validate_merit_layout_accepts_predictor_one_f32 ... ok
+test cog::tests::validate_merit_layout_accepts_predictor_one_u8 ... ok
+test cog::tests::validate_merit_layout_rejects_f32_predictor_two ... ok
+test cog::tests::window_allocation_rejects_byte_ceiling ... ok
+test engine::tests::defensive_algorithm_rows_have_exact_best_effort_classifications ... ok
+test engine::tests::defensive_terminal_error_rows_have_exact_best_effort_classifications ... ok
+test cog::tests::remote_extent_reads_are_tile_count_independent ... ok
+test cog::tests::prototype_decode_rejects_unsupported_predictor ... ok
+test cog::tests::known_value_deflate_chunk_with_predictor_one_decodes_without_differencing ... ok
+test cog::tests::remote_ascii_rejects_count_above_ceiling_with_typed_error ... ok
+test cog::tests::remote_ascii_rejects_out_of_object_range_before_fetch ... ok
+test cog::tests::flow_acc_predictor_one_decodes_known_values_without_differencing ... ok
+test cog::tests::owned_decode_rejects_wrong_decoded_length ... ok
+test engine::tests::engine_geometry_wkb_accessor ... ok
+test engine::tests::engine_outlet_outside_catchments ... ok
+test engine::tests::projection_seam_errors_keep_existing_engine_routes ... ok
+test engine::tests::engine_batch_empty_input ... ok
+test engine::tests::engine_batch_mixed_success_failure ... ok
+test cog::tests::planetary_cache_window_materializes_with_bounded_reads ... ok
+test engine::tests::engine_single_headwater_unit ... ok
+test export::identity::export_identity_tests::export_identity_adapter_version_is_provenance_only ... ok
+test export::identity::export_identity_tests::export_identity_basin_id_accepts_allowlist_values ... ok
+test export::identity::export_identity_tests::export_identity_basin_id_rejects_equals ... ok
+test export::identity::export_identity_tests::export_identity_basin_id_rejects_trailing_dot ... ok
+test export::identity::export_identity_tests::export_identity_basin_id_rejects_unsafe_and_reserved_values ... ok
+test export::identity::export_identity_tests::export_identity_caller_supplied_valid_id ... ok
+test export::identity::export_identity_tests::export_identity_default_terminal_unit_id_formatting ... ok
+test export::identity::export_identity_tests::export_identity_fabric_identity_copies_manifest_fields ... ok
+test export::identity::export_identity_tests::export_identity_missing_fabric_version_default_label_error ... ok
+test export::identity::export_identity_tests::export_identity_negative_terminal_unit_default_rejection ... ok
+test export::identity::export_identity_tests::export_identity_same_basin_id_allowed_with_distinct_delineation_label ... ok
+test export::row_groups::export_row_groups_tests::export_row_groups_4096_is_one_group ... ok
+test export::row_groups::export_row_groups_tests::export_row_groups_50000_has_no_short_tail ... ok
+test export::row_groups::export_row_groups_tests::export_row_groups_8193_is_two_legal_groups ... ok
+test export::row_groups::export_row_groups_tests::export_row_groups_9000_is_balanced_and_legal ... ok
+test export::row_groups::export_row_groups_tests::export_row_groups_tiny_file_is_one_group ... ok
+test export::row_groups::export_row_groups_tests::export_row_groups_zero_rows_are_rejected ... ok
+test export::schema::export_schema_tests::export_schema_exact_required_and_provenance_fields ... ok
+test export::schema::export_schema_tests::export_schema_geo_footer_json_content ... ok
+test export::schema::export_schema_tests::export_schema_geo_footer_omits_covering_bbox_and_orientation ... ok
+test export::schema::export_schema_tests::export_schema_optional_provenance_can_be_excluded ... ok
+test export::schema::export_schema_tests::unit_bundle_export_schema_exact_fields ... ok
+test export::spatial::export_spatial_tests::export_spatial_bbox_correctness ... ok
+test export::spatial::export_spatial_tests::export_spatial_deterministic_hilbert_order ... ok
+test export::spatial::export_spatial_tests::export_spatial_errors_for_empty_or_centroid_less_geometry ... ok
+test export::spatial::export_spatial_tests::export_spatial_fixed_global_extent_does_not_renormalize_when_rows_are_added ... ok
+test export::spatial::export_spatial_tests::export_spatial_hand_computed_hilbert_indices_for_known_centroids ... ok
+test export::spatial::export_spatial_tests::export_spatial_outward_rounding_contains_non_representable_bbox ... ok
+test export::spatial::export_spatial_tests::export_spatial_tie_break_stability ... ok
+test export::spatial::export_spatial_tests::export_spatial_unit_bundle_tie_break_uses_unit_id ... ok
+test engine::tests::engine_single_outlet_no_rasters ... ok
+test engine::tests::merged_result_retains_light_upstream_unit_metadata ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_empty_input_error ... ok
+test engine::tests::engine_refinement_disabled ... ok
+test cog::tests::planetary_fixture_populates_only_cross_tile_sparse_entries ... ok
+test engine::tests::merged_result_unit_records_are_metadata_only ... ok
+test engine::tests::applied_refinement_materializes_terminal_geometry ... ok
+test cog::tests::remote_window_metadata_cost_is_tile_count_independent ... ok
+test export::writer::export_golden_tests::export_golden_bbox_values_cover_true_geometry_bounds ... ok
+test export::writer::export_golden_tests::export_golden_fixture_is_isolated_from_existing_fixture_paths ... ok
+test export::writer::export_golden_tests::export_golden_footer_geo_metadata_matches_expected_values ... ok
+test export::writer::export_golden_tests::export_golden_fixture_reads_with_standard_parquet_arrow_path ... ok
+test engine::tests::vector_point_outside_localized_window_records_absent_mapping_evidence ... ok
+test engine::tests::vector_outlet_on_cell_boundary_keeps_containing_cell_authority ... ok
+test export::writer::export_golden_tests::export_golden_hilbert_order_is_stable ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_duplicate_unit_and_delineation_rejected ... ok
+test export::writer::export_writer_tests::export_writer_empty_input_error ... ok
+test cog::tests::remote_window_cost_scales_only_with_covered_tiles ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_bbox_columns_are_outward_rounded_with_stats ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_hilbert_sorted_output_order ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_footer_geo_metadata_is_file_level ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_round_trip_schema_and_values ... ok
+test export::unit_writer::unit_bundle_writer_tests::unit_bundle_writer_terminal_row_keeps_whole_unit_when_basin_is_carved ... ok
+test parquet_cache::tests::caching_reader_get_byte_ranges_mixes_hits_and_misses_in_order ... ok
+test parquet_cache::tests::hfx_format_version_invalidates_cached_chunk ... ok
+test parquet_cache::tests::footer_cache_get_metadata_hits_on_second_reader ... ok
+test parquet_cache::tests::hit_miss_counters ... ok
+test parquet_cache::tests::lru_eviction_under_tight_budget_logs_debug_event ... ok
+test reader::catchment_store::tests::test_missing_file ... ok
+test export::writer::export_writer_tests::export_writer_default_id_collision_names_both_origins ... ok
+test raster_cache::tests::flat_key_resists_separator_replacement_collision ... ok
+test export::writer::export_writer_tests::export_writer_duplicate_basin_and_delineation_rejected ... ok
+test export::writer::export_writer_tests::export_writer_bbox_column_statistics_are_present ... ok
+test export::writer::export_writer_tests::export_writer_footer_geo_metadata_is_file_level ... ok
+test reader::catchment_store::tests::test_null_id_returns_error ... ok
+test export::writer::export_writer_tests::export_writer_round_trip_schema_and_values ... ok
+test reader::catchment_store::tests::test_null_geometry_returns_error ... ok
+test reader::catchment_store::tests::test_bbox_pruning_skips_row_groups ... ok
+test reader::catchment_store::tests::test_null_area_returns_error ... ok
+test reader::catchment_store::tests::test_open_rejects_duplicate_ids_across_row_groups ... ok
+test reader::catchment_store::tests::test_open_valid_catchments ... ok
+test reader::catchment_store::tests::test_nullable_up_area ... ok
+test reader::catchment_store::tests::test_query_by_bbox_returns_empty_for_no_overlap ... ok
+test engine::tests::valid_grass_terminal_vector_cells_apply_under_both_refinement_policies ... ok
+test reader::catchment_store::tests::test_query_by_bbox_returns_matching ... ok
+test reader::catchment_store::tests::test_read_all_ids ... ok
+test reader::catchment_store::tests::test_query_by_ids ... ok
+test reader::catchment_store::tests::test_read_all_ids_uses_cached_index ... ok
+test reader::catchment_store::tests::test_query_geometries_by_ids_ignores_unknown_ids ... ok
+test reader::catchment_store::tests::test_query_geometries_by_ids ... ok
+test export::writer::export_writer_tests::export_writer_same_basin_id_with_different_delineation_is_accepted ... ok
+test reader::id_index::tests::cache_path_uses_idindex_arrow_extension ... ok
+test reader::catchment_store::tests::test_wrong_schema ... ok
+test reader::id_index::tests::etag_mismatch_invalidates_index ... ok
+test reader::id_index::tests::corrupt_magic_invalidates_index ... ok
+test reader::id_index::tests::corrupt_body_invalidates_index ... ok
+test reader::catchment_store::tests::test_read_id_levels_rejects_missing_level_column ... ok
+test export::writer::export_writer_tests::export_writer_hilbert_sorted_output_order ... ok
+test reader::id_index::tests::round_trip_snap_shape_with_row_groups_none ... ok
+test reader::id_index::tests::size_mismatch_invalidates_index ... ok
+test reader::catchment_store_perf_tests::footer_cache_reused_for_second_open_and_query ... ok
+test reader::id_index::tests::round_trip_with_row_groups_some ... ok
+test reader::id_index::tests::version_mismatch_invalidates_index ... ok
+test cog::tests::flow_acc_fixture_indexes_are_genuinely_out_of_line ... ok
+test reader::catchment_store_perf_tests::open_remote_indexes_ids_with_one_streaming_scan ... ok
+test reader::manifest::tests::test_d8_and_snap_auxiliary_parsed ... ok
+test reader::manifest::tests::test_invalid_json ... ok
+test reader::manifest::tests::test_generic_aux_retained_as_handle ... ok
+test reader::manifest::tests::test_missing_required_field ... ok
+test reader::manifest::tests::test_valid_minimal_manifest ... ok
+test reader::manifest::tests::test_v01_format_version_rejected_before_missing_fields ... ok
+test reader::manifest::tests::test_unsupported_crs ... ok
+test reader::manifest::tests::test_unreadable_hfx_auxiliary_retained_outside_typed_manifest ... ok
+test reader::manifest::tests::test_v021_format_version_rejected_before_missing_fields ... ok
+test reader::snap_store::tests::test_lazy_open_rejects_non_struct_bbox_column ... ok
+test reader::snap_store::tests::test_lazy_open_rejects_missing_geometry_column ... ok
+test reader::snap_store::tests::test_missing_file ... ok
+test reader::snap_store::tests::test_lazy_open_rejects_wrong_stem_role_column_type ... ok
+test reader::snap_store::tests::test_lazy_open_query_by_bbox_returns_matching ... ok
+test reader::catchment_store::tests::test_query_geometries_by_ids_preserves_row_group_order_under_concurrency ... ok
+test cog::tests::cache_route_places_four_tiles_and_clips_raster_edges ... ok
+test reader::catchment_store::tests::test_read_id_levels_returns_expected_pairs ... ok
+test reader::snap_store::tests::test_cold_membership_open_reads_refs_without_decoding_geometry ... ok
+test reader::snap_store::tests::test_degenerate_bbox_point ... ok
+test reader::snap_store::tests::test_degenerate_bbox_vertical_line ... ok
+test reader::snap_store::tests::test_wrong_schema ... ok
+test refinement::tests::best_effort_skip_categories_distinguish_unreadable_d8_from_absence ... ok
+test resolver::tests::config_default_radius ... ok
+test resolver::tests::config_default_snap_strategy ... ok
+test resolver::tests::config_default_tolerance ... ok
+test resolver::tests::config_tolerance_rejects_infinity ... ok
+test resolver::tests::config_tolerance_rejects_nan ... ok
+test resolver::tests::config_tolerance_rejects_negative ... ok
+test resolver::tests::config_tolerance_zero_is_valid ... ok
+test resolver::tests::config_with_custom_radius ... ok
+test resolver::tests::config_with_custom_snap_strategy ... ok
+test resolver::tests::config_with_custom_tolerance ... ok
+test reader::snap_store::tests::test_open_valid_snap ... ok
+test reader::snap_store::tests::test_null_id_returns_error ... ok
+test reader::snap_store::tests::test_mainstem_and_tributary ... ok
+test resolver::tests::local_distance_coincident ... ok
+test reader::snap_store::tests::test_null_weight_returns_error ... ok
+test resolver::tests::local_distance_short_ew ... ok
+test resolver::tests::local_distance_short_ns ... ok
+test resolver::tests::local_distance_symmetry ... ok
+test resolver::tests::pip_tie_break_variants_distinct ... ok
+test resolver::tests::search_bbox_at_60n ... ok
+test resolver::tests::search_bbox_at_equator ... ok
+test resolver::tests::search_bbox_large_radius ... ok
+test resolver::tests::search_bbox_near_pole ... ok
+test resolver::tests::search_radius_default ... ok
+test resolver::tests::search_radius_display ... ok
+test resolver::tests::search_radius_rejects_nan ... ok
+test resolver::tests::search_radius_rejects_negative ... ok
+test resolver::tests::search_radius_rejects_zero ... ok
+test resolver::tests::snap_nearest_coincident ... ok
+test resolver::tests::snap_nearest_point_to_linestring ... ok
+test resolver::tests::snap_nearest_point_to_point ... ok
+test resolver::tests::snap_strategy_display_uses_kebab_case ... ok
+test reader::catchment_store::tests::test_read_ids_levels_with_row_groups_overlaps_row_group_reads ... ok
+test reader::snap_store::tests::test_query_by_bbox_empty ... ok
+test runtime::tests::default_worker_threads_is_clamped ... ok
+test runtime::tests::env_override_clamps_to_maximum ... ok
+test runtime::tests::env_override_clamps_to_minimum ... ok
+test runtime::tests::env_override_sets_worker_threads ... ok
+test runtime::tests::invalid_env_override_falls_back_to_default ... ok
+test runtime::tests::missing_env_override_falls_back_to_default ... ok
+test runtime::tests::nonpositive_env_override_falls_back_to_default ... ok
+test reader::catchment_store::tests::test_read_id_levels_overlaps_row_group_reads ... ok
+test reader::snap_store::tests::test_cold_membership_open_overlaps_row_group_reads ... ok
+test session::tests::cached_id_index_token_miss_fallback_scans_levels_and_rejects_mismatch ... ok
+test session::tests::cold_open_with_snap_decodes_geometry ... ok
+test session::tests::catchments_token_change_revalidates_graph_level_equality ... ok
+test session::tests::cold_remote_id_index_miss_merges_catchment_id_and_level_pass ... ok
+test session::tests::explicit_none_caches_disable_remote_parquet_caches ... ok
+test session::tests::measure_local_merit_global_snap_membership_open ... ignored, large local measurement; set POURPOINT_R2_SNAP_OPEN_REAL_MEASURE=1
+test session::tests::measure_real_grit_cold_snap_membership_open ... ignored, network and large-cache measurement; set POURPOINT_R2_SNAP_OPEN_REAL_MEASURE=1
+test session::tests::measure_real_grit_warm_snap_open_reuse ... ignored, network and large-cache measurement; set POURPOINT_R2_SNAP_OPEN_REAL_MEASURE=1
+test session::tests::local_open_does_not_allocate_parquet_caches ... ok
+test session::tests::open_does_not_decode_catchment_geometry_during_validation ... ok
+test session::tests::graph_token_change_after_cached_graph_eviction_revalidates_level_equality ... ok
+test reader::snap_store::tests::test_query_by_bbox_returns_matching ... ok
+test reader::snap_store::tests::test_read_all_unit_ids_uses_cached_index ... ok
+test reader::snap_store::tests::test_reversed_bbox_is_rejected ... ok
+test session::tests::open_remote_does_not_use_cache_entry_from_different_source ... ok
+test session::tests::read_remote_artifact_uses_single_get_for_small_objects ... ok
+test session::tests::remote_artifact_path_preserves_nested_relative_paths ... ok
+test session::tests::remote_artifact_ranges_cover_object_with_configured_parallelism ... ok
+test session::tests::open_remote_reports_missing_manifest ... ok
+test session::tests::open_remote_fetches_manifest_graph_and_opens_catchments ... ok
+test resolver::tests::default_strategy_picks_mainstem_over_coincident_tiny_stub ... ok
+test session::tests::open_remote_uses_cached_manifest_and_graph_when_remote_is_empty ... ok
+test reader::snap_store::tests::test_query_by_bbox_preserves_row_group_order_under_concurrency ... ok
+test session::tests::open_remote_with_snap_opens_and_queries_snap_store ... ok
+test resolver::tests::distance_first_zero_tolerance_prefers_strict_nearest ... ok
+test resolver::tests::weight_first_snap_prefers_heavier_candidate ... ok
+test resolver::tests::distance_first_snap_prefers_exact_match ... ok
+test source::tests::parses_file_url_as_local_source ... ok
+test source::tests::parses_plain_path_as_local_source ... ok
+test resolver::tests::weight_first_snap_still_prefers_mainstem_on_weight_tie ... ok
+test session::tests::remote_default_open_enables_parquet_caches ... ok
+test session::tests::remote_open_does_not_nest_id_index_stages_inside_validation_stages ... ok
+test resolver::tests::weight_first_preserves_mainstem_then_distance_tie_breakers ... ok
+test source::tests::range_get_concurrency_clamps_configured_value ... ok
+test source::tests::range_get_concurrency_defaults_to_eight ... ok
+test source::tests::range_get_concurrency_uses_default_for_invalid_value ... ok
+test source::tests::rejects_non_r2_http_endpoint ... ok
+test source::tests::rejects_unsupported_url_scheme ... ok
+test source_telemetry::tests::disabled_env_does_not_create_stats_handle ... ok
+test source_telemetry::tests::enabled_env_counts_put_get_and_head ... ok
+test support_claims::tests::unreadable_d8_routing_uses_the_exact_family_prefix ... ok
+test telemetry::jsonl::tests::emits_one_line_on_closed_stage_span ... ok
+test telemetry::jsonl::tests::flushes_closed_stage_span_before_guard_drop ... ok
+test telemetry::jsonl::tests::ignores_non_stage_spans ... ok
+test export::writer::export_writer_tests::export_writer_planned_row_group_sizes_are_written ... ok
+test telemetry::tests::helper_field_recording_updates_current_span ... ok
+test telemetry::jsonl::tests::includes_helper_recorded_fields ... ok
+test telemetry::tests::stage_serde_uses_stable_taxonomy ... ok
+test telemetry::tests::stage_string_taxonomy_is_stable ... ok
+test session::tests::unrelated_session_and_resolver_work_cannot_contaminate_reader_measurements ... ok
+test session::tests::remote_open_missing_etag_does_not_write_validation_sidecar ... ok
+test engine::tests::vector_cell_guard_skips_coarsely_or_fails_precisely_without_raster_fallback ... ok
+test telemetry::tests::stage_guard_records_duration_ms_on_drop ... ok
+test testutil::tests::test_catchments_have_correct_count ... ok
+test testutil::tests::test_custom_catchments_dataset_opens ... ok
+test session::tests::repeated_remote_query_with_cache_avoids_second_range_reads ... ok
+test testutil::tests::test_custom_snap_targets_dataset_opens ... ok
+test testutil::tests::test_dag_dataset_opens ... ok
+test testutil::tests::test_generated_polygon_complexity_controls_ring_point_count ... ok
+test testutil::tests::test_dataset_with_complex_generated_polygons_opens ... ok
+test session::tests::second_remote_open_uses_persistent_indexes_and_validation_sidecar ... ok
+test testutil::tests::test_dataset_with_rasters_opens ... ok
+test testutil::tests::test_dataset_with_snap_opens ... ok
+test testutil::tests::test_polygon_complexity_keeps_rectangle_until_above_default_ring_size ... ok
+test testutil::tests::test_dataset_with_small_row_groups ... ok
+test testutil::tests::test_graph_has_correct_row_count ... ok
+test testutil::tests::test_minimal_dataset_opens ... ok
+test testutil::tests::test_multilevel_nested_dataset_opens ... ok
+test session::tests::second_remote_open_with_two_snaps_uses_validation_sidecar ... ok
+test testutil::tests::test_full_dataset_opens ... ok
+test session::tests::snap_token_change_rejects_bad_membership ... ok
+test session::tests::snap_token_change_revalidates_with_lean_membership_read ... ok
+test algo::geometry_validity::tests::large_simple_ring_uses_spatial_candidates ... ok
+test session::tests::read_remote_artifact_uses_ranges_for_large_objects ... ok
+test source::tests::parses_r2_url_as_remote_source ... ok
+test source::tests::parses_s3_url_as_remote_source ... ok
+test source::tests::parses_public_r2_custom_domain_url_with_bogus_aws_env ... ok
+test source::tests::parses_public_r2_custom_domain_url_as_remote_source ... ok
+test testutil::tests::test_large_generated_fixture_fits_longitude_span ... ok
+
+test result: ok. 621 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running unittests src/bin/bench_delineate.rs (target/debug/deps/bench_delineate-36d2f9649f0c3603)
+
+running 3 tests
+test tests::parse_config_accepts_search_radius_m ... ok
+test tests::parse_config_accepts_repparfjord_outlet_shorthand ... ok
+test tests::iteration_record_includes_http_stats_when_present ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/d8_aux_accessor.rs (target/debug/deps/d8_aux_accessor-418e08460a79a380)
+
+running 30 tests
+test empty_terminal_routes_through_degenerate_refinement_error ... ok
+test declared_d8_accessor_selects_committed_fixture_paths ... ok
+test inclusive_containment_accepts_bbox_equal_to_raster_extent ... ok
+test degenerate_terminal_precedes_missing_d8_declaration ... ok
+test degenerate_terminal_precedes_unsupported_d8_crs ... ok
+test missing_d8_selection_hard_errors ... ok
+test degenerate_terminal_precedes_out_of_range_d8_crs ... ok
+test geographic_km2_routes_through_refinement ... ok
+test multi_decl_selection_skips_non_intersecting_first_decl ... ok
+test multiple_covering_decls_select_manifest_first ... ok
+test projected_d8_selection_projects_terminal_before_extent_comparison ... ok
+test projected_inverse_failure_routes_through_refinement ... ok
+test projected_refinement_carves_natively_and_returns_geographic_output ... ok
+test refine_off_still_dissolves_whole_terminal_with_legacy_engine_behavior ... ok
+test projected_refinement_inverse_projects_carved_interior_ring ... ok
+test geo_transform_mismatch_skips_best_effort_and_stays_fatal_when_required ... ok
+test directional_nodata_skips_best_effort_and_stays_fatal_when_required ... ok
+test dimension_mismatch_skips_best_effort_and_stays_fatal_when_required ... ok
+test unsupported_projected_crs_routes_through_d8_selection ... ok
+test missing_declaration_has_exact_three_mode_contract ... ok
+test missing_attached_raster_source_has_exact_three_mode_contract ... ok
+test geographic_km2_skips_best_effort_and_stays_fatal_when_required ... ok
+test inverse_projection_skips_best_effort_and_stays_fatal_when_required ... ok
+test no_covering_d8_skips_best_effort_and_stays_fatal_when_required ... ok
+test snap_failure_skips_best_effort_and_stays_fatal_when_required ... ok
+test out_of_range_d8_crs_has_exact_three_mode_contract ... ok
+test unsupported_d8_crs_skips_best_effort_and_stays_fatal_when_required ... ok
+test terminal_spanning_two_declarations_has_exact_three_mode_contract ... ok
+test truncated_tiff_header_has_exact_three_mode_contract ... ok
+test raster_source_failures_have_exact_three_mode_contracts ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/d8_refinement_parity.rs (target/debug/deps/d8_refinement_parity-c16f3019555559b5)
+
+running 6 tests
+test projected_grass_capture_child ... ok
+test projected_grass_mutation_probe ... ok
+test search_projected_grass_capture_candidates ... ok
+test v021_synthetic_d8_refinement_matches_m1_b_golden ... ok
+test applied_d8_carve_replaces_whole_terminal_in_final_dissolve ... ok
+test projected_grass_offline_golden_is_applied_and_stable ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests/equal_earth_projection.rs (target/debug/deps/equal_earth_projection-30bac21abac22b3f)
+
+running 8 tests
+test inverse_stage_variants_remain_distinct ... ok
+test identity_and_crs_parsing_are_typed ... ok
+test forward_matches_every_proj_oracle_row ... ok
+test inverse_domain_and_canonical_poles_are_explicit ... ok
+test inverse_matches_every_proj_oracle_row ... ok
+test reference_constants_match_normative_binary64_derivation ... ok
+test non_pole_forward_rows_are_near_exactly_self_consistent ... ok
+test direct_spherical_geodetic_latitude_is_detectably_wrong ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/finest_level_resolution.rs (target/debug/deps/finest_level_resolution-25e808085b65c8b0)
+
+running 6 tests
+test grit_v200_default_finest_resolves_zurich_to_l1_by_bounded_reads ... ignored, network-gated GRIT v2.0.0 finest-level proof; set POURPOINT_HFX_V02_REAL_R2_DELINEATION=1
+test finest_level_selection_returns_max_fixture_level ... ok
+test selected_level_public_api_only_resolves_existing_finest_level ... ok
+test session_level_index_answers_known_and_unknown_units ... ok
+test graph_row_group_level_statistics_agree_with_stored_session_index ... ok
+test default_finest_pip_resolution_prefers_nested_l1_child_over_larger_l0_parent ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/graph_parquet_reader.rs (target/debug/deps/graph_parquet_reader-9d50f0eaecf6758d)
+
+running 10 tests
+test realistic_graph_fixture_carries_bbox_columns_for_row_group_stats ... ok
+test rejects_graph_parquet_missing_bbox_column_for_stats_contract ... ok
+test reads_graph_parquet_with_level_and_upstream_ids ... ok
+test graph_duplicate_row_is_referential_integrity_error ... ok
+test graph_extra_row_is_referential_integrity_error ... ok
+test graph_missing_catchment_row_is_referential_integrity_error ... ok
+test graph_row_id_must_exist_as_catchment ... ok
+test graph_upstream_id_must_exist_as_catchment ... ok
+test graph_row_level_must_match_catchment_level ... ok
+test graph_edge_must_not_cross_levels ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/hfx_v02_loader.rs (target/debug/deps/hfx_v02_loader-e261fc0c78c263a5)
+
+running 16 tests
+test grit_v200_public_r2_loads_real_v021_multilevel_dag ... ignored, network-gated GRIT v2.0.0 public R2 loader proof; set POURPOINT_HFX_V02_REAL_R2_LOAD=1
+test manifest_v01_rejected_before_missing_v021_fields ... ok
+test manifest_wrong_version_rejected_before_later_required_fields ... ok
+test auxiliary_snap_path_escape_is_typed ... ok
+test auxiliary_generic_path_escape_is_typed ... ok
+test legacy_graph_arrow_is_rejected_without_fallback ... ok
+test auxiliary_d8_path_escape_is_typed ... ok
+test manifest_unsupported_crs_is_typed ... ok
+test auxiliary_d8_declared_but_missing_artifact_is_typed ... ok
+test manifest_unit_count_mismatch_is_typed ... ok
+test loads_minimal_v021_dataset ... ok
+test auxiliary_generic_reverse_dns_loads_as_uninterpreted_handle ... ok
+test auxiliary_unreadable_hfx_schemas_open_without_artifact_presence ... ok
+test auxiliary_d8_v2_opens_through_session_path ... ok
+test auxiliary_snap_missing_or_invalid_metadata_is_typed ... ok
+test auxiliary_d8_missing_or_invalid_metadata_is_typed ... ok
+
+test result: ok. 15 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/hfx_v02_test_fixtures.rs (target/debug/deps/hfx_v02_test_fixtures-29f3fdc771d5fda1)
+
+running 4 tests
+test fixture_builder_emits_v021_manifest_and_core_artifacts ... ok
+test fixture_builder_declares_snap_and_d8_aux_artifacts ... ok
+test converted_parity_fixture_is_separate_v021_d8_fixture ... ok
+test fixture_builder_emits_distinct_single_multilevel_and_dag_shapes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/hydrobasins_snap.rs (target/debug/deps/hydrobasins_snap-1a8cb0a05abb7356)
+
+running 1 test
+test hydrobasins_snap_delineates_without_d8_refinement ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/minio_harness.rs (target/debug/deps/minio_harness-2bca765264bf9454)
+
+running 1 test
+test minio_health_endpoint_is_reachable ... ignored, requires docker compose MinIO harness and HFX_S3_TEST_ENDPOINT
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/object_store_integration.rs (target/debug/deps/object_store_integration-057c37e19c16554d)
+
+running 4 tests
+test remote_reader_accepts_out_of_line_gdal_nodata ... ok
+test remote_d8_localization_failure_skips_best_effort_and_stays_fatal_when_required ... ok
+test phase_3a7_delineate_remote_inmemory_end_to_end_and_reuses_manifest_graph_cache ... ok
+test phase_3a7_open_remote_inmemory_reads_manifest_graph_and_catchments ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/outlet_resolution.rs (target/debug/deps/outlet_resolution-2290570ad3dd3a49)
+
+running 12 tests
+test pip_outside_all ... ok
+test pip_happy_path ... ok
+test dispatch_pip_when_no_snap ... ok
+test pip_upstream_area_tie_break ... ok
+test snap_no_candidates ... ok
+test snap_linestring_target ... ok
+test snap_nearest_wins ... ok
+test dispatch_snap_over_pip ... ok
+test snap_happy_path ... ok
+test snap_mainstem_tie_break ... ok
+test snap_weight_tie_break ... ok
+test legacy_resolved_outlet_keeps_fielded_migration_surface ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/parity_golden_artifacts.rs (target/debug/deps/parity_golden_artifacts-2c1fa54b1c1b02f3)
+
+running 13 tests
+test in_test_geometry_canonical_wkb_is_idempotent_without_runtime_dependencies ... ok
+test committed_v021_synthetic_nonrefined_golden_validates_schema_and_canonical_wkb ... ok
+test committed_seed_golden_validates_schema_and_canonical_wkb ... ok
+test committed_fixture_manifests_do_not_declare_d8_v1 ... ok
+test committed_grit_nonrefined_a_goldens_validate_schema_and_metadata_offline ... ok
+test committed_synthetic_refined_b_golden_validates_schema_and_canonical_wkb ... ok
+test committed_merit_refined_c_goldens_validate_schema_and_metadata_offline ... ok
+test converted_v021_synthetic_refined_tiffs_match_m1_b_bytes ... ok
+test committed_projected_grass_golden_validates_offline_contract ... ok
+test ogc_projected_grass_golden_validates_offline_contract ... ok
+test ogc_projected_grass_golden_preserves_the_recorded_footprint ... ok
+test committed_grit_refined_goldens_validate_offline ... ok
+test committed_grit_refined_goldens_reject_broken_accepted_artifact_index ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/regional_watershed_area.rs (target/debug/deps/regional_watershed_area-dff2e82e998426b0)
+
+running 7 tests
+test captured_complete_watersheds ... ignored, requires explicit paths to retained operational GRIT and TDX WKB, not redistributed
+test short_edge_antimeridian_is_regional ... ok
+test reversed_regional_shell_does_not_select_major_interior ... ok
+test holes_exceeding_shell_are_not_made_positive ... ok
+test captured_tiny_components_do_not_contribute_earth_complements ... ok
+test empty_and_nonfinite_behavior ... ok
+test winding_independent_shells_and_holes ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/session_open.rs (target/debug/deps/session_open-92a923e85fc86887)
+
+running 19 tests
+test test_open_unsupported_remote_source ... ok
+test test_open_missing_root ... ok
+test test_open_missing_graph ... ok
+test test_open_missing_catchments ... ok
+test test_open_missing_manifest ... ok
+test test_open_snap_declared_but_missing ... ok
+test test_open_unit_count_mismatch ... ok
+test test_graph_upstream_id_missing_from_catchments ... ok
+test test_open_valid_minimal_dataset ... ok
+test test_graph_traversal_from_session ... ok
+test test_graph_level_mismatch_from_open_path ... ok
+test test_graph_catchment_id_mismatch ... ok
+test test_catchment_bbox_query ... ok
+test test_dag_topology ... ok
+test test_open_hfx_v030_struct_bbox_dataset_with_snap ... ok
+test test_snap_unit_id_missing_from_catchments ... ok
+test test_snap_bbox_query ... ok
+test test_open_valid_full_dataset ... ok
+test test_degenerate_snap_bbox_opens_and_queries ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/snap_aux_reader.rs (target/debug/deps/snap_aux_reader-d0c4593c7819b774)
+
+running 7 tests
+test snap_aux_trusts_hfx_for_stem_role_values_at_open ... ok
+test snap_aux_missing_unit_id_reports_real_snap_id ... ok
+test snap_aux_trusts_hfx_for_snap_geometry_type_at_open ... ok
+test snap_aux_references_levels_mismatch_reports_real_snap_id ... ok
+test snap_aux_accepts_absent_stem_role_column_and_absent_bbox_columns ... ok
+test snap_aux_loads_four_stem_roles_point_and_linestring_geometry ... ok
+test snap_aux_malformed_geometry_fails_lazily_at_query_time ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/snap_resolution_cascade.rs (target/debug/deps/snap_resolution_cascade-27b80d88ab145bbf)
+
+running 9 tests
+test grit_v200_finest_snap_uses_reach_stems_and_weight_first_cascade ... ignored, network-gated GRIT v2.0.0 snap proof; set POURPOINT_HFX_V02_REAL_R2_DELINEATION=1
+test declarations_not_referencing_selected_level_are_ignored ... ok
+test mainstem_beats_non_mainstem_on_equal_weight ... ok
+test lower_snap_id_breaks_only_exact_weight_stem_role_distance_tie ... ok
+test snap_targets_at_other_levels_are_ignored_even_when_declaration_matches ... ok
+test nearer_candidate_wins_after_equal_weight_and_stem_role ... ok
+test higher_weight_beats_lower_weight ... ok
+test selected_level_opens_matching_declaration_store_even_when_not_first ... ok
+test multiple_matching_declarations_use_name_then_path_order ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/staged_cog_layout_probe.rs (target/debug/deps/staged_cog_layout_probe-e58a2d50a4a05ab7)
+
+running 1 test
+test staged_planetary_cog_layouts_match_frozen_contract ... ignored, network-gated staged R2 COG probe; set POURPOINT_STAGED_R2_COG_PROBE=1
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/staged_delineation.rs (target/debug/deps/staged_delineation-2fa9f627b5db81dc)
+
+running 16 tests
+test contained_terminal_polygon_rejects_empty_carve_output ... ok
+test staged_dissolve_bypasses_bad_whole_terminal_when_refined_override_exists ... ok
+test staged_dissolve_replaces_terminal_with_applied_refinement ... ok
+test staged_level_selection_parses_finest_before_resolution ... ok
+test staged_resolved_accessor_preserves_fielded_view_alongside_typed_authority ... ok
+test staged_refine_terminal_disabled_reuses_pre_merge_terminal ... ok
+test staged_refine_terminal_best_effort_no_rasters ... ok
+test deprecated_placeholder_refinement_method_forwards_to_stable_method ... ok
+test staged_pre_merge_units_are_pristine_terminal_first_records ... ok
+test staged_require_d8_no_declared_aux_hard_errors_with_schema_name ... ok
+test staged_refine_off_v021_fixture_reproduces_committed_step6_golden ... ok
+test staged_require_d8_declared_aux_without_raster_source_hard_errors ... ok
+test delineate_equals_explicit_staged_composition_best_effort_no_rasters ... ok
+test staged_dissolve_is_byte_identical_across_permuted_four_thread_runs ... ok
+test delineate_equals_explicit_staged_composition_refine_off_v021_fixture ... ok
+test delineate_equals_staged_composition_for_classified_best_effort_skip ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/pourpoint_gdal-fc380557319eee5d)
+
+running 21 tests
+test config::tests::desired_options_include_safe_remote_defaults ... ok
+test config::tests::desired_options_include_env_credentials ... ok
+test raster_reader::tests::bbox_to_pixel_window_subset ... ok
+test raster_reader::tests::bbox_to_pixel_window_clamps_to_bounds ... ok
+test raster_reader::tests::flow_direction_nodata_normalizes_supported_byte_types ... ok
+test raster_reader::tests::bbox_to_pixel_window_full_raster ... ok
+test raster_reader::tests::bbox_to_pixel_window_zero_size_when_outside ... ok
+test config::tests::normalize_endpoint_strips_scheme_and_trailing_slash ... ok
+test raster_reader::tests::gdal_to_geo_transform_extracts_fields ... ok
+test raster_reader::tests::gdal_to_geo_transform_merit_resolution ... ok
+test raster_reader::tests::gdal_to_geo_transform_rejects_skewed_raster ... ok
+test raster_reader::tests::replace_nodata_with_nan_gdal_nodata_already_nan ... ok
+test raster_reader::tests::replace_nodata_with_nan_no_matching_values ... ok
+test raster_reader::tests::replace_nodata_with_nan_no_nodata_unchanged ... ok
+test raster_reader::tests::replace_nodata_with_nan_replaces_sentinel ... ok
+test raster_reader::tests::window_geo_transform_adjusts_origin ... ok
+test raster_reader::tests::window_geo_transform_zero_offset_is_identity ... ok
+test raster_reader::tests::vsi_like_uri_is_passed_to_gdal_without_pre_exists_rejection ... ok
+test raster_reader::tests::load_accumulation_missing_local_raster_reports_open_failed ... ok
+test raster_reader::tests::load_flow_direction_missing_local_raster_reports_open_failed ... ok
+test raster_reader::tests::load_flow_direction_opens_existing_local_raster_from_string_uri ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/merit_local_recapture.rs (target/debug/deps/merit_local_recapture-71184f278ec2ccc7)
+
+running 2 tests
+test recapture_rhine_basel_from_local_current_hfx ... ignored, requires licensed local MERIT source data and explicit blessing
+test committed_current_merit_evidence_is_local_and_versioned ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/raster_decode_parity.rs (target/debug/deps/raster_decode_parity-4089b726b6df1b29)
+
+running 6 tests
+test merit_c_windows_tiff_match_gdal ... ignored, requires network-materialized MERIT C windows and GDAL runtime
+test synthetic_b_tiff_matches_gdal ... ignored, requires GDAL runtime
+test directional_uint8_nodata_is_rejected_by_local_and_gdal_sources ... ok
+test signed_tiff_samples_match_local_and_gdal_normalization ... ok
+test projected_grass_declaration_drives_gdal_and_changes_geometry ... ok
+test remote_four_tile_localization_preserves_source_placement_and_gdal_engine_parity ... ok
+
+test result: ok. 4 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/staged_r2_carve.rs (target/debug/deps/staged_r2_carve-c5aa05f5ac740c3c)
+
+running 1 test
+test staged_r2_public_carve_selects_seam_candidate_and_proves_overlap ... ignored, network-gated staged R2 carve proof; run POURPOINT_STAGED_R2_CARVE=1 cargo test -p pourpoint-gdal --test staged_r2_carve -- --ignored --nocapture
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/_pourpoint-50873905b78f9ab4)
+
+running 15 tests
+test config::tests::engine_config_requests_gdal_only_when_explicitly_configured ... ok
+test config::tests::repair_geometry_requests_gdal_only_for_gdal_mode ... ok
+test engine::tests::disabled_parquet_cache_ignores_max_mb ... ok
+test engine::tests::explicit_parquet_cache_value_is_honored ... ok
+test engine::tests::local_and_file_dataset_paths_are_not_remote ... ok
+test engine::tests::remote_dataset_schemes_are_detected ... ok
+test engine::tests::unset_parquet_cache_enables_for_remote_paths ... ok
+test kwargs::tests::empty_kwargs_passes ... ok
+test kwargs::tests::known_kwarg_passes ... ok
+test kwargs::tests::levenshtein_suggestion_fires ... ok
+test kwargs::tests::registry_hint_fires_for_constructor_kwarg_on_delineate ... ok
+test kwargs::tests::unknown_unrelated_name_lists_valid_kwargs ... ok
+test config::tests::repair_geometry_parse_accepts_supported_python_values ... ok
+test config::tests::repair_geometry_parse_rejects_invalid_python_values ... ok
+test engine::tests::enabled_parquet_cache_validates_max_mb ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests pourpoint_core
+
+running 1 test
+test crates/core/src/staged.rs - staged (line 6) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test crates/core/src/algo/geometry_validity.rs - algo::geometry_validity::GeometryValidityError (line 92) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+all doctests ran in 0.33s; merged doctests compilation took 0.12s
+   Doc-tests pourpoint_gdal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

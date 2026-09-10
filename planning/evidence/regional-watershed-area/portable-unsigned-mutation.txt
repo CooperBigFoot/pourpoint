@@ -1,0 +1,53 @@
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
+warning: function `regional_polygon_area_m2` is never used
+   --> crates/core/src/algo/watershed_area.rs:102:4
+    |
+102 | fn regional_polygon_area_m2(polygon: &Polygon<f64>) -> Result<f64, WatershedAreaError> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `pourpoint-core` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.88s
+     Running tests/regional_watershed_area.rs (target/debug/deps/regional_watershed_area-6f5978f73d74cefd)
+
+running 7 tests
+original: signed_m2=-0.00000850953915687569, unsigned_m2=510065621724088.44, regional_km2=510065621.72408843
+
+thread 'holes_exceeding_shell_are_not_made_positive' (38541593) panicked at crates/core/tests/regional_watershed_area.rs:120:9:
+assertion failed: matches!(geodesic_area(&invalid),
+    Err(WatershedAreaError::HoleAreaExceedsShell { shell_m2, holes_m2 }) if
+    holes_m2 > shell_m2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test captured_complete_watersheds ... ignored, requires explicit paths to retained operational GRIT and TDX WKB, not redistributed
+
+thread 'reversed_regional_shell_does_not_select_major_interior' (38541594) panicked at crates/core/tests/regional_watershed_area.rs:51:5:
+actual=510053312.94572693 expected=12308.778361469453
+
+thread 'captured_tiny_components_do_not_contribute_earth_complements' (38541591) panicked at crates/core/tests/regional_watershed_area.rs:28:13:
+regional km2=510065621.72408843; signed m2=-0.00000850953915687569; unsigned m2=510065621724088.44
+
+thread 'short_edge_antimeridian_is_regional' (38541595) panicked at crates/core/tests/regional_watershed_area.rs:51:5:
+actual=510041002.28032917 expected=24619.443759277205
+
+thread 'winding_independent_shells_and_holes' (38541596) panicked at crates/core/tests/regional_watershed_area.rs:90:13:
+assertion failed: area > 0.0
+test short_edge_antimeridian_is_regional ... FAILED
+test holes_exceeding_shell_are_not_made_positive ... FAILED
+test winding_independent_shells_and_holes ... FAILED
+test reversed_regional_shell_does_not_select_major_interior ... FAILED
+test captured_tiny_components_do_not_contribute_earth_complements ... FAILED
+test empty_and_nonfinite_behavior ... ok
+
+failures:
+
+failures:
+    captured_tiny_components_do_not_contribute_earth_complements
+    holes_exceeding_shell_are_not_made_positive
+    reversed_regional_shell_does_not_select_major_interior
+    short_edge_antimeridian_is_regional
+    winding_independent_shells_and_holes
+
+test result: FAILED. 1 passed; 5 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p pourpoint-core --test regional_watershed_area`

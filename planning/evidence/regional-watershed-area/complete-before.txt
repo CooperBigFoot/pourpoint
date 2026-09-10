@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/regional_watershed_area.rs (target/debug/deps/regional_watershed_area-95ba50f150bdfa11)
+
+running 1 test
+POURPOINT_GRIT_WKB: parts=9, area_km2=1020167146.75587975978851
+
+thread 'captured_complete_watersheds' (38468180) panicked at crates/core/tests/regional_watershed_area.rs:33:5:
+actual=1020167146.7558798 expected=35903.3077027896
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test captured_complete_watersheds ... FAILED
+
+failures:
+
+failures:
+    captured_complete_watersheds
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p pourpoint-core --test regional_watershed_area`
