@@ -9,19 +9,30 @@ fn captured_tiny_components_do_not_contribute_earth_complements() {
     let bytes = include_bytes!("fixtures/regional-area/tiny-components.wkb");
     let geometry = decode_wkb_multi_polygon(&WkbGeometry::new(bytes.to_vec()).unwrap()).unwrap();
     assert_eq!(geometry.0.len(), 2);
-    for polygon in &geometry.0 {
-        let signed = polygon.geodesic_area_signed();
-        let unsigned = polygon.geodesic_area_unsigned();
-        assert!(signed < 0.0 && signed.abs() < 0.001, "signed={signed}");
-        assert!(unsigned > 5e14, "unsigned={unsigned}");
-        let area = geodesic_area(polygon).unwrap().as_f64();
-        assert!(
-            (0.0..1e-9).contains(&area),
-            "regional km2={area}; signed m2={signed}; unsigned m2={unsigned}"
-        );
+    // Near-zero signs depend on platform math. Preserve the exact fixture and
+    // also reverse its exact rings, without rounding or adjusting coordinates.
+    // Original component identities/signs are evidence, not portable invariants.
+    let reversed = MultiPolygon(geometry.0.iter().map(reverse).collect());
+    for (orientation, polygons) in [("original", &geometry), ("reversed", &reversed)] {
+        for polygon in &polygons.0 {
+            let signed = polygon.geodesic_area_signed();
+            let unsigned = polygon.geodesic_area_unsigned();
+            assert!(
+                signed.is_finite() && signed.abs() < 0.001,
+                "signed={signed}"
+            );
+            let area = geodesic_area(polygon).unwrap().as_f64();
+            println!(
+                "{orientation}: signed_m2={signed}, unsigned_m2={unsigned}, regional_km2={area}"
+            );
+            assert!(
+                (0.0..1e-9).contains(&area),
+                "regional km2={area}; signed m2={signed}; unsigned m2={unsigned}"
+            );
+        }
+        let area = geodesic_area_multi(polygons).unwrap().as_f64();
+        assert!((0.0..1e-9).contains(&area), "regional km2={area}");
     }
-    let area = geodesic_area_multi(&geometry).unwrap().as_f64();
-    assert!((0.0..1e-9).contains(&area), "regional km2={area}");
 }
 
 fn rect(w: f64, s: f64, e: f64, n: f64) -> Polygon<f64> {
@@ -42,6 +53,24 @@ fn close(actual: f64, expected: f64) {
         "actual={actual} expected={expected}"
     );
 }
+#[test]
+fn reversed_regional_shell_does_not_select_major_interior() {
+    let polygon = reverse(&rect(0., 0., 1., 1.));
+    // This signed area is far from numerical zero, unlike captured fragments.
+    assert!(polygon.geodesic_area_signed() < -1e10);
+    assert!(polygon.geodesic_area_unsigned() > 5e14);
+    close(
+        geodesic_area(&polygon).unwrap().as_f64(),
+        12308.778361469452,
+    );
+    close(
+        geodesic_area_multi(&MultiPolygon(vec![polygon]))
+            .unwrap()
+            .as_f64(),
+        12308.778361469452,
+    );
+}
+
 #[test]
 fn winding_independent_shells_and_holes() {
     let shell = rect(0., 0., 1., 1.);

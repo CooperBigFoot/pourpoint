@@ -51,9 +51,13 @@ separates the demonstrated Earth-sized complements. Synthetic WGS84 references
 were checked with pyproj 3.7.2: 12308.77836146945 km² for the equatorial shell,
 9231.614224814872 km² after the centered hole, and 24619.443759277194 km² for
 the short-edge antimeridian rectangle. They use the same 0.1 m² bound.
-Captured tiny components require negative signed magnitudes below 0.001 m²,
-unsigned area above 5e14 m², and corrected area below 0.001 m². Exact floating
-point equality is not an area acceptance condition.
+Captured tiny components require finite signed magnitudes below 0.001 m²
+and corrected area below 0.001 m² for both original and reversed exact rings.
+The original macOS evidence records negative signs and unsigned complements;
+these signs are not portable invariants. A separate nondegenerate reversed-shell
+control explicitly exercises negative signed area and an unsigned Earth
+complement without near-zero cancellation. Exact floating point equality is
+not an area acceptance condition.
 
 ## Semantics and compatibility
 
@@ -141,3 +145,50 @@ The final retained `clippy.txt` is the review follow-up run: exit 0, no warnings
 from `regional_watershed_area.rs`, and only unrelated existing test warnings.
 `cargo fmt` and the targeted six-test captured/synthetic suite were rerun and
 passed. No production code changed in this follow-up.
+
+## Linux near-zero sign portability
+
+CI run [34489969179, job 102913849383](https://github.com/CooperBigFoot/pourpoint/actions/runs/34489969179/job/102913849383)
+failed the initial captured test before its production assertion: Linux measured
+component 1 signed area **+1.9061735656578094e-7 m²**, whereas the retained macOS
+measurement is **-8.50953915687569e-6 m²**. The test incorrectly treated a
+platform-dependent near-zero sign as a universal invariant. The failure excerpt
+is retained in `ci-linux-sign-failure.txt`. Production code is unchanged.
+
+The portable regression keeps the exact fixture and tests both original and
+reversed exact rings against the unchanged 0.001 m² magnitude bound, on both
+public paths. It reports dependency signed/unsigned values without requiring a
+particular near-zero sign. Reversal changes only test copies' vertex order; no
+fixture or runtime geometry changes. The bound is about 59 times the largest
+observed tiny magnitude (1.67382e-5 m²) and about eight orders below any Earth
+complement. It is unchanged from the original test.
+
+The dependency builds `PolygonArea` by adding edges in ring order, then reduces
+the accumulated signed area. Reversal mathematically negates area, but finite
+precision does not promise exact negation. On macOS the first reversed result
+is +8.509538929502014e-6 m² (not exactly the original magnitude); the second is
++1.6738187241571723e-5 m². `portable-regression-after.txt` records all four
+measurements. Near-zero signs therefore cannot identify a specific failing
+component across platforms. Both orientations exercise a complement wherever
+one resolves negative; a host reducing a tiny ring to zero is also valid.
+
+A separate one-degree reversed-shell control has signed area below -1e10 m²
+and unsigned area above 5e14 m², far from cancellation. Its public-path
+assertions retain the independent 12308.778361469452 km² reference and 0.1 m²
+tolerance. This guarantees that reverting to unsigned area remains a failing
+regression even on a host that reduces every captured fragment to zero.
+
+Mutation verification temporarily restored both original unsigned public-path
+expressions, including their original nonfinite checks, while retaining the
+new error type for test compilation. `portable-unsigned-mutation.txt` records
+exit 101: the captured case fails at 510065621.72408843 km², and the stable
+reversed-shell control fails at 510053312.94572693 km² instead of
+12308.778361469452 km². The production file was restored byte-for-byte and has
+no diff in this follow-up. The mutation is not committed.
+
+After restoration: `cargo fmt` and `cargo clippy --workspace --all-targets`
+pass; the complete seven-test targeted suite passes, including unchanged full
+GRIT/TDX replays; the assisted workspace command passes **856 tests, 15 ignored**
+(`portable-workspace-assisted.txt`). Hosted Linux CI remains the cross-platform
+acceptance gate for this revision; no Linux success is claimed from local
+macOS measurements.

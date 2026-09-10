@@ -1,24 +1,9 @@
     Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
     Blocking waiting for file lock on build directory
     Checking pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
-warning: using `chunks_exact` with a constant chunk size
-   --> crates/core/tests/staged_delineation.rs:620:10
-    |
-620 |         .chunks_exact(2)
-    |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
-    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
-
-warning: using `chunks_exact` with a constant chunk size
-    --> crates/core/tests/parity_golden_artifacts.rs:1337:10
-     |
-1337 |         .chunks_exact(2)
-     |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
-     |
-     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
-     = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
-
+    Checking pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/gdal)
 warning: all variants have the same prefix: `Flow`
    --> crates/core/tests/object_store_integration.rs:299:1
     |
@@ -32,6 +17,48 @@ warning: all variants have the same prefix: `Flow`
     = help: remove the prefixes and use full paths to the variants instead of glob imports
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#enum_variant_names
     = note: `#[warn(clippy::enum_variant_names)]` on by default
+
+warning: using `chunks_exact` with a constant chunk size
+   --> crates/core/tests/staged_cog_layout_probe.rs:453:30
+    |
+453 |     for bytes in entry_bytes.chunks_exact(20) {
+    |                              ^^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<20>().0`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+    Checking pourpoint v0.1.189 (/Users/nicolaslazaro/Desktop/work/pourpoint)
+    Checking pourpoint-python v0.3.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/python)
+warning: `pourpoint-core` (test "object_store_integration") generated 1 warning
+warning: `pourpoint-core` (test "staged_cog_layout_probe") generated 1 warning (run `cargo clippy --fix --test "staged_cog_layout_probe" -p pourpoint-core -- ` to apply 1 suggestion)
+warning: using `chunks_exact` with a constant chunk size
+   --> crates/core/tests/staged_delineation.rs:620:10
+    |
+620 |         .chunks_exact(2)
+    |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: `pourpoint-core` (test "staged_delineation") generated 1 warning (run `cargo clippy --fix --test "staged_delineation" -p pourpoint-core -- ` to apply 1 suggestion)
+warning: using `chunks_exact` with a constant chunk size
+    --> crates/core/tests/parity_golden_artifacts.rs:1337:10
+     |
+1337 |         .chunks_exact(2)
+     |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+     = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: `pourpoint-core` (test "parity_golden_artifacts") generated 1 warning (run `cargo clippy --fix --test "parity_golden_artifacts" -p pourpoint-core -- ` to apply 1 suggestion)
+warning: using `chunks_exact` with a constant chunk size
+  --> crates/gdal/tests/raster_decode_parity.rs:75:10
+   |
+75 |         .chunks_exact(2)
+   |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+   = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
 
 warning: this function has too many arguments (8/7)
     --> crates/gdal/tests/staged_r2_carve.rs:1321:1
@@ -62,28 +89,8 @@ warning: this function has too many arguments (8/7)
      |
      = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
 
-warning: `pourpoint-core` (test "staged_delineation") generated 1 warning (run `cargo clippy --fix --test "staged_delineation" -p pourpoint-core -- ` to apply 1 suggestion)
-warning: `pourpoint-core` (test "parity_golden_artifacts") generated 1 warning (run `cargo clippy --fix --test "parity_golden_artifacts" -p pourpoint-core -- ` to apply 1 suggestion)
-warning: `pourpoint-core` (test "object_store_integration") generated 1 warning
 warning: `pourpoint-gdal` (test "staged_r2_carve") generated 2 warnings
-warning: using `chunks_exact` with a constant chunk size
-   --> crates/core/tests/staged_cog_layout_probe.rs:453:30
-    |
-453 |     for bytes in entry_bytes.chunks_exact(20) {
-    |                              ^^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<20>().0`
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
-    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
-
-warning: using `chunks_exact` with a constant chunk size
-  --> crates/gdal/tests/raster_decode_parity.rs:75:10
-   |
-75 |         .chunks_exact(2)
-   |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
-   |
-   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
-   = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
-
+warning: `pourpoint-gdal` (test "raster_decode_parity") generated 1 warning (run `cargo clippy --fix --test "raster_decode_parity" -p pourpoint-gdal -- ` to apply 1 suggestion)
 warning: using `chunks_exact` with a constant chunk size
    --> crates/core/tests/d8_refinement_parity.rs:635:10
     |
@@ -93,7 +100,5 @@ warning: using `chunks_exact` with a constant chunk size
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
     = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
 
-warning: `pourpoint-core` (test "staged_cog_layout_probe") generated 1 warning (run `cargo clippy --fix --test "staged_cog_layout_probe" -p pourpoint-core -- ` to apply 1 suggestion)
-warning: `pourpoint-gdal` (test "raster_decode_parity") generated 1 warning (run `cargo clippy --fix --test "raster_decode_parity" -p pourpoint-gdal -- ` to apply 1 suggestion)
 warning: `pourpoint-core` (test "d8_refinement_parity") generated 1 warning (run `cargo clippy --fix --test "d8_refinement_parity" -p pourpoint-core -- ` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.53s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.30s

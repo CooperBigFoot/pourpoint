@@ -1,0 +1,26 @@
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2289289Z      Running tests/regional_watershed_area.rs (target/debug/deps/regional_watershed_area-811ed3ee4e8a56ce)
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2303479Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2303783Z running 6 tests
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2310275Z test captured_complete_watersheds ... ignored, requires explicit paths to retained operational GRIT and TDX WKB, not redistributed
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2311619Z test captured_tiny_components_do_not_contribute_earth_complements ... FAILED
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2312378Z test empty_and_nonfinite_behavior ... ok
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2313033Z test short_edge_antimeridian_is_regional ... ok
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2313599Z test holes_exceeding_shell_are_not_made_positive ... ok
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2315395Z test winding_independent_shells_and_holes ... ok
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2315869Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2315962Z failures:
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2316084Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2316338Z ---- captured_tiny_components_do_not_contribute_earth_complements stdout ----
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2316651Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2317115Z thread 'captured_tiny_components_do_not_contribute_earth_complements' (10175) panicked at crates/core/tests/regional_watershed_area.rs:15:9:
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2317847Z signed=0.00000019061735656578094
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2318376Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2318797Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2318804Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2318908Z failures:
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2319302Z     captured_tiny_components_do_not_contribute_earth_complements
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2319697Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2320085Z test result: FAILED. 4 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2320618Z 
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2321198Z error: test failed, to rerun pass `-p pourpoint-core --test regional_watershed_area`
+Rust tests	Run Rust workspace tests	2026-09-10T14:37:26.2466101Z ##[error]Process completed with exit code 101.
