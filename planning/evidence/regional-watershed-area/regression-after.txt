@@ -1,0 +1,52 @@
+    Blocking waiting for file lock on package cache
+   Compiling serde_core v1.0.228
+   Compiling tracing v0.1.44
+   Compiling log v0.4.33
+   Compiling regex-automata v0.4.14
+   Compiling tracing-subscriber v0.3.23
+   Compiling clap_builder v4.6.0
+   Compiling wkt v0.11.1
+   Compiling geo v0.33.1
+   Compiling h2 v0.4.15
+   Compiling hfx v0.5.0
+   Compiling clap v4.6.1
+   Compiling regex v1.12.4
+   Compiling hyper v1.10.1
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling chrono v0.4.45
+   Compiling serde_urlencoded v0.7.1
+   Compiling quick-xml v0.39.4
+   Compiling ciborium v0.2.2
+   Compiling hyper-util v0.1.20
+   Compiling geozero v0.14.0
+   Compiling tinytemplate v1.2.1
+   Compiling criterion v0.5.1
+   Compiling arrow-array v58.3.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling object_store v0.13.2
+   Compiling arrow-select v58.3.0
+   Compiling arrow-arith v58.3.0
+   Compiling arrow-row v58.3.0
+   Compiling arrow-ipc v58.3.0
+   Compiling arrow-ord v58.3.0
+   Compiling arrow-string v58.3.0
+   Compiling arrow-cast v58.3.0
+   Compiling parquet v58.3.0
+   Compiling arrow v58.3.0
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.43s
+     Running tests/regional_watershed_area.rs (target/debug/deps/regional_watershed_area-6f5978f73d74cefd)
+
+running 6 tests
+test captured_tiny_components_do_not_contribute_earth_complements ... ok
+test empty_and_nonfinite_behavior ... ok
+test holes_exceeding_shell_are_not_made_positive ... ok
+test short_edge_antimeridian_is_regional ... ok
+test winding_independent_shells_and_holes ... ok
+POURPOINT_GRIT_WKB: parts=9, area_km2=35903.30770278959972
+POURPOINT_TDX_WKB: parts=7, area_km2=35571.42020080587827
+test captured_complete_watersheds ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s

@@ -1,0 +1,224 @@
+    Blocking waiting for file lock on build directory
+   Compiling serde_core v1.0.228
+   Compiling log v0.4.33
+   Compiling regex-automata v0.4.14
+   Compiling nu-ansi-term v0.50.3
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling colorchoice v1.0.5
+   Compiling strsim v0.11.1
+   Compiling predicates-core v1.0.10
+   Compiling gdal-sys v0.12.0
+   Compiling csv-core v0.1.13
+   Compiling difflib v0.4.0
+   Compiling termtree v0.5.1
+   Compiling anyhow v1.0.103
+   Compiling pyo3-build-config v0.24.2
+   Compiling anstyle-parse v1.0.0
+   Compiling tracing v0.1.44
+   Compiling wkt v0.11.1
+   Compiling tracing-log v0.2.0
+   Compiling geo v0.33.1
+   Compiling predicates-tree v1.0.13
+   Compiling wait-timeout v0.2.1
+   Compiling anstream v1.0.0
+   Compiling predicates v3.1.4
+   Compiling h2 v0.4.15
+   Compiling hfx v0.5.0
+   Compiling memoffset v0.9.1
+   Compiling unindent v0.2.4
+   Compiling arc-swap v1.9.1
+   Compiling clap_builder v4.6.0
+   Compiling pyo3-macros-backend v0.24.2
+   Compiling pyo3-ffi v0.24.2
+   Compiling pyo3 v0.24.2
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling csv v1.4.0
+   Compiling clap v4.6.1
+   Compiling chrono v0.4.45
+   Compiling serde_urlencoded v0.7.1
+   Compiling quick-xml v0.39.4
+   Compiling ciborium v0.2.2
+   Compiling regex v1.12.4
+   Compiling matchers v0.2.0
+   Compiling bstr v1.12.1
+   Compiling tracing-subscriber v0.3.23
+   Compiling geozero v0.14.0
+   Compiling tinytemplate v1.2.1
+   Compiling criterion v0.5.1
+   Compiling assert_cmd v2.2.1
+   Compiling arrow-array v58.3.0
+   Compiling gdal v0.19.0
+   Compiling hyper v1.10.1
+   Compiling pyo3-macros v0.24.2
+   Compiling hyper-util v0.1.20
+   Compiling arrow-select v58.3.0
+   Compiling arrow-arith v58.3.0
+   Compiling arrow-row v58.3.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling pyo3-log v0.12.4
+   Compiling arrow-ord v58.3.0
+   Compiling arrow-ipc v58.3.0
+   Compiling arrow-string v58.3.0
+   Compiling object_store v0.13.2
+   Compiling arrow-cast v58.3.0
+   Compiling arrow v58.3.0
+   Compiling parquet v58.3.0
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
+   Compiling pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/gdal)
+   Compiling pourpoint v0.1.189 (/Users/nicolaslazaro/Desktop/work/pourpoint)
+   Compiling pourpoint-python v0.3.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/python)
+error: linking with `cc` failed: exit status: 1
+  |
+  = note:  "cc" "/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/rustchWWvMI/symbols.o" "<238 object files omitted>" "/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/{libpyo3_log-7f3546cd1ae575fb,libarc_swap-fbfbbe257062a979,libstrsim-de4e22f0170eae47}.rlib" "<sysroot>/lib/rustlib/aarch64-apple-darwin/lib/{libtest-*,libgetopts-*,librustc_std_workspace_std-*}.rlib" "/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/{libpourpoint_gdal-f78fa7c01f348a76,libgdal-3ec60d5225e77ff0,libgdal_sys-e65fcb0445857739,libpyo3-c1ec68585db1eb89,libmemoffset-0e987ab87220647e,libpyo3_ffi-40bd9c4baede329d,libunindent-f4879954e80f8fd9,libpourpoint_core-9a6fafe1ffc15193,libdirs-7e696b3b399f8f88,libdirs_sys-7f592774eded9943,liboption_ext-fd6ff702543f434a,libtracing_subscriber-336b196e00c11a2b,libsharded_slab-fcf63ca38d0a5809,liblazy_static-798748bfac35ae8e,libmatchers-8600f433e240958b,libnu_ansi_term-1ed798e17bbdb763,libthread_local-3846324673e0dede,libtracing_log-1420effd9d1e1f16,libmoka-58a4a346daaa338b,libportable_atomic-cbe5b5448ec5edc3,libtagptr-b333bdcf25b3780b,libuuid-e816e8e4c83f504b,libcrossbeam_channel-d6c2629de5eb70a7,libdashmap-7e06b9165818218f,libhashbrown-18c68c1f9ac60578,libparquet-31a2433bca907b0f,libzstd-408cb9f440148a5e,libzstd_safe-330c1b88ab700c2d,libzstd_sys-ebaf20e8a4498e1a,liblz4_flex-6ce71a3871a7b5fb,libsnap-f57626b823f2bc53,libthrift-b26b9266772a6d8a,libordered_float-21b4c4e4893e8968,libinteger_encoding-e3a450933ac5a155,libtwox_hash-bc79a21c7bab7f9d,libfutures-5ba86160ca3e040e,libarrow-8c8a8e5401927865,libarrow_row-10166d3a94f1ed98,libarrow_ipc-3ab1677516e23ff5,libflatbuffers-6d2d03891c0c559e,libarrow_string-3601ac149d3af67d,libregex-e657ec39aa75b05f,libregex_automata-65cd03ab896c05c0,libaho_corasick-268e523e6c85e86b,libregex_syntax-eb01b535cc3974ce,libarrow_cast-7b17228b8fe69f2a,libatoi-65c677571c276b5d,liblexical_core-c93b676c8de0f024,liblexical_write_float-9f0ae15867da102d,liblexical_write_integer-b3dccb04aa98ad9b,liblexical_parse_float-a415fe05cc6ada8d,liblexical_parse_integer-001aa06b12be5012,liblexical_util-b87c83cfd5824844,libarrow_arith-a76d204b2d0ef653,libarrow_ord-29584a31cb2435a4,libarrow_select-e14b3cdb48ae30a7,libarrow_array-60c2ace7da9fa2d7,libahash-e8a40d47f37a9ad5,libgetrandom-ec980edd486adaa1,libnum_complex-4a792940422ca135,libarrow_data-cf4e4b0abd8189a1,libarrow_schema-1b2c002846c14e3f,libarrow_buffer-d14565bfa3b7971f,libhalf-6dc96fa840fcb45d,libzerocopy-a98a74c258cec723,libnum_bigint-e285c8bb964cd1f7,libnum_integer-7787d4d6e19c7fc7,libtiff-369be899bf0c4efd,libweezl-f2f3e10bf453aeef,libjpeg_decoder-06a772437154862f,libtempfile-c94d5a07db11b9a9,libfastrand-46fb32705e204290,librustix-5ae971be86fb7eb5,liberrno-64cd7bf144c36133,libflate2-3266df3cfe60f96d,libzlib_rs-4cd9749f9e1517a4,libobject_store-a1c9396b7e0832c3,libserde_json-2c4f12fe1d32b341,libzmij-455481f2293e388e,libhumantime-a5eece291ded0406,libwalkdir-f7c98cbcc9dc78b9,libsame_file-55127012cdef2a03,libparking_lot-e7fa09f5a08c7e4d,libparking_lot_core-6e0542f838a12269,liblock_api-7a37a38473fcc259,libscopeguard-03f093378f853884,libchrono-7499b33b4ff9e4c1,libiana_time_zone-3f8159f1b3df595d,libquick_xml-2eb9fbce13a12dbc,libmd5-824aff63915badb2,libdigest-e527c9fe44013619,libblock_buffer-a6d16a503fc7f22d,libcrypto_common-534e8a5e350564c7,libgeneric_array-d3f0bcb72e2c9b19,libtypenum-badbe8f99efaa426,libitertools-65c2fc14ac4fa22a,libreqwest-b4c12d474ff6f1a8,libserde_urlencoded-f05de011d1fddb9d,libryu-df2e317c575e93a4,libhyper_rustls-7d3790f446b25145,librustls_native_certs-ff1a2909c8e83d84,libsecurity_framework-c0b14d79104ce569,libcore_foundation-215edd7022594caa,libsecurity_framework_sys-207619c007d9e12a,libcore_foundation_sys-4c5f7b4418cc0848,libtokio_rustls-88a2f0619576d2b9,librustls-2dbcb7d8ed08f533,libsubtle-00666f39de402553,libwebpki-5bdc1b79e80a2689,libring-4be66a5a3ee6f17a,libgetrandom-837a80dd2872d35e,libuntrusted-4e24c59026e223f9,librustls_pki_types-e66ed67d320aedcc,libzeroize-24bd8f00e3e86509,libserde-8ab947a31b6bb62a,libserde_core-f34c77c38f346e30,libtower_http-c027461209e8f27a,libbitflags-ebe21a00187e1228,libtower-457b380dbb2e8695,libtower_layer-60525c935857f972,libhyper_util-0931fc13913cc34c,libbase64-b543fed2f0293468,libipnet-05b20b42f37bf835,libtower_service-7f41eb306fcc408a,libhyper-b5ee9019909b714d,libwant-23c907daa95da708,libtry_lock-8ca481baa00be8b1,libhttparse-4678cd816aada1bd,libh2-6ac23c79d90497e3,libindexmap-007fd70635ad47ee,libequivalent-a1c9b9ad8df72bad,libhashbrown-71bb581e8a0bed5c,libfnv-7482fca9f4dd4200,libatomic_waker-e7b30d5fd68e4f81,libtokio_util-45801d2f8dcf5356,libtokio-34868568d1ab30cf,libsocket2-dc5ff826be8bd75d,libmio-34fb4e274956b4a6,libhttp_body_util-c6b08e25522ea656,libhttp_body-361323ebc5d2e89d,liburl-9f19303a4c3b39bf,libidna-0dee53c5327523e1,libidna_adapter-3c6a210ba721f853,libicu_properties-e635e35f6284caa8,libicu_properties_data-ce8ed4547cbd0d8f,libicu_normalizer-32e58a761aa242dd,libicu_normalizer_data-49f8afed67e46959,libicu_collections-eae1d2c46531ef12,libutf8_iter-0fb0fb1a7515565d,libpotential_utf-de0645fe7d14ad35,libicu_provider-6afb4c773e36ea8f,libicu_locale_core-9fe5c5d774c73f2f,libtinystr-44ab85d1a29f201f,liblitemap-659fc6fcd9343ec6,libwriteable-50380a410a9fcbeb,libzerovec-4fa995bc3aaa19d7,libzerotrie-5640cd89d91c9697,libyoke-96f39352526a7e9a,libstable_deref_trait-8be854e8812732e1,libzerofrom-08513c5d48a83dcc,libform_urlencoded-cb93686a35562df8,libpercent_encoding-76226f1a5c7d4040,libhttp-c5fdfcb65b8cdeb7,libitoa-b44586fc39d2b7cf,libsync_wrapper-a300c7fe85426cd4,libfutures_util-87c31da34a8ae660,libmemchr-604460ca39ea644e,libfutures_io-d3047ccf5e54dd0f,libslab-35256d05aa8af191,libfutures_channel-ffac119a3235f684,libfutures_sink-9d83a8e6620c7730,libfutures_task-981c59d1c6e98bd2,libfutures_core-6b65906c19f3226d,libbytes-bb721b94b125fc35,libgeozero-ac46a06c62488c98,libwkt-9643e05fb0e34eb3,libscroll-d7013e42e6c3ea0b,libthiserror-e0c0172110c888ed,libhfx-0eb8ead1fc9008fa,libthiserror-6515f2eba51aa56c,libtracing-8e7a1e8938d4cc1d,libpin_project_lite-586ef38be16ef8c8,libtracing_core-0d12991d02580692,libonce_cell-716c43cced633c62,libgeo-6becb23fcade7257,libfloat_next_after-c4643db5f8d2ebac,librand_pcg-fc084c27b2578d7e,librand-8d8bca5cf6be72e6,libgetrandom-bebdc279ed774c41,liblibc-e977c88fcc819d60,libchacha20-0b0fc25de0312016,libcfg_if-7e76abba0d4e7174,librand_core-2e242929f3dc07cb,libearcut-cadc5900d1e1be35,libsif_itree-58e0d0ffce7a7f9a,libgeographiclib_rs-8d23221d9cad900f,libi_overlay-d820391958b2f2cf,libi_tree-68bb00a2d86d0a8b,libi_key_sort-ee7a2a6bcf4ffff6,libi_shape-214a3ed8af909a12,libi_float-bd7f364bf972152c,liblibm-35b3360cc006f15a,libgeo_types-1aecc3df699e203c,libspade-bd07d8ac4362070a,librobust-05cb9fd7ddb946f9,librstar-8e33a4ad5e9d02d9,libheapless-fbcd7e567fc1596e,libhash32-dc753b33c006edf6,libbyteorder-a098f10606a46f64,libsmallvec-3273cde8a37cc205,librayon-ce70461acc805968,librayon_core-afbe7baaf737d37c,libcrossbeam_deque-9ccf8a3f5225377d,libcrossbeam_epoch-1c8b91e427416047,libcrossbeam_utils-a4a467e033ccb88d,libeither-c4ed83f1c34a211b,libapprox-7771ebaaba75044c,libnum_traits-97f7e13cd2d294c0,liblog-89849162850c8cbf}.rlib" "<sysroot>/lib/rustlib/aarch64-apple-darwin/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-lgdal" "-framework" "Security" "-framework" "CoreFoundation" "-liconv" "-lSystem" "-lc" "-lm" "-arch" "arm64" "-mmacosx-version-min=11.0.0" "-L" "/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/build/ring-921417ad79a88713/out" "-L" "/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/build/zstd-sys-35e4cac3c40c2861/out" "-L" "/opt/homebrew/Cellar/gdal/3.12.2/lib" "-o" "/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/_pourpoint-c52b27d478b0a90e" "-Wl,-dead_strip" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[6](44ff4c55aa9e5133-entropy_common.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[7](44ff4c55aa9e5133-error_private.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[8](44ff4c55aa9e5133-fse_decompress.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[11](44ff4c55aa9e5133-zstd_common.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[12](fb80479a5fb81f6a-fse_compress.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[13](fb80479a5fb81f6a-hist.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[14](fb80479a5fb81f6a-huf_compress.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[15](fb80479a5fb81f6a-zstd_compress.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[16](fb80479a5fb81f6a-zstd_compress_literals.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[17](fb80479a5fb81f6a-zstd_compress_sequences.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[18](fb80479a5fb81f6a-zstd_compress_superblock.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[19](fb80479a5fb81f6a-zstd_double_fast.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[20](fb80479a5fb81f6a-zstd_fast.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[21](fb80479a5fb81f6a-zstd_lazy.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[22](fb80479a5fb81f6a-zstd_ldm.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[23](fb80479a5fb81f6a-zstd_opt.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[24](fb80479a5fb81f6a-zstd_preSplit.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[26](88f362f13b0528ed-huf_decompress.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[27](88f362f13b0528ed-zstd_ddict.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[28](88f362f13b0528ed-zstd_decompress.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libzstd_sys-ebaf20e8a4498e1a.rlib[29](88f362f13b0528ed-zstd_decompress_block.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[20](25ac62e5b3c53843-curve25519.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[21](0bbbd18bda93c05b-aes_nohw.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[22](00c879ee3285a50d-montgomery.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[23](00c879ee3285a50d-montgomery_inv.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[24](a0330e891e733f4e-ecp_nistz.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[26](a0330e891e733f4e-gfp_p384.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[28](aaa1ba3e455ee2e1-limbs.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[29](a4019cc0736b0423-mem.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[30](d5a9841f3dc6e253-poly1305.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[31](a0330e891e733f4e-p256-nistz.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[32](c322a0bcc369f531-chacha-armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[33](c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[34](c322a0bcc369f531-aesv8-armx-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[35](c322a0bcc369f531-aesv8-gcm-armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[36](c322a0bcc369f531-ghash-neon-armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[37](c322a0bcc369f531-ghashv8-armx-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[38](c322a0bcc369f531-vpaes-armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[39](c322a0bcc369f531-armv8-mont-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[40](c322a0bcc369f531-p256-armv8-asm-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[41](c322a0bcc369f531-sha512-armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: object file (/Users/nicolaslazaro/Desktop/work/pourpoint/target/debug/deps/libring-4be66a5a3ee6f17a.rlib[42](c322a0bcc369f531-sha256-armv8-ios64.o)) was built for newer 'macOS' version (26.0) than being linked (11.0)
+          ld: warning: building for macOS-11.0, but linking with dylib '/opt/homebrew/opt/gdal/lib/libgdal.38.dylib' which was built for newer version 15.0
+          Undefined symbols for architecture arm64:
+            "_PyBool_Type", referenced from:
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi10boolobject12PyBool_CheckCs67qJZ8VnPLl_4pyo3 in libpyo3-c1ec68585db1eb89.rlib[7](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.03.rcgu.o)
+            "_PyBytes_AsString", referenced from:
+                __RNvMs0_NtNtCs67qJZ8VnPLl_4pyo35types5bytesINtNtB9_8instance8BorrowedNtB5_7PyBytesE8as_bytes in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyBytes_Size", referenced from:
+                __RNvMs0_NtNtCs67qJZ8VnPLl_4pyo35types5bytesINtNtB9_8instance8BorrowedNtB5_7PyBytesE8as_bytes in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyErr_Fetch", referenced from:
+                __RNvMs1_NtNtCs67qJZ8VnPLl_4pyo33err9err_stateNtB5_20PyErrStateNormalized4take in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+                __RNvNtNtCs67qJZ8VnPLl_4pyo33err9err_state30lazy_into_normalized_ffi_tuple in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyErr_NewExceptionWithDoc", referenced from:
+                __RNvMs1_NtCs67qJZ8VnPLl_4pyo33errNtB5_5PyErr8new_type in libpyo3-c1ec68585db1eb89.rlib[6](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.02.rcgu.o)
+            "_PyErr_NormalizeException", referenced from:
+                __RNvMs1_NtNtCs67qJZ8VnPLl_4pyo33err9err_stateNtB5_20PyErrStateNormalized4take in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+                __RNvNtNtCs67qJZ8VnPLl_4pyo33err9err_state30lazy_into_normalized_ffi_tuple in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyErr_Print", referenced from:
+                __RNvNtCs67qJZ8VnPLl_4pyo33err17panic_after_error in libpyo3-c1ec68585db1eb89.rlib[6](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.02.rcgu.o)
+            "_PyErr_PrintEx", referenced from:
+                __RNvMs1_NtCs67qJZ8VnPLl_4pyo33errNtB5_5PyErr22print_panic_and_unwind in libpyo3-c1ec68585db1eb89.rlib[6](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.02.rcgu.o)
+            "_PyErr_Restore", referenced from:
+                __RNvMs2_NtNtCs67qJZ8VnPLl_4pyo33err9err_stateNtB5_15PyErrStateInner7restore in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyErr_SetObject", referenced from:
+                __RNvNtNtCs67qJZ8VnPLl_4pyo33err9err_state10raise_lazy in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyErr_SetString", referenced from:
+                __RNvNtNtCs67qJZ8VnPLl_4pyo33err9err_state10raise_lazy in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyErr_WriteUnraisable", referenced from:
+                __RNvMs1_NtCs67qJZ8VnPLl_4pyo33errNtB5_5PyErr16write_unraisableB7_ in libpyo3-c1ec68585db1eb89.rlib[6](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.02.rcgu.o)
+            "_PyEval_RestoreThread", referenced from:
+                __RNvXs4_NtCs67qJZ8VnPLl_4pyo33gilNtB5_10SuspendGILNtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4drop in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyEval_SaveThread", referenced from:
+                __RNCNvNtCs67qJZ8VnPLl_4pyo33gil27prepare_freethreaded_python0B5_ in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+                __RNvMs3_NtCs67qJZ8VnPLl_4pyo33gilNtB5_10SuspendGIL3new in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyExc_BaseException", referenced from:
+                __RNCNvXs2_NtCs67qJZ8VnPLl_4pyo310exceptionsNtB7_15PyBaseExceptionNtNtB9_11type_object10PyTypeInfo15type_object_raw0B9_ in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+                __RNCNvXs2_NtCs67qJZ8VnPLl_4pyo310exceptionsNtB7_15PyBaseExceptionNtNtB9_11type_object10PyTypeInfo15type_object_raw0B9_ in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+            "_PyExc_TypeError", referenced from:
+                __RNCNvXs2i_NtCs67qJZ8VnPLl_4pyo310exceptionsNtB8_11PyTypeErrorNtNtBa_11type_object10PyTypeInfo15type_object_raw0Ba_ in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+                __RNCNvXs2i_NtCs67qJZ8VnPLl_4pyo310exceptionsNtB8_11PyTypeErrorNtNtBa_11type_object10PyTypeInfo15type_object_raw0Ba_ in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+            "_PyExc_ValueError", referenced from:
+                __RNCNvXs2M_NtCs67qJZ8VnPLl_4pyo310exceptionsNtB8_12PyValueErrorNtNtBa_11type_object10PyTypeInfo15type_object_raw0Ba_ in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+                __RNCNvXs2M_NtCs67qJZ8VnPLl_4pyo310exceptionsNtB8_12PyValueErrorNtNtBa_11type_object10PyTypeInfo15type_object_raw0Ba_ in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+            "_PyGILState_Ensure", referenced from:
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi7pystate17PyGILState_Ensure in libpyo3_ffi-40bd9c4baede329d.rlib[4](pyo3_ffi-40bd9c4baede329d.pyo3_ffi.c102951fdf03a199-cgu.0.rcgu.o)
+            "_PyGILState_Release", referenced from:
+                __RNvXs_NtCs67qJZ8VnPLl_4pyo33gilNtB4_8GILGuardNtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4drop in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyImport_Import", referenced from:
+                __RINvMNtNtCs67qJZ8VnPLl_4pyo35types6moduleNtB3_8PyModule6importRINtNtB7_8instance5BoundNtNtB5_6string8PyStringEEB7_ in libpyo3-c1ec68585db1eb89.rlib[16](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.12.rcgu.o)
+            "_PyObject_CallObject", referenced from:
+                __RNvNtNtCsgzo47ASpDSf_8pyo3_ffi6compat6py_3_919PyObject_CallNoArgsCs67qJZ8VnPLl_4pyo3 in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_PyObject_GetAttr", referenced from:
+                __RNvNvXs_NtNtCs67qJZ8VnPLl_4pyo35types3anyINtNtBa_8instance5BoundNtB6_5PyAnyENtB6_12PyAnyMethods7getattr5inner in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+            "_PyObject_Repr", referenced from:
+                __RNvXs_NtNtCs67qJZ8VnPLl_4pyo35types3anyINtNtB8_8instance5BoundNtB4_5PyAnyENtB4_12PyAnyMethods4repr in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyObject_Str", referenced from:
+                __RNvXs_NtNtCs67qJZ8VnPLl_4pyo35types3anyINtNtB8_8instance5BoundNtB4_5PyAnyENtB4_12PyAnyMethods3str in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyTraceBack_Print", referenced from:
+                __RNvXNtNtCs67qJZ8VnPLl_4pyo35types9tracebackINtNtB6_8instance5BoundNtB2_11PyTracebackENtB2_18PyTracebackMethods6format in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyType_GetFlags", referenced from:
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi6object17PyType_HasFeatureCs67qJZ8VnPLl_4pyo3 in libpyo3-c1ec68585db1eb89.rlib[13](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.09.rcgu.o)
+            "_PyType_GetSlot", referenced from:
+                __RNvXs6_NtNtCs67qJZ8VnPLl_4pyo38internal8get_slotINtB5_4SlotKl36_ENtB5_11GetSlotImpl8get_slotB9_ in libpyo3-c1ec68585db1eb89.rlib[10](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.06.rcgu.o)
+            "_PyUnicode_AsEncodedString", referenced from:
+                __RNvMs0_NtNtCs67qJZ8VnPLl_4pyo35types6stringINtNtB9_8instance8BorrowedNtB5_8PyStringE15to_string_lossy in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyUnicode_AsUTF8String", referenced from:
+                __RNvXs_NtNtCs67qJZ8VnPLl_4pyo35types6stringINtNtB8_8instance5BoundNtB4_8PyStringENtB4_15PyStringMethods11encode_utf8 in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_PyUnicode_FromStringAndSize", referenced from:
+                __RNvMNtNtCs67qJZ8VnPLl_4pyo35types6stringNtB2_8PyString3new in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+                __RNvMNtNtCs67qJZ8VnPLl_4pyo35types6stringNtB2_8PyString6intern in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+            "_PyUnicode_InternInPlace", referenced from:
+                __RNvMNtNtCs67qJZ8VnPLl_4pyo35types6stringNtB2_8PyString6intern in libpyo3-c1ec68585db1eb89.rlib[18](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.14.rcgu.o)
+            "_Py_DecRef", referenced from:
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtB7_10exceptions15PyBaseExceptionENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtNtB7_5types10boolobject6PyBoolENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtNtB7_5types10typeobject6PyTypeENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtNtB7_5types3any5PyAnyENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtNtB7_5types5bytes7PyBytesENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtNtB7_5types6module8PyModuleENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvXs6_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_5BoundNtNtNtB7_5types6string8PyStringENtNtNtCslWxY2MhVcag_4core3ops4drop4Drop4dropB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                ...
+            "_Py_GetVersion", referenced from:
+                __RNvMs0_NtCs67qJZ8VnPLl_4pyo36markerNtB5_6Python7version in libpyo3-c1ec68585db1eb89.rlib[10](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.06.rcgu.o)
+            "_Py_IncRef", referenced from:
+                __RNvMsp_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_2PyNtNtNtB7_5types10typeobject6PyTypeE9clone_refB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvMsp_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_2PyNtNtNtB7_5types3any5PyAnyE9clone_refB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvMsp_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_2PyNtNtNtB7_5types4none6PyNoneE9clone_refB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+                __RNvMsp_NtCs67qJZ8VnPLl_4pyo38instanceINtB5_2PyNtNtNtB7_5types9traceback11PyTracebackE9clone_refB7_ in libpyo3-c1ec68585db1eb89.rlib[4](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.00.rcgu.o)
+            "_Py_InitializeEx", referenced from:
+                __RNCNvNtCs67qJZ8VnPLl_4pyo33gil27prepare_freethreaded_python0B5_ in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "_Py_IsInitialized", referenced from:
+                __RNCNvMNtCs67qJZ8VnPLl_4pyo33gilNtB4_8GILGuard7acquire0B6_ in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+                __RNCNvNtCs67qJZ8VnPLl_4pyo33gil27prepare_freethreaded_python0B5_ in libpyo3-c1ec68585db1eb89.rlib[11](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.07.rcgu.o)
+            "__Py_FalseStruct", referenced from:
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi10boolobject8Py_FalseCsjnQjr8HFIif_10__pourpoint in _pourpoint-c52b27d478b0a90e.6dmilk8ftsk9n356w9ml97qvr.0eq1rga.rcgu.o
+            "__Py_NoneStruct", referenced from:
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi6object7Py_NoneCsjnQjr8HFIif_10__pourpoint in _pourpoint-c52b27d478b0a90e.0wpvxm5s98n8eft1y5ayqbkj3.0eq1rga.rcgu.o
+            "__Py_TrueStruct", referenced from:
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi10boolobject7Py_TrueCsjnQjr8HFIif_10__pourpoint in _pourpoint-c52b27d478b0a90e.6dmilk8ftsk9n356w9ml97qvr.0eq1rga.rcgu.o
+                __RNvNtCsgzo47ASpDSf_8pyo3_ffi10boolobject7Py_TrueCs67qJZ8VnPLl_4pyo3 in libpyo3-c1ec68585db1eb89.rlib[7](pyo3-c1ec68585db1eb89.pyo3.474823aa511424dd-cgu.03.rcgu.o)
+          ld: symbol(s) not found for architecture arm64
+          clang: error: linker command failed with exit code 1 (use -v to see invocation)
+
+
+error: could not compile `pourpoint-python` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

@@ -1,4 +1,10 @@
-//! Geodesic watershed area calculation using Karney's algorithm.
+//! regional_area : Polygon<WGS84> | MultiPolygon<WGS84> → Result<AreaKm2>.
+//!
+//! Karney's signed WGS84 polygon area, including hole subtraction, is measured
+//! in magnitude per polygon before summation. Rings denote minor/regional
+//! interiors smaller than half Earth, irrespective of winding. HFX does not
+//! guarantee this bound. Signed reduction cannot detect intended major interiors.
+//! This helper does not certify engine antimeridian support or planar validity.
 
 use geo::{GeodesicArea, MultiPolygon, Polygon};
 use tracing::{debug, info, instrument};
@@ -15,6 +21,15 @@ pub enum WatershedAreaError {
     #[error("cannot compute area of empty geometry")]
     EmptyGeometry,
 
+    /// Returned when regional hole magnitudes exceed their shell magnitude.
+    #[error("regional hole area {holes_m2} m² exceeds shell area {shell_m2} m²")]
+    HoleAreaExceedsShell {
+        /// Regional exterior area in square metres.
+        shell_m2: f64,
+        /// Combined regional interior area in square metres.
+        holes_m2: f64,
+    },
+
     /// Returned when the geodesic area computation yields a non-finite value.
     #[error("geodesic area returned non-finite value: {raw_m2} m²")]
     NonFiniteArea {
@@ -25,21 +40,19 @@ pub enum WatershedAreaError {
 
 /// Compute the geodesic area of a polygon on the WGS84 ellipsoid.
 ///
-/// Uses [`geo::GeodesicArea::geodesic_area_unsigned`] (Karney 2013) for
-/// sub-metre accuracy without projection distortion.
+/// Uses the magnitude of signed polygon area (Karney 2013), with holes
+/// subtracted regardless of winding. Rings denote minor/regional interiors,
+/// not intended major interiors. An empty polygon measures zero.
 ///
 /// # Errors
 ///
 /// | Condition | Error |
 /// |-----------|-------|
+/// | Regional hole area exceeds shell area | [`WatershedAreaError::HoleAreaExceedsShell`] |
 /// | Result is non-finite | [`WatershedAreaError::NonFiniteArea`] |
 #[instrument(skip(polygon))]
 pub fn geodesic_area(polygon: &Polygon<f64>) -> Result<AreaKm2, WatershedAreaError> {
-    let area_m2 = polygon.geodesic_area_unsigned();
-
-    if !area_m2.is_finite() {
-        return Err(WatershedAreaError::NonFiniteArea { raw_m2: area_m2 });
-    }
+    let area_m2 = regional_polygon_area_m2(polygon)?;
 
     let area_km2 = area_m2 * M2_TO_KM2;
     debug!(area_km2, "geodesic polygon area computed");
@@ -48,14 +61,16 @@ pub fn geodesic_area(polygon: &Polygon<f64>) -> Result<AreaKm2, WatershedAreaErr
 
 /// Compute the geodesic area of a multi-polygon on the WGS84 ellipsoid.
 ///
-/// Sums the unsigned area of each constituent polygon using
-/// [`geo::GeodesicArea::geodesic_area_unsigned`].
+/// Sums each polygon's regional magnitude independently, retaining hole
+/// subtraction without cancellation between oppositely wound components.
+/// See [`geodesic_area`] for the minor-interior interpretation.
 ///
 /// # Errors
 ///
 /// | Condition | Error |
 /// |-----------|-------|
 /// | Multi-polygon has no polygons | [`WatershedAreaError::EmptyGeometry`] |
+/// | Regional hole area exceeds shell area | [`WatershedAreaError::HoleAreaExceedsShell`] |
 /// | Result is non-finite | [`WatershedAreaError::NonFiniteArea`] |
 #[instrument(skip(multi_polygon))]
 pub fn geodesic_area_multi(
@@ -65,7 +80,9 @@ pub fn geodesic_area_multi(
         return Err(WatershedAreaError::EmptyGeometry);
     }
 
-    let area_m2 = multi_polygon.geodesic_area_unsigned();
+    let area_m2 = multi_polygon.0.iter().try_fold(0.0, |total, polygon| {
+        regional_polygon_area_m2(polygon).map(|area| total + area)
+    })?;
 
     if !area_m2.is_finite() {
         return Err(WatershedAreaError::NonFiniteArea { raw_m2: area_m2 });
@@ -78,6 +95,34 @@ pub fn geodesic_area_multi(
         "geodesic multi-polygon area computed"
     );
     Ok(AreaKm2::new(area_km2))
+}
+
+// No geometry is reoriented, repaired, filtered, or quantized here.
+fn regional_polygon_area_m2(polygon: &Polygon<f64>) -> Result<f64, WatershedAreaError> {
+    let signed_m2 = polygon.geodesic_area_signed();
+    if !signed_m2.is_finite() {
+        return Err(WatershedAreaError::NonFiniteArea { raw_m2: signed_m2 });
+    }
+    if !polygon.interiors().is_empty() {
+        let shell_signed_m2 =
+            Polygon::new(polygon.exterior().clone(), vec![]).geodesic_area_signed();
+        let shell_m2 = shell_signed_m2.abs();
+        // geo subtracts hole magnitudes with the shell's sign. A sign reversal
+        // therefore means holes exceed the shell, not a valid regional area.
+        // Zero shells use the dependency's nonnegative-shell branch.
+        let remaining_m2 = if shell_signed_m2 < 0.0 {
+            -signed_m2
+        } else {
+            signed_m2
+        };
+        if remaining_m2 < 0.0 {
+            return Err(WatershedAreaError::HoleAreaExceedsShell {
+                shell_m2,
+                holes_m2: shell_m2 - remaining_m2,
+            });
+        }
+    }
+    Ok(signed_m2.abs())
 }
 
 #[cfg(test)]
@@ -158,10 +203,11 @@ mod tests {
             .unwrap()
             .as_f64();
         let holed_area = geodesic_area(&poly).unwrap().as_f64();
-        assert!(
-            holed_area < full_square_area,
-            "holed polygon area {holed_area:.1} km² should be less than full square {full_square_area:.1} km²"
-        );
+        let hole_area = geodesic_area(&geo_rect(0.25, 0.25, 0.75, 0.75))
+            .unwrap()
+            .as_f64();
+        assert!(holed_area > 0.0);
+        assert!((holed_area - (full_square_area - hole_area)).abs() < 1e-7);
     }
 
     #[test]

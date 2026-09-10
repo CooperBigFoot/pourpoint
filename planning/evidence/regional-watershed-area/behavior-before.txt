@@ -1,0 +1,36 @@
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.67s
+     Running tests/regional_watershed_area.rs (target/debug/deps/regional_watershed_area-95ba50f150bdfa11)
+
+running 6 tests
+test captured_complete_watersheds ... ignored, requires explicit paths to retained operational GRIT and TDX WKB, not redistributed
+
+thread 'captured_tiny_components_do_not_contribute_earth_complements' (38467790) panicked at crates/core/tests/regional_watershed_area.rs:17:9:
+regional km2=510065621.72408843; signed m2=-0.00000850953915687569; unsigned m2=510065621724088.44
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'holes_exceeding_shell_are_not_made_positive' (38467792) panicked at crates/core/tests/regional_watershed_area.rs:67:9:
+assertion failed: geodesic_area(&invalid).is_err()
+
+thread 'short_edge_antimeridian_is_regional' (38467793) panicked at crates/core/tests/regional_watershed_area.rs:33:5:
+actual=510041002.28032917 expected=24619.443759277205
+
+thread 'winding_independent_shells_and_holes' (38467794) panicked at crates/core/tests/regional_watershed_area.rs:45:13:
+assertion failed: area > 0.0
+test holes_exceeding_shell_are_not_made_positive ... FAILED
+test captured_tiny_components_do_not_contribute_earth_complements ... FAILED
+test winding_independent_shells_and_holes ... FAILED
+test short_edge_antimeridian_is_regional ... FAILED
+test empty_and_nonfinite_behavior ... ok
+
+failures:
+
+failures:
+    captured_tiny_components_do_not_contribute_earth_complements
+    holes_exceeding_shell_are_not_made_positive
+    short_edge_antimeridian_is_regional
+    winding_independent_shells_and_holes
+
+test result: FAILED. 1 passed; 4 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p pourpoint-core --test regional_watershed_area`

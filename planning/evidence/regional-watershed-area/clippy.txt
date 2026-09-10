@@ -1,0 +1,387 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking cfg-if v1.0.4
+    Checking once_cell v1.21.4
+    Checking bytes v1.12.0
+    Checking memchr v2.8.2
+    Checking stable_deref_trait v1.2.1
+    Checking smallvec v1.15.2
+    Checking core-foundation-sys v0.8.7
+    Checking pin-project-lite v0.2.17
+    Checking libc v0.2.186
+    Checking libm v0.2.16
+    Checking serde_core v1.0.228
+    Checking hashbrown v0.17.1
+    Checking zerocopy v0.8.52
+    Checking zerofrom v0.1.8
+    Checking itoa v1.0.18
+    Checking equivalent v1.0.2
+    Checking crossbeam-utils v0.8.21
+    Checking log v0.4.33
+    Checking futures-core v0.3.32
+    Checking yoke v0.8.3
+    Checking either v1.16.0
+    Checking futures-sink v0.3.32
+    Checking iana-time-zone v0.1.65
+    Checking bitflags v2.13.0
+    Checking tracing-core v0.1.36
+    Checking arrow-schema v58.3.0
+    Checking slab v0.4.12
+    Checking litemap v0.8.2
+    Checking writeable v0.6.3
+    Checking zerovec v0.11.6
+    Checking zerotrie v0.2.4
+    Checking http v1.4.2
+    Checking futures-channel v0.3.32
+    Checking byteorder v1.5.0
+    Checking mio v1.2.1
+    Checking socket2 v0.6.4
+    Checking crossbeam-epoch v0.9.18
+    Checking getrandom v0.3.4
+    Checking utf8_iter v1.0.4
+   Compiling jobserver v0.1.34
+    Checking rand_core v0.10.1
+    Checking tracing v0.1.44
+    Checking aho-corasick v1.1.4
+    Checking zeroize v1.9.0
+    Checking futures-task v0.3.32
+    Checking regex-syntax v0.8.11
+    Checking futures-io v0.3.32
+    Checking percent-encoding v2.3.2
+    Checking icu_properties_data v2.2.0
+   Compiling cc v1.2.66
+    Checking tinystr v0.8.3
+    Checking num-traits v0.2.19
+    Checking tokio v1.52.3
+    Checking potential_utf v0.1.5
+    Checking crossbeam-deque v0.8.6
+    Checking rustls-pki-types v1.14.1
+    Checking icu_normalizer_data v2.2.0
+    Checking futures-util v0.3.32
+    Checking getrandom v0.2.17
+    Checking http-body v1.0.1
+    Checking untrusted v0.9.0
+    Checking icu_collections v2.2.0
+    Checking getrandom v0.4.3
+    Checking hash32 v0.3.1
+    Checking icu_locale_core v2.2.0
+    Checking indexmap v2.14.0
+    Checking rayon-core v1.13.0
+    Checking try-lock v0.2.5
+    Checking tower-service v0.3.3
+    Checking fnv v1.0.7
+    Checking typenum v1.20.1
+    Checking atomic-waker v1.1.2
+    Checking foldhash v0.2.0
+    Checking allocator-api2 v0.2.21
+    Checking base64 v0.22.1
+    Checking lexical-util v1.0.7
+    Checking ryu v1.0.23
+    Checking want v0.3.1
+    Checking rayon v1.12.0
+    Checking num-integer v0.1.46
+    Checking num-complex v0.4.6
+    Checking hashbrown v0.16.1
+    Checking heapless v0.8.0
+    Checking httparse v1.10.1
+    Checking zmij v1.0.21
+    Checking form_urlencoded v1.2.2
+    Checking serde v1.0.228
+    Checking num-bigint v0.4.8
+    Checking icu_provider v2.2.0
+    Checking generic-array v0.14.7
+    Checking security-framework-sys v2.17.0
+    Checking core-foundation v0.10.1
+    Checking scopeguard v1.2.0
+    Checking subtle v2.6.1
+    Checking robust v1.2.0
+    Checking lock_api v0.4.14
+    Checking icu_normalizer v2.2.0
+    Checking icu_properties v2.2.0
+    Checking rstar v0.12.2
+    Checking security-framework v3.7.0
+    Checking chrono v0.4.45
+    Checking regex-automata v0.4.14
+    Checking serde_json v1.0.150
+    Checking spade v2.15.1
+    Checking approx v0.5.1
+    Checking parking_lot_core v0.9.12
+    Checking sync_wrapper v1.0.2
+    Checking tower-layer v0.3.3
+    Checking ipnet v2.12.0
+    Checking thiserror v2.0.18
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking lexical-write-integer v1.0.6
+    Checking lexical-parse-integer v1.0.6
+    Checking chacha20 v0.10.0
+    Checking simd-adler32 v0.3.9
+    Checking adler2 v2.0.1
+    Checking same-file v1.0.6
+   Compiling ring v0.17.14
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+    Checking lexical-write-float v1.0.6
+    Checking rand v0.10.1
+    Checking miniz_oxide v0.8.9
+    Checking lexical-parse-float v1.0.6
+    Checking walkdir v2.5.0
+    Checking rustls-native-certs v0.8.4
+    Checking digest v0.10.7
+    Checking flatbuffers v25.12.19
+    Checking idna_adapter v1.2.2
+    Checking parking_lot v0.12.5
+    Checking crc32fast v1.5.0
+    Checking serde_urlencoded v0.7.1
+    Checking geo-types v0.7.19
+    Checking http-body-util v0.1.3
+    Checking idna v1.1.0
+    Checking i_float v1.16.0
+    Checking zlib-rs v0.6.3
+    Checking thiserror v1.0.69
+    Checking lexical-core v1.0.6
+    Checking md-5 v0.10.6
+    Checking i_key_sort v0.10.3
+    Checking quick-xml v0.39.4
+    Checking ordered-float v2.10.1
+    Checking atoi v2.0.0
+    Checking errno v0.3.14
+    Checking itertools v0.14.0
+    Checking i_shape v1.18.0
+    Checking half v2.7.1
+    Checking ahash v0.8.12
+    Checking url v2.5.8
+    Checking lazy_static v1.5.0
+    Checking twox-hash v2.1.2
+    Checking i_tree v0.18.0
+    Checking option-ext v0.2.0
+    Checking humantime v2.4.0
+    Checking integer-encoding v3.0.4
+    Checking dirs-sys v0.4.1
+    Checking sharded-slab v0.1.7
+    Checking lz4_flex v0.13.1
+    Checking wkt v0.11.1
+    Checking rustix v1.1.4
+    Checking arrow-buffer v58.3.0
+    Checking i_overlay v4.5.2
+    Checking thrift v0.17.0
+    Checking tokio-util v0.7.18
+    Checking tower v0.5.3
+    Checking portable-atomic v1.13.1
+    Checking snap v1.1.1
+    Checking futures v0.3.32
+    Checking earcut v0.4.5
+    Checking uuid v1.23.3
+    Checking geographiclib-rs v0.2.7
+    Checking rand_pcg v0.10.2
+    Checking regex v1.12.4
+    Checking flate2 v1.1.9
+    Checking matchers v0.2.0
+    Checking h2 v0.4.15
+    Checking tower-http v0.6.11
+    Checking tracing-log v0.2.0
+    Checking crossbeam-channel v0.5.15
+    Checking thread_local v1.1.9
+    Checking arrow-data v58.3.0
+    Checking fastrand v2.4.1
+    Checking tagptr v0.2.0
+    Checking jpeg-decoder v0.3.2
+    Checking hashbrown v0.14.5
+    Checking float_next_after v2.0.0
+    Checking sif-itree v0.4.1
+    Checking nu-ansi-term v0.50.3
+    Checking scroll v0.11.0
+    Checking weezl v0.1.12
+    Checking dirs v5.0.1
+    Checking hfx v0.5.0
+    Checking anstyle v1.0.14
+    Checking tempfile v3.27.0
+    Checking geo v0.33.1
+    Checking strsim v0.11.1
+    Checking utf8parse v0.2.2
+    Checking moka v0.12.15
+    Checking tracing-subscriber v0.3.23
+    Checking geozero v0.14.0
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstyle-parse v1.0.0
+    Checking colorchoice v1.0.5
+    Checking anstyle-query v1.1.5
+    Checking clap_lex v1.1.0
+    Checking ciborium-io v0.2.2
+    Checking tiff v0.9.1
+    Checking plotters-backend v0.3.7
+    Checking arrow-array v58.3.0
+    Checking dashmap v6.2.1
+    Checking itertools v0.10.5
+    Checking cast v0.3.0
+    Checking ciborium-ll v0.2.2
+    Checking anstream v1.0.0
+    Checking tinytemplate v1.2.1
+    Checking is-terminal v0.4.17
+    Checking plotters-svg v0.3.7
+    Checking ciborium v0.2.2
+    Checking anes v0.1.6
+    Checking oorandom v11.1.5
+    Checking gdal-sys v0.12.0
+    Checking plotters v0.3.7
+    Checking clap_builder v4.6.0
+    Checking predicates-core v1.0.10
+    Checking csv-core v0.1.13
+    Checking termtree v0.5.1
+    Checking difflib v0.4.0
+    Checking anyhow v1.0.103
+   Compiling pyo3-build-config v0.24.2
+    Checking csv v1.4.0
+    Checking bstr v1.12.1
+    Checking predicates-tree v1.0.13
+    Checking gdal v0.19.0
+    Checking predicates v3.1.4
+    Checking wait-timeout v0.2.1
+    Checking memoffset v0.9.1
+    Checking unindent v0.2.4
+    Checking arc-swap v1.9.1
+    Checking assert_cmd v2.2.1
+    Checking criterion-plot v0.5.0
+   Compiling pyo3-macros-backend v0.24.2
+   Compiling pyo3-ffi v0.24.2
+   Compiling pyo3 v0.24.2
+    Checking arrow-select v58.3.0
+    Checking arrow-row v58.3.0
+    Checking arrow-arith v58.3.0
+    Checking clap v4.6.1
+    Checking criterion v0.5.1
+    Checking hyper v1.10.1
+    Checking arrow-ipc v58.3.0
+    Checking arrow-ord v58.3.0
+    Checking arrow-string v58.3.0
+    Checking arrow-cast v58.3.0
+   Compiling rustls v0.23.41
+    Checking hyper-util v0.1.20
+   Compiling zstd-safe v7.2.4
+    Checking arrow v58.3.0
+    Checking rustls-webpki v0.103.13
+    Checking zstd v0.13.3
+   Compiling pyo3-macros v0.24.2
+    Checking tokio-rustls v0.26.4
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking pyo3-log v0.12.4
+    Checking object_store v0.13.2
+    Checking parquet v58.3.0
+    Checking pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/core)
+    Checking pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/gdal)
+warning: manual `Range::contains` implementation
+  --> crates/core/tests/regional_watershed_area.rs:19:13
+   |
+19 |             area >= 0.0 && area < 1e-9,
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(0.0..1e-9).contains(&area)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_range_contains
+   = note: `#[warn(clippy::manual_range_contains)]` on by default
+
+warning: manual `Range::contains` implementation
+  --> crates/core/tests/regional_watershed_area.rs:24:13
+   |
+24 |     assert!(area >= 0.0 && area < 1e-9, "regional km2={area}");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(0.0..1e-9).contains(&area)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_range_contains
+
+warning: using `chunks_exact` with a constant chunk size
+   --> crates/core/tests/staged_cog_layout_probe.rs:453:30
+    |
+453 |     for bytes in entry_bytes.chunks_exact(20) {
+    |                              ^^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<20>().0`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: `pourpoint-core` (test "regional_watershed_area") generated 2 warnings (run `cargo clippy --fix --test "regional_watershed_area" -p pourpoint-core -- ` to apply 2 suggestions)
+warning: `pourpoint-core` (test "staged_cog_layout_probe") generated 1 warning (run `cargo clippy --fix --test "staged_cog_layout_probe" -p pourpoint-core -- ` to apply 1 suggestion)
+warning: all variants have the same prefix: `Flow`
+   --> crates/core/tests/object_store_integration.rs:299:1
+    |
+299 | / enum GeneratedRaster {
+300 | |     FlowDirOutOfLine,
+301 | |     FlowDirInlineProbe,
+302 | |     FlowAccOutOfLine,
+303 | | }
+    | |_^
+    |
+    = help: remove the prefixes and use full paths to the variants instead of glob imports
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#enum_variant_names
+    = note: `#[warn(clippy::enum_variant_names)]` on by default
+
+warning: using `chunks_exact` with a constant chunk size
+   --> crates/core/tests/staged_delineation.rs:620:10
+    |
+620 |         .chunks_exact(2)
+    |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: `pourpoint-core` (test "object_store_integration") generated 1 warning
+    Checking pourpoint v0.1.189 (/Users/nicolaslazaro/Desktop/work/pourpoint)
+warning: `pourpoint-core` (test "staged_delineation") generated 1 warning (run `cargo clippy --fix --test "staged_delineation" -p pourpoint-core -- ` to apply 1 suggestion)
+    Checking pourpoint-python v0.3.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/crates/python)
+warning: using `chunks_exact` with a constant chunk size
+   --> crates/core/tests/d8_refinement_parity.rs:635:10
+    |
+635 |         .chunks_exact(2)
+    |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: `pourpoint-core` (test "d8_refinement_parity") generated 1 warning (run `cargo clippy --fix --test "d8_refinement_parity" -p pourpoint-core -- ` to apply 1 suggestion)
+warning: using `chunks_exact` with a constant chunk size
+  --> crates/gdal/tests/raster_decode_parity.rs:75:10
+   |
+75 |         .chunks_exact(2)
+   |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+   = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: `pourpoint-gdal` (test "raster_decode_parity") generated 1 warning (run `cargo clippy --fix --test "raster_decode_parity" -p pourpoint-gdal -- ` to apply 1 suggestion)
+warning: using `chunks_exact` with a constant chunk size
+    --> crates/core/tests/parity_golden_artifacts.rs:1337:10
+     |
+1337 |         .chunks_exact(2)
+     |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+     = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: this function has too many arguments (8/7)
+    --> crates/gdal/tests/staged_r2_carve.rs:1321:1
+     |
+1321 | / fn selected_seam(
+1322 | |     start: u32,
+1323 | |     end: u32,
+1324 | |     outlet_tile: u32,
+...    |
+1329 | |     axis: &'static str,
+1330 | | ) -> u32 {
+     | |________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+     = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: this function has too many arguments (8/7)
+    --> crates/gdal/tests/staged_r2_carve.rs:1349:1
+     |
+1349 | / fn prove_overlap(
+1350 | |     session: &DatasetSession,
+1351 | |     raster_source: &GdalRasterSource,
+1352 | |     handle: &D8RasterHandle,
+...    |
+1357 | |     candidate_id: i64,
+1358 | | ) -> OverlapAttempt {
+     | |___________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+warning: `pourpoint-core` (test "parity_golden_artifacts") generated 1 warning (run `cargo clippy --fix --test "parity_golden_artifacts" -p pourpoint-core -- ` to apply 1 suggestion)
+warning: `pourpoint-gdal` (test "staged_r2_carve") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.33s

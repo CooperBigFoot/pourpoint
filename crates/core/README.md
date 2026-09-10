@@ -38,6 +38,16 @@ fails before area computation and export.
 `WatershedGeometry` states describe processing order, not validity proofs.
 `AssemblyResult` is created only after complete validity succeeds.
 
+`geodesic_area` and `geodesic_area_multi` measure regional WGS84 interiors:
+absolute signed area per polygon, including winding-independent hole subtraction,
+then summation. Tiny negative signed results do not select Earth complements.
+Rings represent minor interiors smaller than half Earth; HFX does not guarantee
+this boundary and signed reduction cannot detect major-interior intent. The area
+helpers do not certify engine-wide antimeridian support. Hole magnitudes exceeding
+the shell return `WatershedAreaError::HoleAreaExceedsShell`, rather than becoming
+positive after absolute value. This is an area-consistency check, not a substitute
+for the separate topology validator.
+
 Geometry operations use `geo` 0.33, whose BooleanOps enables OGC contour
 reconstruction. This raises the dependency MSRV to Rust 1.88. Public geo-types
 Polygon/MultiPolygon carriers remain on 0.7. Dependencies and numeric algorithms

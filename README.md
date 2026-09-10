@@ -170,6 +170,8 @@ Technical evaluations and unpaid case-study collaboration are welcome. Open a
 
 ## License
 
-The engine is MIT-licensed; see [`LICENSE`](LICENSE). Bundled native libraries
+The engine is MIT-licensed; see [`LICENSE`](LICENSE). The separately attributed
+[GRIT-derived regression fixture](crates/core/tests/fixtures/regional-area/README.md)
+is CC BY-NC-4.0 data, not MIT-licensed software. Bundled native libraries
 retain their own licenses; see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
 and [`LICENSES/`](LICENSES/).

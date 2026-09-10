@@ -1,0 +1,10 @@
+{
+  "grit-run": {
+    "sha256": "245baf699c504361240bbf670c7e5a774a8fa6e1e44f5678a63577eb66a63809",
+    "bytes": 397166
+  },
+  "tdx-run": {
+    "sha256": "32ff5570875e79459b0102b815b4b02f2af98ee12106457a490d6bbaaaa95fc6",
+    "bytes": 1593300
+  }
+}
