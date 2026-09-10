@@ -130,3 +130,14 @@ precedes this assisted validation.
 
 Committed command logs normalize only trailing whitespace and blank EOF lines.
 Unmodified raw logs remain in the local test workspace `raw-logs/` directory.
+
+## Independent-review follow-up
+
+The initial clippy invocation passed but included two new
+`manual_range_contains` warnings in the captured-component assertions. The
+initial description that all warnings were pre-existing was inaccurate.
+Both assertions now use `(0.0..1e-9).contains(&area)`, with unchanged bounds.
+The final retained `clippy.txt` is the review follow-up run: exit 0, no warnings
+from `regional_watershed_area.rs`, and only unrelated existing test warnings.
+`cargo fmt` and the targeted six-test captured/synthetic suite were rerun and
+passed. No production code changed in this follow-up.

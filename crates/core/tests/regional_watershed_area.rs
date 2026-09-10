@@ -16,12 +16,12 @@ fn captured_tiny_components_do_not_contribute_earth_complements() {
         assert!(unsigned > 5e14, "unsigned={unsigned}");
         let area = geodesic_area(polygon).unwrap().as_f64();
         assert!(
-            area >= 0.0 && area < 1e-9,
+            (0.0..1e-9).contains(&area),
             "regional km2={area}; signed m2={signed}; unsigned m2={unsigned}"
         );
     }
     let area = geodesic_area_multi(&geometry).unwrap().as_f64();
-    assert!(area >= 0.0 && area < 1e-9, "regional km2={area}");
+    assert!((0.0..1e-9).contains(&area), "regional km2={area}");
 }
 
 fn rect(w: f64, s: f64, e: f64, n: f64) -> Polygon<f64> {
