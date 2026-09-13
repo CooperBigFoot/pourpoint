@@ -50,16 +50,16 @@
   ],
   "files": {
     "kaz-basins-tdx-overview.pdf": {
-      "bytes": 4392530,
-      "sha256": "83a73c4faefa4b8924cbf5febfe92552eddb08391436a60baff35b7363a12b4f"
+      "bytes": 4375220,
+      "sha256": "6996a0bcda7455c18cd463a77857a3925051b54c12545f313a3ed17ee1e3ab6a"
     },
     "kaz-basins-tdx.prj": {
       "bytes": 145,
       "sha256": "a02a27b1d1982c8516d83398e85a3c8b1aef1713c13ef4d84d7bde17430c07c4"
     },
     "kaz-basins-tdx-overview.png": {
-      "bytes": 1304342,
-      "sha256": "c2050816ae0f751fae74ad55a8111e95a09193797074647a3197169ec011c2f4"
+      "bytes": 1204127,
+      "sha256": "64a3433b44ae7e2d35108568fe95e29d140255909d51ed0b5c42bf327e0fc02b"
     },
     "map-provenance.json": {
       "bytes": 3141,

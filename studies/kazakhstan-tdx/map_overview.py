@@ -181,7 +181,7 @@ def render(delivery, boundary_path, cache, overwrite=False):
     counts = Counter(row["status"] for row in rows)
     omitted = sum(point is None for _, point in stations)
     fig, axes = plt.subplots(figsize=(16, 11.5))
-    fig.subplots_adjust(left=0.025, right=0.975, bottom=0.14, top=0.885)
+    fig.subplots_adjust(left=0.025, right=0.975, bottom=0.21, top=0.885)
     axes.set_facecolor("#eaf1f5")
     # Context alone is cropped before projection to avoid world-wrap artefacts.
     # Neither watershed polygons nor the Kazakhstan boundary are clipped.
@@ -240,19 +240,19 @@ def render(delivery, boundary_path, cache, overwrite=False):
     handles.extend(Line2D([], [], marker=marker, color=color, linestyle="none",
                           markersize=5 if status == "successful" else 8, label=label)
                    for status, (marker, color, label) in STATUS_STYLE.items())
-    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.085),
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.147),
                ncol=3, frameon=False, fontsize=10)
-    fig.text(0.5, 0.058,
+    fig.text(0.5, 0.103,
              "Full upstream extent; not clipped to Kazakhstan. Whole drainage units including terminal unit; no D8 refinement.",
              ha="center", fontsize=10)
-    fig.text(0.5, 0.038,
+    fig.text(0.5, 0.075,
              "Original gauge coordinates shown. Darker fill indicates overlapping watersheds. "
              f"Unusable coordinates not plotted: {omitted}.", ha="center", fontsize=9, color="#4c5861")
     fig.text(0.5, 0.019,
              "Albers equal-area (40° / 55°N; 68°E), WGS 84 • Natural Earth context: public domain\n"
              "KAZ land outline: geoBoundaries / © OpenStreetMap contributors (ODbL), source year 2017, "
              "pinned 9469f09 • map-provenance.json",
-             ha="center", fontsize=8, color="#65717a")
+             ha="center", fontsize=8, color="#65717a", linespacing=2.4)
     for output in outputs:
         fig.savefig(output, dpi=240, facecolor="white")
     plt.close(fig)
