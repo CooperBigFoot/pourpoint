@@ -1,0 +1,51 @@
+{
+  "before": {
+    "test": "PDF original-coordinate line ends above projection line",
+    "passed": false,
+    "boxes": {
+      "Original": {
+        "xMin": "312.023437",
+        "yMin": "782.963310",
+        "xMax": "347.250902",
+        "yMax": "799.983960"
+      },
+      "Albers": {
+        "xMin": "405.468750",
+        "yMin": "790.601824",
+        "xMax": "430.620750",
+        "yMax": "805.731291"
+      }
+    }
+  },
+  "after": {
+    "passed": true,
+    "boxes": {
+      "Full": {
+        "xMin": "292.726562",
+        "yMin": "727.635233",
+        "xMax": "309.836523",
+        "yMax": "746.547067"
+      },
+      "Original": {
+        "xMin": "312.023437",
+        "yMin": "752.327310",
+        "xMax": "347.250902",
+        "yMax": "769.347960"
+      },
+      "Albers": {
+        "xMin": "405.468750",
+        "yMin": "781.003387",
+        "xMax": "430.620750",
+        "yMax": "796.132853"
+      },
+      "KAZ": {
+        "xMin": "308.890625",
+        "yMin": "800.203387",
+        "xMax": "324.950000",
+        "yMax": "815.332853"
+      }
+    }
+  },
+  "method": "pdftotext -bbox on actual rendered PDFs; vertically adjacent footer line boxes must be disjoint",
+  "visual_result": "Final PNG inspected; footer separated without changing data or extent"
+}

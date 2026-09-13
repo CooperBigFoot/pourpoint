@@ -1,0 +1,84 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_verify_accepts_lossless_single_part_shapefile_coercion __________
+
+tmp_path = PosixPath('/private/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-393/test_verify_accepts_lossless_s0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1046d2ab0>
+
+    def test_verify_accepts_lossless_single_part_shapefile_coercion(tmp_path, monkeypatch):
+        import hashlib
+        from shapely.geometry import MultiPolygon
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "stations").mkdir()
+        source = [station(code=str(code)) for code in range(10000, 10405)] + [station(code="11264")]
+        input_path = tmp_path / "input.csv"
+        with input_path.open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=study.SOURCE_FIELDS)
+            writer.writeheader()
+            writer.writerows(source)
+        screening = [{**row, "status": "excluded", "reason": "fixture exclusion"} for row in source]
+        screening[0]["status"] = "eligible"
+        geometry = MultiPolygon([box(-5, 0, -3, 2)])
+        wkb = geometry.wkb
+        row = {**source[0], "status": "successful", "reason": "", "area_km2": 123.456,
+               "terminal_unit_id": "10000000000", "upstream_unit_count": 3,
+               "geometry_sha256": hashlib.sha256(wkb).hexdigest()}
+        (cache / "stations/10000.wkb").write_bytes(wkb)
+        study.write_json(cache / "stations/10000.json", row)
+        study.write_json(cache / "screening.json", screening)
+        # Remote identity is unrelated to this geometry regression; actual export and
+        # verification use the native Fiona reader/writer and real engine-format WKB.
+        monkeypatch.setattr(study, "check_identity", lambda args: {"remote": {}})
+        monkeypatch.setattr(study, "configure_s3", lambda path: [])
+        monkeypatch.setattr(study, "fetch_manifest", lambda: (b"", {}))
+        args = SimpleNamespace(input=input_path, cache=cache, delivery=tmp_path / "delivery", credentials=None)
+        study.export(args)
+>       study.verify(args)
+
+studies/kazakhstan-tdx/test_delineate_gauges.py:158:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+args = namespace(input=PosixPath('/private/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-393...sdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-393/test_verify_accepts_lossless_s0/delivery'), credentials=None)
+
+    def verify(args) -> None:
+        provenance = check_identity(args)
+        configure_s3(args.credentials)
+        _, remote = fetch_manifest()
+        assert remote == provenance["remote"], "Remote manifest changed after run"
+        source = read_stations(args.input)
+        with (args.delivery / "station-status.csv").open(encoding="utf-8-sig", newline="") as stream:
+            records = list(csv.DictReader(stream))
+        assert len(records) == 406 and len({r["station_code"] for r in records}) == 406
+        assert [{k: r[k] for k in SOURCE_FIELDS} for r in records] == source
+        assert next(r for r in records if r["station_code"] == "11264")["status"] == "excluded"
+        successes = {r["station_code"]: r for r in records if r["status"] == "successful"}
+        seen = set()
+        bounds = []
+        with fiona.open(args.delivery / "kaz-basins-tdx.shp", encoding="UTF-8") as collection:
+            assert CRS(collection.crs) == CRS("EPSG:4326")
+            for feature in collection:
+                props = feature["properties"]
+                code = props["station_id"]
+                assert code in successes and code not in seen
+                seen.add(code)
+                row = successes[code]
+                assert props["name_ru"] == row["name_ru"] and props["name_en"] == row["name_en"]
+                assert props["term_id"] == row["terminal_unit_id"]
+                assert props["n_units"] == int(row["upstream_unit_count"])
+                assert abs(props["area_km2"] - float(row["area_km2"])) < 1e-7
+                geometry = shape(feature["geometry"])
+                original = shapely.from_wkb((args.cache / "stations" / f"{code}.wkb").read_bytes())
+                assert geometry.is_valid and not geometry.is_empty and geometry.geom_type in ("Polygon", "MultiPolygon")
+                # Structural equality after ring/order normalization proves all vertices survive,
+                # not merely that output bounds resemble a potentially clipped input.
+>               assert geometry.normalize().equals_exact(original.normalize(), 0)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AssertionError
+
+studies/kazakhstan-tdx/delineate_gauges.py:333: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"successful": 1, "excluded": 405}
+=========================== short test summary info ============================
+FAILED studies/kazakhstan-tdx/test_delineate_gauges.py::test_verify_accepts_lossless_single_part_shapefile_coercion
+1 failed, 14 deselected in 0.16s

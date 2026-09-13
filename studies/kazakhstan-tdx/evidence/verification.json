@@ -1,0 +1,101 @@
+{
+  "stations": 406,
+  "counts": {
+    "successful": 388,
+    "failed": 13,
+    "excluded": 5
+  },
+  "shapefile_features": 388,
+  "valid_polygonal_features": 388,
+  "exact_full_geometry_roundtrips": 388,
+  "text_and_identifiers_roundtrip": true,
+  "dbf_name_mapping": "Leading/trailing ASCII spaces removed; original strings preserved exactly in CSV",
+  "dbf_padding_station_ids": [
+    "11063",
+    "11087",
+    "11089",
+    "11094",
+    "11110",
+    "11124",
+    "11130",
+    "11131",
+    "11136",
+    "11143",
+    "11151",
+    "11155",
+    "11160",
+    "11164",
+    "11189",
+    "11213",
+    "11221",
+    "11407",
+    "11904",
+    "12029",
+    "13005",
+    "15208",
+    "15347",
+    "15368",
+    "19014",
+    "19208",
+    "19218",
+    "19513",
+    "19808"
+  ],
+  "crs": "EPSG:4326",
+  "bounds": [
+    47.19224747781524,
+    39.3868105571149,
+    90.51820625520733,
+    55.34204662139243
+  ],
+  "files": {
+    "kaz-basins-tdx-overview.pdf": {
+      "bytes": 4375220,
+      "sha256": "6996a0bcda7455c18cd463a77857a3925051b54c12545f313a3ed17ee1e3ab6a"
+    },
+    "kaz-basins-tdx.prj": {
+      "bytes": 145,
+      "sha256": "a02a27b1d1982c8516d83398e85a3c8b1aef1713c13ef4d84d7bde17430c07c4"
+    },
+    "kaz-basins-tdx-overview.png": {
+      "bytes": 1204127,
+      "sha256": "64a3433b44ae7e2d35108568fe95e29d140255909d51ed0b5c42bf327e0fc02b"
+    },
+    "map-provenance.json": {
+      "bytes": 3141,
+      "sha256": "9ede8f402a9a44df042d8a0e79e14bd0056f4557eff617db42794e226dc7d6dc"
+    },
+    "provenance.json": {
+      "bytes": 3229,
+      "sha256": "a0b9e40fb4f08c4624ba40e8bed6501633d7ec7410c409bf9b3c84672192d4ff"
+    },
+    "boundary-metadata.json": {
+      "bytes": 853,
+      "sha256": "de5e3334edd0cd5540e6da41176263135616dd085590d6cb378ab11177f8deaf"
+    },
+    "README.md": {
+      "bytes": 5849,
+      "sha256": "195e53da155c2b36152e8d4ec6510563f4a975a2e5785b2a4503a52ff936b33e"
+    },
+    "kaz-basins-tdx.shx": {
+      "bytes": 3204,
+      "sha256": "d0301c8ff4941071696451b87bfb011890afb48e4d2bf64818a5ae853e1f11bc"
+    },
+    "kaz-basins-tdx.shp": {
+      "bytes": 386743320,
+      "sha256": "6b02e7e0a29ddbff5fca3606bbcd93dc98a9c5b54aa8bdfa995fe959bcecdcd0"
+    },
+    "kaz-basins-tdx.cpg": {
+      "bytes": 5,
+      "sha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824"
+    },
+    "station-status.csv": {
+      "bytes": 252518,
+      "sha256": "bf9ef26b863f3ca71492777cc672ea957712ea6e93f2629c051085dd81d16df1"
+    },
+    "kaz-basins-tdx.dbf": {
+      "bytes": 227206,
+      "sha256": "eab7e5f07f3f59960c88a297fdae3f3ed72127f7ccb64f33000e40bf5b2d2514"
+    }
+  }
+}

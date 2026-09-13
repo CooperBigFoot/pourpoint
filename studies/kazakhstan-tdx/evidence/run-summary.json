@@ -1,0 +1,43 @@
+{
+  "input_stations": 406,
+  "eligible_attempted": 401,
+  "counts": {
+    "successful": 388,
+    "excluded": 5,
+    "failed": 13
+  },
+  "excluded_station_ids": [
+    "11264",
+    "15309",
+    "16340",
+    "97047",
+    "97048"
+  ],
+  "failed_station_ids": [
+    "11002",
+    "11903",
+    "11907",
+    "11961",
+    "11964",
+    "14016",
+    "14904",
+    "14919",
+    "16052",
+    "16374",
+    "19512",
+    "77819",
+    "96009"
+  ],
+  "failure_kind": "No snap candidates within fixed1000m radius",
+  "cross_border_successes": 145,
+  "maximum_geodesic_snap_displacement_m": 985.3716102277464,
+  "batch_elapsed_seconds": 2131.9589198749745,
+  "canonical_checkpoint_evidence": "/Users/nicolaslazaro/Desktop/work/pourpoint/scratchpad/kazakhstan-tdx",
+  "desktop_delivery": "/Users/nicolaslazaro/Desktop/kaz-basins-tdx",
+  "execution_source": "execution-source.json",
+  "engine_files_changed": false,
+  "checkouts_created": [
+    "/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/kazakhstan-tdx-delivery"
+  ],
+  "descendant_checkouts_created": []
+}

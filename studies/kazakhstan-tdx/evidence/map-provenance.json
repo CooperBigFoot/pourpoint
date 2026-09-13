@@ -1,0 +1,38 @@
+{
+  "context_url": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_0_countries.zip",
+  "context_license": "Natural Earth: public domain",
+  "kazakhstan_boundary_attribution": {
+    "source": "geoBoundaries / \u00a9 OpenStreetMap contributors",
+    "license": "ODbL",
+    "source_year": 2017,
+    "pinned_revision": "9469f09",
+    "scope": "Kazakhstan land outline only; not a license for watershed data",
+    "details": "See accompanying delivery boundary metadata"
+  },
+  "projection_wkt": "PROJCRS[\"unknown\",BASEGEOGCRS[\"unknown\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",6326]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8901]]],CONVERSION[\"unknown\",METHOD[\"Albers Equal Area\",ID[\"EPSG\",9822]],PARAMETER[\"Latitude of false origin\",48,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8821]],PARAMETER[\"Longitude of false origin\",68,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8822]],PARAMETER[\"Latitude of 1st standard parallel\",40,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8823]],PARAMETER[\"Latitude of 2nd standard parallel\",55,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8824]],PARAMETER[\"Easting at false origin\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8826]],PARAMETER[\"Northing at false origin\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8827]]],CS[Cartesian,2],AXIS[\"(E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],AXIS[\"(N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]",
+  "display_simplification_metres": 150,
+  "context_simplification_metres": 800,
+  "counts": {
+    "successful": 388,
+    "failed": 13,
+    "excluded": 5
+  },
+  "unusable_coordinates_not_plotted": 0,
+  "extent_projected_metres": [
+    -1767674.44527883,
+    -1074028.7722494178,
+    1872804.9798822543,
+    954642.1436282167
+  ],
+  "watersheds_clipped": false,
+  "sha256": {
+    "/Users/nicolaslazaro/Desktop/work/pourpoint/scratchpad/kazakhstan-eligibility-audit/geoBoundaries-KAZ-ADM0.geojson": "244f11881bcbfcfc58f74e53db89f844f033d090a9d087b888a90688561a7107",
+    "/Users/nicolaslazaro/Desktop/kaz-basins-tdx/station-status.csv": "bf9ef26b863f3ca71492777cc672ea957712ea6e93f2629c051085dd81d16df1",
+    "/Users/nicolaslazaro/.cache/pourpoint-kaz-study/maps/ne_10m_admin_0_countries.zip": "ce1ac7036499a0edd641fbc093cd209a98f96a49d2eca8480aaacad35138a7f6",
+    "/Users/nicolaslazaro/Desktop/kaz-basins-tdx/kaz-basins-tdx.cpg": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824",
+    "/Users/nicolaslazaro/Desktop/kaz-basins-tdx/kaz-basins-tdx.dbf": "eab7e5f07f3f59960c88a297fdae3f3ed72127f7ccb64f33000e40bf5b2d2514",
+    "/Users/nicolaslazaro/Desktop/kaz-basins-tdx/kaz-basins-tdx.prj": "a02a27b1d1982c8516d83398e85a3c8b1aef1713c13ef4d84d7bde17430c07c4",
+    "/Users/nicolaslazaro/Desktop/kaz-basins-tdx/kaz-basins-tdx.shp": "6b02e7e0a29ddbff5fca3606bbcd93dc98a9c5b54aa8bdfa995fe959bcecdcd0",
+    "/Users/nicolaslazaro/Desktop/kaz-basins-tdx/kaz-basins-tdx.shx": "d0301c8ff4941071696451b87bfb011890afb48e4d2bf64818a5ae853e1f11bc"
+  }
+}

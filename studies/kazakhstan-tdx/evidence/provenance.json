@@ -1,0 +1,103 @@
+{
+  "input_sha256": "4a5a9e524d724206667fe765d52035774775a8d7c8f51b6365f7f6500d08e1ba",
+  "boundary_sha256": "244f11881bcbfcfc58f74e53db89f844f033d090a9d087b888a90688561a7107",
+  "boundary_url": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/KAZ/ADM0/geoBoundaries-KAZ-ADM0.geojson",
+  "engine_source": "c172e04a71bdca3a8eb09cd7227f90b1e38fe1f3",
+  "engine_version": "0.3.0",
+  "extension_sha256": "c7ec33735f92c9859ca5f50052729320792f289a3cf9e2329705510a690cb136",
+  "settings": {
+    "snap_radius": 1000.0,
+    "snap_strategy": "weight-first",
+    "refine": true,
+    "repair_geometry": "auto",
+    "parquet_cache": true,
+    "parquet_cache_max_mb": 512
+  },
+  "dataset": "s3://pourpoint-hfx/hfx/tdx-hydro-nga-20230126-global-62basin-corrected-hfx-0.3.0-d4d4c5e28df7/",
+  "endpoint": "https://fsn1.your-objectstorage.com",
+  "region": "fsn1",
+  "remote": {
+    "sha256": "af443be357742550ea76ef774b83a1f86e683ea828bb796c9ca893425777be85",
+    "etag": "\"e79cd5cf4aa64a9b9510bcdd070dca54-1\"",
+    "last_modified": "2026-09-11T11:34:58+00:00",
+    "manifest": {
+      "adapter_version": "0.1.0",
+      "auxiliary": [
+        {
+          "artifacts": {
+            "snap": "aux/snap_stems.parquet"
+          },
+          "metadata": {
+            "description": "Native TDX-Hydro LineString reaches for polygon-bearing level 0 drainage units.",
+            "name": "stems",
+            "references_levels": [
+              0
+            ],
+            "weight_semantics": "Drainage-area weight equals inclusive DSContArea in km2; higher values indicate stronger drainage dominance."
+          },
+          "schema": "hfx.aux.snap.v2"
+        }
+      ],
+      "bbox": [
+        -180,
+        -90,
+        180,
+        90
+      ],
+      "created_at": "2026-09-06T15:24:54.888239+00:00",
+      "crs": "EPSG:4326",
+      "fabric_name": "tdx_hydro",
+      "fabric_version": "NGA-TDX-Hydro-20230126",
+      "format_version": "0.3.0",
+      "has_up_area": true,
+      "topology": "tree",
+      "unit_count": 15936428
+    }
+  },
+  "python": "3.12.11",
+  "packages": {
+    "numpy": "2.5.3",
+    "kiwisolver": "1.5.1",
+    "click": "8.5.0",
+    "packaging": "26.3",
+    "iniconfig": "2.3.0",
+    "fonttools": "4.65.0",
+    "charset-normalizer": "3.5.1",
+    "Pygments": "2.21.0",
+    "requests": "2.34.2",
+    "s3transfer": "0.19.2",
+    "boto3": "1.43.93",
+    "shapely": "2.1.2",
+    "jmespath": "1.1.0",
+    "contourpy": "1.4.0",
+    "pourpoint": "0.3.0",
+    "pytest": "9.1.1",
+    "python-dateutil": "2.9.0.post0",
+    "matplotlib": "3.11.2",
+    "idna": "3.19",
+    "certifi": "2026.7.22",
+    "cligj": "0.7.2",
+    "Cartopy": "0.25.0",
+    "cycler": "0.12.1",
+    "pyparsing": "3.3.2",
+    "pyshp": "3.1.6",
+    "pyproj": "3.8.0",
+    "botocore": "1.43.93",
+    "pluggy": "1.6.0",
+    "attrs": "26.1.0",
+    "python-dotenv": "1.2.3",
+    "urllib3": "2.7.0",
+    "click-plugins": "1.1.1.2",
+    "fiona": "1.10.1",
+    "pillow": "12.3.0",
+    "six": "1.17.0"
+  },
+  "created_utc": "2026-09-13T12:37:04Z",
+  "screening_sha256": "d98a04a557519a0b233bfd051622bb7ee10dddcf7a8196c04460bc91f14c6945",
+  "counts": {
+    "successful": 388,
+    "failed": 13,
+    "excluded": 5
+  },
+  "cross_border_successes": 145
+}
