@@ -1,6 +1,6 @@
 # Validation before export
 
-- `.venv-study/bin/python -m pytest studies/kazakhstan-tdx -q`: 18 passed, 4 subtests passed.
+- `.venv-study/bin/python -m pytest studies/kazakhstan-tdx -q`: 20 passed, 4 subtests passed.
 - `cargo test --workspace --exclude pourpoint-python`: exit 0; 841 passed,
   15 ignored across test/doc-test result blocks. This is the repository CI command.
 - Plain `cargo test --workspace`: exit 101, expected macOS PyO3 extension-module
@@ -12,3 +12,8 @@
 
 Full build/command logs and exact executed study-source snapshots are retained in
 the canonical project `scratchpad/kazakhstan-tdx` after batch finalization.
+
+- Shapefile verifier coercion: real Fiona export/readback red proof in
+  `shapefile-regression-red.log`; exact comparison-only wrapping fixes legal
+  one-part MultiPolygon to Polygon coercion. Tests reject dropped parts and
+  coordinate edits. No broad topological equality is used.

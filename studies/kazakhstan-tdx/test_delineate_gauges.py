@@ -124,3 +124,46 @@ def test_resume_rejects_tampered_identity_before_opening_engine(tmp_path, change
     path.write_text("tampered content")
     with pytest.raises(ValueError, match="identity mismatch"):
         study.check_identity(args)
+
+
+def test_verify_accepts_lossless_single_part_shapefile_coercion(tmp_path, monkeypatch):
+    import hashlib
+    from shapely.geometry import MultiPolygon
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "stations").mkdir()
+    source = [station(code=str(code)) for code in range(10000, 10405)] + [station(code="11264")]
+    input_path = tmp_path / "input.csv"
+    with input_path.open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=study.SOURCE_FIELDS)
+        writer.writeheader()
+        writer.writerows(source)
+    screening = [{**row, "status": "excluded", "reason": "fixture exclusion"} for row in source]
+    screening[0]["status"] = "eligible"
+    geometry = MultiPolygon([box(-5, 0, -3, 2)])
+    wkb = geometry.wkb
+    row = {**source[0], "status": "successful", "reason": "", "area_km2": 123.456,
+           "terminal_unit_id": "10000000000", "upstream_unit_count": 3,
+           "geometry_sha256": hashlib.sha256(wkb).hexdigest()}
+    (cache / "stations/10000.wkb").write_bytes(wkb)
+    study.write_json(cache / "stations/10000.json", row)
+    study.write_json(cache / "screening.json", screening)
+    # Remote identity is unrelated to this geometry regression; actual export and
+    # verification use the native Fiona reader/writer and real engine-format WKB.
+    monkeypatch.setattr(study, "check_identity", lambda args: {"remote": {}})
+    monkeypatch.setattr(study, "configure_s3", lambda path: [])
+    monkeypatch.setattr(study, "fetch_manifest", lambda: (b"", {}))
+    args = SimpleNamespace(input=input_path, cache=cache, delivery=tmp_path / "delivery", credentials=None)
+    study.export(args)
+    study.verify(args)
+    result = json.loads((args.delivery / "verification.json").read_text())
+    assert result["exact_full_geometry_roundtrips"] == 1
+
+
+def test_exact_component_comparison_rejects_coordinate_edits_and_dropped_parts():
+    from shapely.geometry import MultiPolygon
+    original = MultiPolygon([box(-5, 0, -3, 2), box(1, 0, 3, 2)])
+    assert not study.exact_polygon_components(original, MultiPolygon([box(-5, 0, -3, 2)]))
+    assert not study.exact_polygon_components(original,
+        MultiPolygon([box(-5, 0, -3, 2), box(1, 0, 3.000000001, 2)]))
+    assert study.exact_polygon_components(MultiPolygon([box(0, 0, 1, 1)]), box(0, 0, 1, 1))

@@ -22,7 +22,7 @@ from dotenv import dotenv_values
 import fiona
 from pyproj import CRS, Geod, Transformer
 import shapely
-from shapely.geometry import Point, mapping, shape
+from shapely.geometry import MultiPolygon, Point, mapping, shape
 from shapely.ops import transform, unary_union
 
 DATASET = "s3://pourpoint-hfx/hfx/tdx-hydro-nga-20230126-global-62basin-corrected-hfx-0.3.0-d4d4c5e28df7/"
@@ -299,6 +299,13 @@ def export(args) -> None:
     print(json.dumps(provenance["counts"]), flush=True)
 
 
+def exact_polygon_components(left, right) -> bool:
+    """Compare exact coordinates/parts, allowing only Shapefile's single-part type coercion."""
+    left = MultiPolygon([left]) if left.geom_type == "Polygon" else left
+    right = MultiPolygon([right]) if right.geom_type == "Polygon" else right
+    return left.normalize().equals_exact(right.normalize(), 0)
+
+
 def verify(args) -> None:
     provenance = check_identity(args)
     configure_s3(args.credentials)
@@ -330,7 +337,7 @@ def verify(args) -> None:
             assert geometry.is_valid and not geometry.is_empty and geometry.geom_type in ("Polygon", "MultiPolygon")
             # Structural equality after ring/order normalization proves all vertices survive,
             # not merely that output bounds resemble a potentially clipped input.
-            assert geometry.normalize().equals_exact(original.normalize(), 0)
+            assert exact_polygon_components(geometry, original)
             bounds.append(geometry.bounds)
     assert seen == set(successes)
     assert (args.delivery / "kaz-basins-tdx.cpg").read_text().strip().upper() == "UTF-8"

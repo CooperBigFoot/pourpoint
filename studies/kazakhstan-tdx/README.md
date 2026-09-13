@@ -96,7 +96,8 @@ provenance, timing, geometry hash/bounds and a cross-border diagnostic.
 `verify` reopens the CSV and shapefile in a separate process, checks all 406
 identities and original attributes, confirms successful feature membership and
 Unicode text, CRS, area, validity and exact normalized coordinate equality
-against saved engine WKB. This proves the export retains all upstream geometry,
+against saved engine WKB (canonical one-part Polygon/MultiPolygon wrapping
+for comparison only; exact vertices and parts remain required). This proves the export retains all upstream geometry,
 not merely its bounds. It records file hashes and total extent. It does not
 independently validate the source fabric's hydrology.
 
