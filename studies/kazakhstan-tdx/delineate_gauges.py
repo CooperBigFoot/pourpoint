@@ -287,7 +287,7 @@ def export(args) -> None:
             if sha256(path) != row["geometry_sha256"]:
                 raise ValueError(f"Geometry checkpoint hash mismatch: {path}")
             output.write({"geometry": mapping(shapely.from_wkb(path.read_bytes())), "properties": {
-                "station_id": row["station_code"], "name_en": row["name_en"], "name_ru": row["name_ru"],
+                "station_id": row["station_code"], "name_en": row["name_en"].strip(" "), "name_ru": row["name_ru"].strip(" "),
                 "area_km2": row["area_km2"], "term_id": row["terminal_unit_id"], "n_units": row["upstream_unit_count"]}})
     with (args.delivery / "station-status.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=REPORT_FIELDS)
@@ -328,7 +328,7 @@ def verify(args) -> None:
             assert code in successes and code not in seen
             seen.add(code)
             row = successes[code]
-            assert props["name_ru"] == row["name_ru"] and props["name_en"] == row["name_en"]
+            assert props["name_ru"] == row["name_ru"].strip(" ") and props["name_en"] == row["name_en"].strip(" ")
             assert props["term_id"] == row["terminal_unit_id"]
             assert props["n_units"] == int(row["upstream_unit_count"])
             assert abs(props["area_km2"] - float(row["area_km2"])) < 1e-7
@@ -344,6 +344,9 @@ def verify(args) -> None:
     summary = dict(stations=len(records), counts=dict(Counter(r["status"] for r in records)),
                    shapefile_features=len(seen), valid_polygonal_features=len(seen),
                    exact_full_geometry_roundtrips=len(seen), text_and_identifiers_roundtrip=True,
+                   dbf_name_mapping="Leading/trailing ASCII spaces removed; original strings preserved exactly in CSV",
+                   dbf_padding_station_ids=[r["station_code"] for r in successes.values()
+                       if any(r[k] != r[k].strip(" ") for k in ("name_ru", "name_en"))],
                    crs="EPSG:4326", bounds=[min(b[0] for b in bounds), min(b[1] for b in bounds),
                                              max(b[2] for b in bounds), max(b[3] for b in bounds)],
                    files={p.name: dict(bytes=p.stat().st_size, sha256=sha256(p)) for p in args.delivery.iterdir() if p.is_file() and p.name != "verification.json"})

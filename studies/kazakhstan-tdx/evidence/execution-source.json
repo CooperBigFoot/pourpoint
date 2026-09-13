@@ -1,7 +1,8 @@
 {
   "probe_script_sha256": "83f9c2b0bf2f0236b34b54f02b8a23d9e68e86daccd1cef354dd6b73c39718a2",
   "batch_script_sha256": "e701ea45eb728f0d3f15bd5421ad42c129d6ecb3c51146120e41f221e91b22d9",
-  "current_script_sha256": "a8531c644f41b9036f09ad05e66bad919217d6c75c246a050b3493c2da741dd9",
+  "current_script_sha256": "202c3698b11324686b58ab145ef8b55a8dc0158d54c511c3ec59995147f5e3b2",
   "note": "Probe loaded initial source before screening-hash binding and final verification additions. Main batch loaded current source. Temporary regression-proof edit was restored byte-for-byte while batch already held loaded code; no change to batch settings or engine. Source names/statuses for probe11001 unchanged.",
-  "verification_only_change": "After full batch started, comparison canonicalizes Polygon to one-part MultiPolygon on each side, then normalizes ring/component order and checks exact coordinates. Actual shapefile/WKB unmodified; demonstrated real Fiona red/green and changed-coordinate/dropped-part rejection."
+  "verification_only_change": "After full batch started, comparison canonicalizes Polygon to one-part MultiPolygon on each side, then normalizes ring/component order and checks exact coordinates. Actual shapefile/WKB unmodified; demonstrated real Fiona red/green and changed-coordinate/dropped-part rejection.",
+  "dbf_verification_change": "After export, actual DBF edge ASCII-space coercion made explicit in writer/verification and documented; original CSV preserved. Existing output bytes already match this driver mapping and were not rewritten."
 }

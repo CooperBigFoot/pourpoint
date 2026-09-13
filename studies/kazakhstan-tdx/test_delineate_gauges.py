@@ -126,13 +126,15 @@ def test_resume_rejects_tampered_identity_before_opening_engine(tmp_path, change
         study.check_identity(args)
 
 
-def test_verify_accepts_lossless_single_part_shapefile_coercion(tmp_path, monkeypatch):
+@pytest.mark.parametrize("name_ru", ["Есиль у станции", "  Есиль у станции  "])
+def test_verify_accepts_lossless_single_part_shapefile_coercion(tmp_path, monkeypatch, name_ru):
     import hashlib
     from shapely.geometry import MultiPolygon
     cache = tmp_path / "cache"
     cache.mkdir()
     (cache / "stations").mkdir()
     source = [station(code=str(code)) for code in range(10000, 10405)] + [station(code="11264")]
+    source[0]["name_ru"] = name_ru
     input_path = tmp_path / "input.csv"
     with input_path.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=study.SOURCE_FIELDS)

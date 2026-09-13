@@ -87,7 +87,9 @@ Independently open PNG/PDF and inspect extent, markers, legend and scale.
 Shapefile fields (all names at most 10 characters): `station_id` (text, 20),
 `name_en`, `name_ru` (UTF-8 text, 254-byte limit checked), `area_km2` (24,8),
 `term_id` (text, 20), `n_units` (12). `.prj` declares EPSG:4326; `.cpg`
-declares UTF-8. Source names are retained exactly, including internal tabs.
+declares UTF-8. DBF names strip only leading/trailing ASCII spaces because the driver treats
+these as padding. Internal tabs and all other text remain exact. The CSV retains
+original strings, including edge spaces. Verification lists affected station IDs.
 The BOM CSV keeps every original attribute and coordinate as supplied, plus
 status/reason, boundary flags/distance, requested/resolved outlet, geodesic snap
 displacement, area, terminal unit, upstream count, resolution and refinement

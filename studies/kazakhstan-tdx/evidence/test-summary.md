@@ -1,6 +1,6 @@
 # Validation before export
 
-- `.venv-study/bin/python -m pytest studies/kazakhstan-tdx -q`: 20 passed, 4 subtests passed.
+- `.venv-study/bin/python -m pytest studies/kazakhstan-tdx -q`: 21 passed, 4 subtests passed.
 - `cargo test --workspace --exclude pourpoint-python`: exit 0; 841 passed,
   15 ignored across test/doc-test result blocks. This is the repository CI command.
 - Plain `cargo test --workspace`: exit 101, expected macOS PyO3 extension-module
@@ -17,3 +17,8 @@ the canonical project `scratchpad/kazakhstan-tdx` after batch finalization.
   `shapefile-regression-red.log`; exact comparison-only wrapping fixes legal
   one-part MultiPolygon to Polygon coercion. Tests reject dropped parts and
   coordinate edits. No broad topological equality is used.
+
+- DBF padding: real driver readback trims edge ASCII spaces in29names, including
+  two leading-space cases. Regression red/green in dbf-padding-regression-red.log
+  and tests.log. Explicit mapping is limited to ASCII edge spaces; source CSV
+  remains byte-for-byte field-equivalent.

@@ -93,5 +93,11 @@
     "six": "1.17.0"
   },
   "created_utc": "2026-09-13T12:37:04Z",
-  "screening_sha256": "d98a04a557519a0b233bfd051622bb7ee10dddcf7a8196c04460bc91f14c6945"
+  "screening_sha256": "d98a04a557519a0b233bfd051622bb7ee10dddcf7a8196c04460bc91f14c6945",
+  "counts": {
+    "successful": 388,
+    "failed": 13,
+    "excluded": 5
+  },
+  "cross_border_successes": 145
 }
