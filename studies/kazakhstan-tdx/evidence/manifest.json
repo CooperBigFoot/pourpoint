@@ -1,0 +1,33 @@
+{
+  "adapter_version": "0.1.0",
+  "auxiliary": [
+    {
+      "artifacts": {
+        "snap": "aux/snap_stems.parquet"
+      },
+      "metadata": {
+        "description": "Native TDX-Hydro LineString reaches for polygon-bearing level 0 drainage units.",
+        "name": "stems",
+        "references_levels": [
+          0
+        ],
+        "weight_semantics": "Drainage-area weight equals inclusive DSContArea in km2; higher values indicate stronger drainage dominance."
+      },
+      "schema": "hfx.aux.snap.v2"
+    }
+  ],
+  "bbox": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "created_at": "2026-09-06T15:24:54.888239+00:00",
+  "crs": "EPSG:4326",
+  "fabric_name": "tdx_hydro",
+  "fabric_version": "NGA-TDX-Hydro-20230126",
+  "format_version": "0.3.0",
+  "has_up_area": true,
+  "topology": "tree",
+  "unit_count": 15936428
+}

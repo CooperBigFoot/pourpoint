@@ -1,0 +1,6 @@
+{
+  "probe_script_sha256": "83f9c2b0bf2f0236b34b54f02b8a23d9e68e86daccd1cef354dd6b73c39718a2",
+  "batch_script_sha256": "e701ea45eb728f0d3f15bd5421ad42c129d6ecb3c51146120e41f221e91b22d9",
+  "current_script_sha256": "e701ea45eb728f0d3f15bd5421ad42c129d6ecb3c51146120e41f221e91b22d9",
+  "note": "Probe loaded initial source before screening-hash binding and final verification additions. Main batch loaded current source. Temporary regression-proof edit was restored byte-for-byte while batch already held loaded code; no change to batch settings or engine. Source names/statuses for probe11001 unchanged."
+}

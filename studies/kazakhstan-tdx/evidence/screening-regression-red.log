@@ -1,0 +1,30 @@
+F..                                                                      [100%]
+=================================== FAILURES ===================================
+____ test_resume_rejects_tampered_identity_before_opening_engine[screening] ____
+
+tmp_path = PosixPath('/private/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-388/test_resume_rejects_tampered_i0')
+changed = 'screening'
+
+    @pytest.mark.parametrize("changed", ["screening", "input", "boundary"])
+    def test_resume_rejects_tampered_identity_before_opening_engine(tmp_path, changed):
+        import pourpoint._pourpoint as extension
+        args = SimpleNamespace(input=tmp_path / "input.csv", boundary=tmp_path / "boundary.json", cache=tmp_path)
+        args.input.write_text("original input")
+        args.boundary.write_text("original boundary")
+        screening = tmp_path / "screening.json"
+        study.write_json(screening, [{**station(), "status": "eligible"}])
+        provenance = dict(input_sha256=study.sha256(args.input), boundary_sha256=study.sha256(args.boundary),
+            extension_sha256=study.sha256(Path(extension.__file__)), settings=study.SETTINGS,
+            screening_sha256=study.sha256(screening), engine_source=study.ENGINE_SOURCE, dataset=study.DATASET)
+        study.write_json(tmp_path / "provenance.json", provenance)
+        assert study.check_identity(args) == provenance
+        path = {"screening": screening, "input": args.input, "boundary": args.boundary}[changed]
+        path.write_text("tampered content")
+>       with pytest.raises(ValueError, match="identity mismatch"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+studies/kazakhstan-tdx/test_delineate_gauges.py:125: Failed
+=========================== short test summary info ============================
+FAILED studies/kazakhstan-tdx/test_delineate_gauges.py::test_resume_rejects_tampered_identity_before_opening_engine[screening]
+1 failed, 2 passed, 11 deselected in 0.32s
