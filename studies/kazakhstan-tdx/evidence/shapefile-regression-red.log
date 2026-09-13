@@ -36,8 +36,8 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1046d2ab0>
         study.export(args)
 >       study.verify(args)
 
-studies/kazakhstan-tdx/test_delineate_gauges.py:158: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+studies/kazakhstan-tdx/test_delineate_gauges.py:158:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 args = namespace(input=PosixPath('/private/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-393...sdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-393/test_verify_accepts_lossless_s0/delivery'), credentials=None)
 
