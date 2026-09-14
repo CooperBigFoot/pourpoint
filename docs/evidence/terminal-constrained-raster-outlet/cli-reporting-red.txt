@@ -1,0 +1,26 @@
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/core)
+   Compiling pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/gdal)
+   Compiling pourpoint v0.1.189 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.79s
+     Running unittests src/main.rs (target/debug/deps/pourpoint-78ca510bf296433d)
+
+running 1 test
+test tests::geojson_reports_ranked_center_separately_from_resolution ... FAILED
+
+failures:
+
+---- tests::geojson_reports_ranked_center_separately_from_resolution stdout ----
+
+thread 'tests::geojson_reports_ranked_center_separately_from_resolution' (46951636) panicked at src/main.rs:577:9:
+assertion `left == right` failed
+  left: Null
+ right: 0.9864447364836885
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::geojson_reports_ranked_center_separately_from_resolution
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p pourpoint --bin pourpoint`

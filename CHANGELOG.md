@@ -10,32 +10,35 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
   view returning `&ResolvedOutlet`, so existing public-field access and struct
   patterns continue to compile. New staged callers use
   `LevelResolvedOutlet::authority()` to receive `&OutletResolution` with typed
-  vector-versus-unit-only authority.
+  vector-versus-containment provenance and terminal-unit authority, not fixed
+  raster-cell authority.
 - `resolve_outlet` and `resolve_outlet_at_level` remain available as deprecated
   wrappers returning the original public-field `ResolvedOutlet` struct. New code
   must use `resolve_outlet_authority` and `resolve_outlet_authority_at_level` to
-  receive the typed `OutletResolution` authority sum.
-- `TerminalRefinementInput.resolved_outlet` is intentionally replaced by
-  `outlet_authority`. Custom strategy implementations must choose
-  `OutletAuthority::VectorPoint(coord)` or `OutletAuthority::UnitOnly(coord)`;
-  implicit coordinate conversion is not supported because it would erase the
-  invariant this release adds.
-- `algo::refine_terminal` and `algo::refine_terminal_from_source` now require
-  an explicit `RasterOutlet`. Replace a former bare `NativeCoord` argument with
-  `RasterOutlet::UnitOnly(coord)` for containment behavior or
-  `RasterOutlet::VectorPoint(coord)` for authoritative vector behavior. The old
-  implicit conversion is intentionally unavailable because it could silently
-  recreate second resolution.
-- `AppliedRefinementReason::D8AuxMatchedTerminalBbox` remains as a deprecated
-  source bridge. Engine-produced results use `VectorOutletQuantized` or
-  `RasterOutletRanked`; exhaustive matches must add those variants.
-- `algo::RefinementError` adds `VectorOutletUnusable`. Exhaustive matches must
-  add that variant. It reports vector-cell guard failures when D8 refinement is
-  required instead of permitting raster re-ranking.
-- `BestEffortSkipReason` adds `CoarseUnitOnlyNoD8AuxDeclared` and
-  `VectorOutletGuardFailed`. Exhaustive matches must add both. The skip and
-  aggregate provenance types now provide `PartialEq`, not `Eq`, because guard
-  evidence includes raw `f32` accumulation values.
+  receive typed `OutletResolution` with terminal-unit and reference provenance.
+- `TerminalRefinementInput.outlet_authority` is replaced by `outlet_reference`.
+  Custom strategies use `OutletReference::VectorPoint(coord)` or
+  `OutletReference::UnitOnly(coord)` to identify the proximity reference source.
+  `OutletAuthority` remains a deprecated type alias. Callers migrating from the
+  older `resolved_outlet` field must also select the reference source explicitly.
+- `algo::refine_terminal` and `algo::refine_terminal_from_source` now take a
+  raster-native `NativeCoord` proximity reference directly. Replace
+  `RasterOutlet::{VectorPoint, UnitOnly}(coord)` with `coord`; `RasterOutlet` is
+  removed. Both resolution paths use terminal-constrained raster ranking.
+- `RasterSeedKind` now has only `RasterRanked`. Remove `VectorQuantized` matches.
+  `AppliedRefinementReason::VectorOutletQuantized` and
+  `D8AuxMatchedTerminalBbox` remain deprecated historical compatibility variants.
+  Built-in results always use `RasterOutletRanked`, including vector resolution.
+- `algo::RefinementError::VectorOutletUnusable` and `VectorOutletGuardFailure`
+  are removed; update exhaustive matches and custom guard handling.
+  `VectorOutletGuardFailureKind` remains for historical skip evidence.
+  `snap_pour_point` accepts finite references outside the raster window and adds
+  `SnapError::NonFiniteReference`; update exhaustive matches. The old
+  `OutletOutOfBounds` variant remains for compatibility.
+- The vector-cell guard no longer participates in refinement. Legacy
+  `BestEffortSkipReason::VectorOutletGuardFailed` evidence remains readable but
+  is not emitted by the built-in engine. No-candidate failures use normal raster
+  selection diagnostics, with coarse fallback only in best-effort mode.
 - `RefinementOutcome`, `TerminalRefinement`, and `TerminalRefinementDecision`
   now carry `AppliedRefinementProvenance` or
   `BestEffortRefinementProvenance` in their matching variants. Replace nested
@@ -47,9 +50,8 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Added
 
-- Added typed vector-point versus unit-only outlet authority, raster seed-kind
-  provenance, and rich vector-cell guard failures with threshold, mapped-cell,
-  and measured-accumulation evidence.
+- Added typed vector-point versus containment outlet references and explicit
+  raster-ranked seed provenance.
 - Added an ignored, explicitly blessed local-current-HFX MERIT recapture target
   that rejects stale D8 v1 input and records exact HFX and adapter versions
   without publishing licensed raster or geometry data.
@@ -65,12 +67,18 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ### Changed
 
-- Vector-cell guarding now accepts HFX GRASS code 0 sinks and signed coverage
+- D8 candidate selection preserves HFX GRASS code 0 sinks and signed coverage
   exits as defined terminal semantics while retaining ESRI code 0 behavior.
-- Vector-resolved outlets now remain authoritative through D8 refinement. They
-  quantize only to their unique containing cell and never fall back to raster
-  ranking. Unit-only containment retains the existing deterministic raster
-  candidate rule.
+- Raster refinement now ranks usable threshold-qualified cells throughout the
+  selected terminal unit against the vector snap point, or request point under
+  containment. Ties use higher accumulation, then row-major order. References
+  outside the mask or window remain valid proximity references. There is no
+  containing-cell shortcut, new search radius, or branch constraint.
+  `resolved_outlet` remains the vector/request reference; applied `refined_outlet`
+  is the selected cell center. Terminal and upstream units remain unchanged.
+  Best-effort failures visibly retain the coarse terminal; required D8 errors.
+  This supersedes the unreleased fixed-vector-cell behavior, not vector ranking
+  or disabled-refinement semantics. Historical evidence is unchanged.
 - Best-effort refinement now distinguishes and carries the first retained
   unreadable D8-family schema. The new public, exhaustive
   `BestEffortSkipReason::UnreadableD8AuxDeclared` variant is a breaking Rust

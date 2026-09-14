@@ -1,0 +1,7 @@
+$ uv --cache-dir /tmp/pourpoint-terminal-docs-uv-cache tool run ruff check crates/python/tests/test_outlet_reporting.py
+exit_code=0
+[1;32mAll checks passed![0m
+
+$ uv --cache-dir /tmp/pourpoint-terminal-docs-uv-cache tool run ruff format --check crates/python/tests/test_outlet_reporting.py
+exit_code=0
+1 file already formatted

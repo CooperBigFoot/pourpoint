@@ -105,7 +105,7 @@ impl PyEngine {
     ///     whose weights are not hydrologically rank-meaningful).
     /// snap_threshold:
     ///     Upstream-cell threshold used to generate containment-path raster
-    ///     candidates and to guard one vector-authoritative cell. Defaults to
+    ///     candidates throughout the selected terminal unit. Defaults to
     ///     1 000 cells.
     /// clean_epsilon:
     ///     Topology-cleaning buffer epsilon in degrees. Defaults to 1e-5 deg.

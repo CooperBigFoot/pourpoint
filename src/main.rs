@@ -468,6 +468,18 @@ fn result_to_geojson_feature(result: &DelineationResult, outlet: &Outlet) -> ser
     properties.insert("input_lon".into(), json!(result.input_outlet().lon));
     properties.insert("resolved_lat".into(), json!(result.resolved_outlet().lat));
     properties.insert("resolved_lon".into(), json!(result.resolved_outlet().lon));
+    let refined_outlet = match result.refinement() {
+        RefinementOutcome::Applied { refined_outlet, .. } => Some(refined_outlet),
+        RefinementOutcome::BestEffortSkipped { .. } | RefinementOutcome::Disabled => None,
+    };
+    properties.insert(
+        "refined_lon".into(),
+        json!(refined_outlet.map(|coord| coord.lon)),
+    );
+    properties.insert(
+        "refined_lat".into(),
+        json!(refined_outlet.map(|coord| coord.lat)),
+    );
     properties.insert(
         "upstream_unit_count".into(),
         json!(result.upstream_unit_ids().len()),
@@ -546,5 +558,64 @@ fn format_refinement(r: &RefinementOutcome) -> String {
             format!("best_effort_skipped({provenance:?})")
         }
         RefinementOutcome::Disabled => "disabled".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Outlet, result_to_geojson_feature};
+    use pourpoint_core::algo::GeoCoord;
+    use pourpoint_core::session::DatasetSession;
+    use pourpoint_core::{DelineationOptions, Engine, RefinementMode};
+    use pourpoint_gdal::GdalRasterSource;
+
+    #[test]
+    fn geojson_reports_ranked_center_separately_from_resolution() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("crates/core/tests/fixtures/parity/tiny-with-aux-d8-projected-grass");
+        let engine = Engine::builder(DatasetSession::open(root.to_str().unwrap()).unwrap())
+            .with_raster_source(GdalRasterSource::new())
+            .build();
+        let coord = GeoCoord::new(0.9833333333333333, 0.4166666666666667);
+        let outlet = Outlet {
+            id: None,
+            name: None,
+            coord,
+        };
+        let result = engine
+            .delineate(coord, &DelineationOptions::default())
+            .unwrap();
+        let feature = result_to_geojson_feature(&result, &outlet);
+        let props = &feature["properties"];
+        assert_eq!(props["input_lon"], coord.lon);
+        assert_eq!(props["resolved_lon"], result.resolved_outlet().lon);
+        let pourpoint_core::RefinementOutcome::Applied { refined_outlet, .. } = result.refinement()
+        else {
+            panic!("expected applied D8 refinement");
+        };
+        assert_eq!(props["refined_lon"], refined_outlet.lon);
+        assert_eq!(props["refined_lat"], refined_outlet.lat);
+        assert!(
+            props["refinement"]
+                .as_str()
+                .unwrap()
+                .contains("RasterOutletRanked")
+        );
+        assert!(
+            !props["refinement"]
+                .as_str()
+                .unwrap()
+                .contains("VectorOutletQuantized")
+        );
+
+        let disabled = engine
+            .delineate(
+                coord,
+                &DelineationOptions::default().with_refinement_mode(RefinementMode::Disabled),
+            )
+            .unwrap();
+        let feature = result_to_geojson_feature(&disabled, &outlet);
+        assert!(feature["properties"].get("refined_lon").unwrap().is_null());
+        assert!(feature["properties"].get("refined_lat").unwrap().is_null());
     }
 }

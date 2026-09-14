@@ -24,9 +24,10 @@ engine = pourpoint.Engine("/data/hfx/local", refine=False)
 
 The project-hosted GRIT manifest declares one compatible D8 pair at
 `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. The engine returns a terminal
-sub-polygon at the selected raster seed when refinement succeeds. Vector
-authority is quantized to its containing cell without search. Unit-only
-containment uses the raster ranker.
+sub-polygon at the selected raster seed when refinement succeeds. In the current
+development version, refinement ranks threshold-qualified cells throughout the
+terminal unit against the vector snap point, or the request point for
+containment. No raster search radius is imposed. Reads remain terminal-localized.
 
 For the complete released CRS, unit, data type, predictor, and COG boundary, see
 [D8 compatibility and remote layout](guide/datasets.md#d8-compatibility-and-remote-layout).

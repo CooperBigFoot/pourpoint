@@ -1,10 +1,13 @@
-//! GeoJSON serialization for [`DelineationResult`].
+//! geojson : DelineationResult → GeoJSON Feature (outlet references and refinement provenance).
 
 use pourpoint_core::DelineationResult;
 use pourpoint_core::RefinementOutcome;
 use pourpoint_core::ResolutionMethod;
 
 /// Serialize a [`DelineationResult`] as a GeoJSON Feature string.
+///
+/// # Errors
+/// Returns an error if JSON serialization fails.
 pub fn result_to_geojson_feature(result: &DelineationResult) -> Result<String, serde_json::Error> {
     let geometry = multi_polygon_to_geojson(result.geometry());
 
@@ -32,6 +35,18 @@ pub fn result_to_geojson_feature(result: &DelineationResult) -> Result<String, s
     properties.insert(
         "resolved_lat".into(),
         serde_json::json!(result.resolved_outlet().lat),
+    );
+    let refined_outlet = match result.refinement() {
+        RefinementOutcome::Applied { refined_outlet, .. } => Some(refined_outlet),
+        RefinementOutcome::BestEffortSkipped { .. } | RefinementOutcome::Disabled => None,
+    };
+    properties.insert(
+        "refined_lon".into(),
+        serde_json::json!(refined_outlet.map(|coord| coord.lon)),
+    );
+    properties.insert(
+        "refined_lat".into(),
+        serde_json::json!(refined_outlet.map(|coord| coord.lat)),
     );
     properties.insert(
         "upstream_unit_count".into(),

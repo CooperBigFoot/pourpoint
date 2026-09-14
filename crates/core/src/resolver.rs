@@ -213,10 +213,10 @@ pub struct ContainmentResolutionProvenance {
 
 // ── OutletResolution ─────────────────────────────────────────────────────────
 
-/// The single hydrological authority chosen during outlet resolution.
+/// Terminal-unit selection and geographic outlet provenance from resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutletResolution {
-    /// A snap feature chose both the terminal unit and authoritative vector point.
+    /// A snap feature chose the terminal unit and vector proximity reference.
     VectorPoint {
         /// The HFX unit ID referenced by the winning snap feature.
         unit_id: UnitId,
@@ -281,7 +281,7 @@ impl OutletResolution {
         }
     }
 
-    /// Return the authoritative vector point, or `None` for unit-only containment.
+    /// Return the vector snap reference, or `None` for unit-only containment.
     pub fn vector_coord(&self) -> Option<GeoCoord> {
         match self {
             Self::VectorPoint { vector_coord, .. } => Some(*vector_coord),

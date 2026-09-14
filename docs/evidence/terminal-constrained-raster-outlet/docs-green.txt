@@ -1,0 +1,31 @@
+
+[31m │  ⚠  Warning from the Material for MkDocs team[0m
+[31m │[0m
+[31m │[0m  MkDocs 2.0, the underlying framework of Material for MkDocs,
+[31m │[0m  will introduce backward-incompatible changes, including:
+[31m │[0m
+[31m │  × [0mAll plugins will stop working – the plugin system has been removed
+[31m │  × [0mAll theme overrides will break – the theming system has been rewritten
+[31m │  × [0mNo migration path exists – existing projects cannot be upgraded
+[31m │  × [0mClosed contribution model – community members can't report bugs
+[31m │  × [0mCurrently unlicensed – unsuitable for production use
+[31m │[0m
+[31m │[0m  Our full analysis:
+[31m │[0m
+[31m │[0m  [4mhttps://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/[0m
+[0m
+INFO    -  Cleaning site directory
+INFO    -  Building documentation to directory: /Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/site
+INFO    -  The following pages exist in the docs directory, but are not included in the "nav" configuration:
+  - reader-support-claims.md
+  - decisions/2026-07-23-closed-form-equal-earth-in-core.md
+  - decisions/2026-07-24-bounded-reads-are-tile-count-independent.md
+  - decisions/2026-07-24-remote-cog-parser-ownership.md
+  - decisions/2026-07-26-best-effort-refinement-is-total.md
+  - decisions/2026-07-29-guard-ceilings-are-fixed-with-defended-headroom.md
+  - decisions/2026-08-01-support-claims-not-schema-names.md
+  - decisions/2026-08-06-a-reader-floor-replaces-a-frozen-prefix.md
+  - releases/2026-08-06-reader-floor-check-red-baseline.md
+  - releases/projected-crs-terminal-refinement.md
+  - releases/tile-count-independent-planetary-cog-reads.md
+INFO    -  Documentation built in 0.46 seconds

@@ -123,7 +123,8 @@ The former network-backed M4 proof is archived. Its public MERIT route was
 intentionally deleted because this project lacked rights to redistribute the
 hosted dataset. It is not a current validation or
 recapture path. Use `merit_local_recapture` with a licensed local HFX v0.3.0
-build for current vector-quantization evidence.
+build for current terminal-constrained raster-ranking evidence. Historical
+vector-quantization captures remain unchanged.
 
 GDAL parity proof command:
 

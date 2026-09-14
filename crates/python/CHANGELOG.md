@@ -7,6 +7,18 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
+### Changed
+
+- D8 refinement ranks usable threshold-qualified cells throughout the selected
+  terminal unit against the vector snap point, or request point for containment.
+  Ties use higher accumulation then row-major order. `resolved_outlet` keeps its
+  vector/request meaning; `refined_outlet` is the selected cell center.
+- Built-in applied results report `refinement_seed_kind="raster_ranked"` and
+  `RasterOutletRanked` provenance. `vector_quantized` and vector guard evidence
+  remain legacy compatibility values, never new built-in results.
+- Python and CLI GeoJSON add nullable `refined_lon` and `refined_lat` properties.
+  Existing input/resolved fields and the refinement diagnostic string remain.
+
 ### Added
 
 - Added the top-level `pourpoint.BestEffortSkipReason` export and the typed

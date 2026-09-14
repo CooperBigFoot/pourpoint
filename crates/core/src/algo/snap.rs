@@ -1,4 +1,4 @@
-//! rasterSeed : UnitOnlyOutlet × MaskedAccumulation → GridCoord
+//! rasterSeed : NativeCoord × MaskedAccumulation → GridCoord
 //!
 //! Generates the threshold-qualified raster candidate set separately from the
 //! built-in nearest-distance, higher-accumulation, row-major ranker.
@@ -16,9 +16,9 @@ use crate::algo::tile_state::Masked;
 /// Errors from pour-point snapping.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SnapError {
-    /// Fired when no flow-accumulation cell within the catchment mask reaches the effective threshold.
+    /// Fired when no eligible accumulation cell within the supplied mask reaches the effective threshold.
     #[error(
-        "no cell above effective threshold {threshold} {units} within catchment mask near native EPSG:{epsg} x={outlet_x}, y={outlet_y}"
+        "no usable cell at or above effective threshold {threshold} {units} within catchment mask near native EPSG:{epsg} x={outlet_x}, y={outlet_y}"
     )]
     NoCellAboveThreshold {
         /// Effective accumulation threshold in the declared units.
@@ -32,7 +32,17 @@ pub enum SnapError {
         /// Native y coordinate of the input outlet.
         outlet_y: f64,
     },
-    /// Fired when the native outlet point falls outside the raster tile extent.
+    /// Fired when the reference cannot be represented as finite fractional grid coordinates.
+    #[error("non-finite raster reference in EPSG:{epsg}: x={outlet_x}, y={outlet_y}")]
+    NonFiniteReference {
+        /// Numeric declared EPSG identifier.
+        epsg: u32,
+        /// Native x coordinate of the reference.
+        outlet_x: f64,
+        /// Native y coordinate of the reference.
+        outlet_y: f64,
+    },
+    /// Historical outside-window failure; ranked snapping now accepts finite external references.
     #[error(
         "native EPSG:{epsg} outlet x={outlet_x}, y={outlet_y} is outside tile extent ({rows}x{cols})"
     )]
@@ -117,7 +127,7 @@ impl RasterSeedCandidate {
         self.cell
     }
 
-    /// Return squared distance from the request point in fractional pixel space.
+    /// Return squared distance from the proximity reference in fractional pixel space.
     pub fn distance_squared(&self) -> f64 {
         self.distance_squared
     }
@@ -174,6 +184,12 @@ pub enum GridMappingError {
 /// Map a native coordinate to its unique containing cell using half-open bounds.
 ///
 /// This function does not clamp, widen the window, or search neighboring cells.
+/// It is independent of ranked outlet selection.
+///
+/// # Errors
+///
+/// Returns [`GridMappingError::OutsideRasterWindow`] for non-finite coordinates
+/// or coordinates outside the half-open grid extent.
 pub fn quantize_grid_cell(
     outlet: NativeCoord,
     geo: &GeoTransform,
@@ -228,7 +244,7 @@ fn raster_seed_candidates(
         for col in 0..dims.cols {
             let cell = GridCoord::new(row, col);
             let value = accumulation.get_raw(cell);
-            if value.is_nan() || value < effective_threshold {
+            if !value.is_finite() || value < effective_threshold {
                 continue;
             }
             let dr = row as f64 + 0.5 - frac_row;
@@ -243,12 +259,12 @@ fn raster_seed_candidates(
     candidates
 }
 
-/// Snap a unit-only outlet to the built-in ranked high-accumulation cell.
+/// Rank threshold-qualified cells against a native reference, including outside-window points.
 ///
 /// # Errors
 ///
-/// Returns [`SnapError::OutletOutOfBounds`] when the point is outside the half-open
-/// tile extent, or [`SnapError::NoCellAboveThreshold`] when the candidate set is empty.
+/// Returns [`SnapError::NonFiniteReference`] for non-finite fractional grid coordinates,
+/// or [`SnapError::NoCellAboveThreshold`] when the candidate set is empty.
 #[instrument(skip(accumulation))]
 pub fn snap_pour_point(
     outlet: NativeCoord,
@@ -257,16 +273,14 @@ pub fn snap_pour_point(
     flow_accumulation_units: FlowAccumulationUnits,
     epsg: u32,
 ) -> Result<SnappedPoint, SnapError> {
-    let dims = accumulation.dims();
-    quantize_grid_cell(outlet, accumulation.geo(), dims, epsg).map_err(|_| {
-        SnapError::OutletOutOfBounds {
+    let (frac_row, frac_col) = accumulation.geo().coord_to_pixel_f64(outlet);
+    if !frac_row.is_finite() || !frac_col.is_finite() {
+        return Err(SnapError::NonFiniteReference {
             epsg,
             outlet_x: outlet.x(),
             outlet_y: outlet.y(),
-            rows: dims.rows,
-            cols: dims.cols,
-        }
-    })?;
+        });
+    }
     let threshold_f32 = effective_threshold(threshold, flow_accumulation_units, accumulation.geo());
     let candidates = raster_seed_candidates(outlet, accumulation, threshold_f32);
     let candidate = NearestAccumulationRasterSeedRanker
@@ -287,21 +301,27 @@ pub fn snap_pour_point(
         accumulation = candidate.accumulation,
         "pour point snapped"
     );
-    Ok(SnappedPoint {
-        cell: candidate.cell,
+    Ok(SnappedPoint::new(
+        candidate.cell,
         coord,
-        accumulation: candidate.accumulation,
-    })
+        candidate.accumulation,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        GridMappingError, NearestAccumulationRasterSeedRanker, RasterSeedCandidate,
+        RasterSeedRanker, SnapError, quantize_grid_cell, snap_pour_point,
+    };
+    use crate::algo::accumulation_tile::AccumulationTile;
     use crate::algo::catchment_mask::CatchmentMask;
     use crate::algo::coord::{GridCoord, GridDims};
     use crate::algo::geo_transform::GeoTransform;
     use crate::algo::projection::NativeCoord;
     use crate::algo::raster_tile::RasterTile;
+    use crate::algo::snap_threshold::SnapThreshold;
+    use hfx::FlowAccumulationUnits;
 
     fn simple_geo() -> GeoTransform {
         GeoTransform::new(NativeCoord::new(0.0, 0.0), 1.0, -1.0)
@@ -540,6 +560,28 @@ mod tests {
         assert_eq!(result.pixel(), GridCoord::new(1, 0));
     }
 
+    #[test]
+    fn non_finite_accumulation_is_not_a_candidate() {
+        let raw = RasterTile::from_vec(
+            vec![f32::INFINITY, 500.0, f32::NEG_INFINITY],
+            GridDims::new(1, 3),
+            f32::NAN,
+            simple_geo(),
+        )
+        .unwrap();
+        let mask = CatchmentMask::new(vec![true; 3], GridDims::new(1, 3));
+        let masked = AccumulationTile::from_raw(raw).apply_mask(&mask).unwrap();
+        let result = snap_pour_point(
+            NativeCoord::new(0.5, -0.5),
+            &masked,
+            SnapThreshold::new(500),
+            FlowAccumulationUnits::Cells,
+            4326,
+        )
+        .unwrap();
+        assert_eq!(result.pixel(), GridCoord::new(0, 1));
+    }
+
     // Test 8: exact threshold boundary — value exactly equal to threshold is accepted
     #[test]
     fn exact_threshold() {
@@ -564,36 +606,38 @@ mod tests {
         );
     }
 
-    // Test 9: outlet outside raster bounds returns OutletOutOfBounds error
     #[test]
-    fn outlet_out_of_bounds() {
+    fn external_reference_ranks_without_clamping() {
         let mut tile = AccumulationTile::new(GridDims::new(3, 3), simple_geo()).unwrap();
         tile.set_raw(GridCoord::new(1, 1), 1000.0);
         let mask = CatchmentMask::new(vec![true; 9], GridDims::new(3, 3));
         let masked = tile.apply_mask(&mask).unwrap();
-        // outlet_x=10.0, outlet_y=10.0 → frac_row = -10.0 (negative = OOB)
-        let err = snap_pour_point(
-            NativeCoord::new(10.0, 10.0),
-            &masked,
-            SnapThreshold::new(500),
-            FlowAccumulationUnits::Cells,
-            8857_u32,
-        )
-        .unwrap_err();
-        assert_eq!(
-            err,
-            SnapError::OutletOutOfBounds {
-                epsg: 8857,
-                outlet_x: 10.0,
-                outlet_y: 10.0,
-                rows: 3,
-                cols: 3,
-            }
-        );
-        assert_eq!(
-            err.to_string(),
-            "native EPSG:8857 outlet x=10, y=10 is outside tile extent (3x3)"
-        );
+        for reference in [NativeCoord::new(10.0, 10.0), NativeCoord::new(3.0, -3.0)] {
+            let result = snap_pour_point(
+                reference,
+                &masked,
+                SnapThreshold::new(500),
+                FlowAccumulationUnits::Cells,
+                8857,
+            )
+            .unwrap();
+            assert_eq!(result.pixel(), GridCoord::new(1, 1));
+        }
+        for reference in [
+            NativeCoord::new(f64::NAN, 0.0),
+            NativeCoord::new(0.0, f64::INFINITY),
+        ] {
+            assert!(matches!(
+                snap_pour_point(
+                    reference,
+                    &masked,
+                    SnapThreshold::new(500),
+                    FlowAccumulationUnits::Cells,
+                    8857
+                ),
+                Err(SnapError::NonFiniteReference { .. })
+            ));
+        }
     }
 
     // Test 10: all mask entries false → NoCellAboveThreshold even if values are high
@@ -668,7 +712,7 @@ mod tests {
         assert_eq!(
             err.to_string(),
             format!(
-                "no cell above effective threshold {threshold_km2_f32} km2 within catchment mask near native EPSG:8857 x=115, y=185"
+                "no usable cell at or above effective threshold {threshold_km2_f32} km2 within catchment mask near native EPSG:8857 x=115, y=185"
             )
         );
     }

@@ -104,7 +104,7 @@ hard-error as an unsupported format version.
 | `dataset_path` | `str` | — | Path or URL to the HFX dataset root directory |
 | `snap_radius` | `float \| None` | `None` | Snap-path search radius in metres; must be finite and positive when provided |
 | `snap_strategy` | `"distance-first" \| "weight-first" \| None` | `None` | Snap ranking strategy. Defaults to `"weight-first"`, which ranks greater declared weight as more hydrologically significant before distance. |
-| `snap_threshold` | `int \| None` | `None` | Upstream-cell threshold for containment candidate generation and the one-cell vector authority guard |
+| `snap_threshold` | `int \| None` | `None` | Upstream-cell threshold for terminal raster candidate generation (default 1,000) |
 | `clean_epsilon` | `float \| None` | `None` | Topology-cleaning epsilon in degrees |
 | `refine` | `bool` | `True` | Whether raster-based terminal refinement is enabled |
 | `repair_geometry` | `"auto" \| "gdal" \| "clean" \| False \| None` | `"auto"` | Geometry repair mode. `"auto"`, `"clean"`, `False`, and `None` use pure-Rust topology cleaning; `"gdal"` opts into GDAL repair |
@@ -282,11 +282,15 @@ pre-merge units is not the same as the final merged `area_km2` or
 
 ## DelineationResult
 
-Outlet resolution chooses authority once. A vector snap result is quantized to
-its containing D8 cell and never reranked. Point-in-polygon produces unit-only
-authority and uses the existing raster candidate ranker. `resolved_outlet`
-remains the vector point or request point. `refined_outlet` is the accepted seed
-cell center.
+In the current development version, outlet resolution binds the terminal unit.
+Refinement ranks usable threshold-qualified cells throughout that unit by nearest
+center to the vector snap point, or request point for containment, then higher
+accumulation and row-major order. The reference may lie outside the terminal mask
+or raster window. No search radius or same-branch restriction applies.
+`resolved_outlet` remains the vector point or request point. Applied
+`refined_outlet` is the selected seed cell center. Upstream units do not change.
+Best effort retains the coarse terminal with a visible reason when refinement
+fails; disabled refinement preserves vector resolution without raster selection.
 
 Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 
@@ -299,7 +303,7 @@ Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 | `resolved_outlet` | `tuple[float, float]` | Outlet used for resolution as `(lon, lat)` |
 | `refined_outlet` | `tuple[float, float] \| None` | Raster-refined outlet as `(lon, lat)`, or `None` if refinement was not applied |
 | `refinement_skip_reason` *(Unreleased/main-only)* | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
-| `refinement_seed_kind` *(Unreleased/main-only)* | `str` | `vector_quantized`, `raster_ranked`, `coarse`, or `disabled` |
+| `refinement_seed_kind` *(Unreleased/main-only)* | `str` | `raster_ranked`, `coarse`, or `disabled`; `vector_quantized` is retained for legacy provenance only |
 | `resolution_method` | `str` | Debug/provenance string describing how outlet resolution happened |
 | `upstream_unit_ids` | `list[int]` | Upstream unit IDs including the terminal unit |
 | `upstream_units` | `list[DelineationUnitMetadata]` | Light per-unit metadata without per-unit geometry |
@@ -313,7 +317,11 @@ Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 to_geojson() -> str
 ```
 
-Serializes the result as a GeoJSON `Feature` string.
+Serializes the result as a GeoJSON `Feature` string. In the current development
+version, properties keep `input_lon`/`input_lat` and `resolved_lon`/`resolved_lat`,
+and add `refined_lon`/`refined_lat` for the selected cell center. Both refined
+properties are `null` when refinement is skipped or disabled. The compatible
+`refinement` diagnostic string includes the applied or skipped provenance.
 
 ```python
 __repr__() -> str
@@ -335,7 +343,8 @@ staged `TerminalRefinement.status` and does not replace the compatible Debug
 string emitted by `to_geojson()`.
 
 The `kind` property also includes `coarse_unit_only_no_d8_aux_declared` and
-`vector_outlet_guard_failed`. For the latter, `failure_kind` is one of
+`vector_outlet_guard_failed`. The latter is a legacy evidence kind, no longer
+emitted by built-in refinement. For historical records, `failure_kind` is one of
 `grid_mapping`, `outside_terminal_mask`, `undefined_flow_direction`,
 `undefined_accumulation`, or `below_threshold`. The
 `requested_threshold`, `effective_threshold`, `units`, `mapped_cell`, and

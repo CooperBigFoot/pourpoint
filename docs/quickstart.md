@@ -44,8 +44,9 @@ Outlet resolution uses declared snap features and the configured strategy. The
 default weight-first strategy is not simply a nearest-feature search. The hosted
 manifest declares `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. When that D8
 auxiliary is used, refinement produces a terminal sub-polygon at an explicit
-seed. Vector authority maps to one containing cell without search. Unit-only
-containment uses raster ranking. See [D8 compatibility and remote
+seed. In the current development version, raster candidates throughout the
+terminal unit are ranked against the vector snap point, or against the request
+point under containment. See the tag-pinned release API for released behavior. See [D8 compatibility and remote
 layout](guide/datasets.md#d8-compatibility-and-remote-layout).
 
 ## License and citation

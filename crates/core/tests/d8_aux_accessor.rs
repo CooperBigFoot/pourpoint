@@ -13,7 +13,7 @@ use pourpoint_core::algo::{
 use pourpoint_core::error::{CacheError, D8NativeCoverageCandidate};
 use pourpoint_core::refinement::{
     BestEffortSkipCategory, BestEffortSkipSource, D8RasterRefinementStrategy, D8RefinementPantry,
-    OutletAuthority, TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
+    OutletReference, TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
     TerminalRefinementStrategy,
 };
 use pourpoint_core::session::{DatasetSession, RasterKind};
@@ -180,7 +180,7 @@ fn degenerate_terminal_precedes_missing_d8_declaration() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(2.5, -2.5)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(2.5, -2.5)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
             },
             &D8RefinementPantry {
@@ -217,7 +217,7 @@ fn degenerate_terminal_precedes_unsupported_d8_crs() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(10.0, 10.0)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(10.0, 10.0)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
             },
             &D8RefinementPantry {
@@ -254,7 +254,7 @@ fn degenerate_terminal_precedes_out_of_range_d8_crs() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(10.0, 10.0)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(10.0, 10.0)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
             },
             &D8RefinementPantry {
@@ -291,7 +291,7 @@ fn unsupported_projected_crs_routes_through_d8_selection() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(10.0, 10.0)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(10.0, 10.0)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::new(1),
             },
             &D8RefinementPantry {
@@ -330,7 +330,7 @@ fn geographic_km2_routes_through_refinement() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(2.5, -2.5)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(2.5, -2.5)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::new(1),
             },
             &D8RefinementPantry {
@@ -373,7 +373,7 @@ fn projected_refinement_carves_natively_and_returns_geographic_output() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(10.0, 10.0)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(10.0, 10.0)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::new(1),
             },
             &D8RefinementPantry {
@@ -453,7 +453,7 @@ fn projected_refinement_inverse_projects_carved_interior_ring() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(outlet),
+                outlet_reference: OutletReference::UnitOnly(outlet),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::new(1),
             },
             &D8RefinementPantry {
@@ -506,7 +506,7 @@ fn empty_terminal_routes_through_degenerate_refinement_error() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(2.5, -2.5)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(2.5, -2.5)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
             },
             &D8RefinementPantry {
@@ -551,7 +551,7 @@ fn projected_inverse_failure_routes_through_refinement() {
             TerminalRefinementInput {
                 terminal_unit: UnitId::new(42).expect("valid unit id"),
                 terminal_geometry: &terminal,
-                outlet_authority: OutletAuthority::UnitOnly(GeoCoord::new(10.0, 10.0)),
+                outlet_reference: OutletReference::UnitOnly(GeoCoord::new(10.0, 10.0)),
                 snap_threshold: pourpoint_core::algo::SnapThreshold::DEFAULT,
             },
             &D8RefinementPantry {
@@ -1621,10 +1621,13 @@ impl RasterSource for DonutRasterSource {
         encoding: FlowDirEncoding,
     ) -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
         #[rustfmt::skip]
+        // The seed exits coverage to the north. ESRI zero is undefined,
+        // not a valid sink; changing its downstream pointer preserves this
+        // upstream ring and the exact inverse-projected hole geometry.
         let values = vec![
-            0_u8, 16, 16,
-            4,     0, 64,
-            1,     1, 64,
+            64_u8, 16, 16,
+            4,      0, 64,
+            1,      1, 64,
         ];
         let tile = RasterTile::from_vec(values, GridDims::new(3, 3), 255_u8, donut_geo())
             .expect("donut flow-direction tile should construct");

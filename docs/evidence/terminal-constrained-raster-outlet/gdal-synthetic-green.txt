@@ -1,0 +1,38 @@
+   Compiling serde_core v1.0.228
+   Compiling tracing-core v0.1.36
+   Compiling tracing v0.1.44
+   Compiling tracing-subscriber v0.3.23
+   Compiling h2 v0.4.15
+   Compiling hfx v0.5.0
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling hyper v1.10.1
+   Compiling chrono v0.4.45
+   Compiling serde_urlencoded v0.7.1
+   Compiling quick-xml v0.39.4
+   Compiling geozero v0.14.0
+   Compiling hyper-util v0.1.20
+   Compiling arrow-array v58.3.0
+   Compiling gdal v0.19.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling object_store v0.13.2
+   Compiling arrow-select v58.3.0
+   Compiling arrow-arith v58.3.0
+   Compiling arrow-row v58.3.0
+   Compiling arrow-ipc v58.3.0
+   Compiling arrow-ord v58.3.0
+   Compiling arrow-string v58.3.0
+   Compiling arrow-cast v58.3.0
+   Compiling parquet v58.3.0
+   Compiling arrow v58.3.0
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/core)
+   Compiling pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/gdal)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.64s
+     Running tests/raster_decode_parity.rs (target/debug/deps/raster_decode_parity-56fdc12114cb1618)
+
+running 1 test
+test synthetic_b_tiff_matches_gdal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+

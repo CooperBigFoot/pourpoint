@@ -24,6 +24,9 @@ POURPOINT_MERIT_RECAPTURE_BLESS=1 \
 cargo test -p pourpoint-gdal --test merit_local_recapture -- --ignored --nocapture
 ```
 
-The literal local root is intentionally not recorded. The capture records
-vector-quantized seed provenance, scalar results, and canonical WKB SHA-256, but
-not licensed source data or geometry bytes.
+The literal local root is intentionally not recorded. The historical capture
+records vector-quantized seed provenance, scalar results, and canonical WKB
+SHA-256, but not licensed source data or geometry bytes. It remains unchanged.
+Current recaptures use terminal-constrained raster ranking and report
+`RasterOutletRanked`; write them to a new output path rather than replacing
+this historical capture.
