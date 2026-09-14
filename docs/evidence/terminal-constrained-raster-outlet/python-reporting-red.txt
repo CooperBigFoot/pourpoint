@@ -1,0 +1,43 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_vector_reference_and_ranked_center_survive_python_surfaces ________
+
+vector_raster_dataset = '/private/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-417/test_vector_reference_and_rank0'
+
+    def test_vector_reference_and_ranked_center_survive_python_surfaces(vector_raster_dataset):
+        engine = pourpoint.Engine(vector_raster_dataset)
+        request = (0.98, 0.42)
+        result = engine.delineate(lon=request[0], lat=request[1])
+        assert result.input_outlet == request
+        assert result.resolved_outlet == (0.9833333333333333, 0.4166666666666667)
+        assert result.refined_outlet != result.resolved_outlet
+        assert result.refined_outlet is not None
+        assert result.refinement_seed_kind == "raster_ranked"
+        assert result.refinement_skip_reason is None
+        props = json.loads(result.to_geojson())["properties"]
+        assert (props["input_lon"], props["input_lat"]) == request
+        assert (props["resolved_lon"], props["resolved_lat"]) == result.resolved_outlet
+>       assert (props["refined_lon"], props["refined_lat"]) == result.refined_outlet
+                ^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'refined_lon'
+
+crates/python/tests/test_outlet_reporting.py:56: KeyError
+_________________ test_disabled_refinement_exports_null_center _________________
+
+vector_raster_dataset = '/private/var/folders/9m/29m0bx0j0rsdyqb0b6yns28w0000gn/T/pytest-of-nicolaslazaro/pytest-417/test_disabled_refinement_expor0'
+
+    def test_disabled_refinement_exports_null_center(vector_raster_dataset):
+        result = pourpoint.Engine(vector_raster_dataset, refine=False).delineate(lon=0.98, lat=0.42)
+        assert result.resolved_outlet == (0.9833333333333333, 0.4166666666666667)
+        assert result.refined_outlet is None
+        assert result.refinement_seed_kind == "disabled"
+        props = json.loads(result.to_geojson())["properties"]
+>       assert props["refined_lon"] is None
+               ^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'refined_lon'
+
+crates/python/tests/test_outlet_reporting.py:81: KeyError
+=========================== short test summary info ============================
+FAILED crates/python/tests/test_outlet_reporting.py::test_vector_reference_and_ranked_center_survive_python_surfaces
+FAILED crates/python/tests/test_outlet_reporting.py::test_disabled_refinement_exports_null_center
+2 failed in 0.09s

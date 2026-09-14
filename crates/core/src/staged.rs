@@ -168,7 +168,9 @@ impl LevelResolvedOutlet {
         &self.legacy_resolved
     }
 
-    /// Return the typed outlet authority chosen during resolution.
+    /// Return terminal-unit authority and geographic resolution provenance.
+    ///
+    /// The vector coordinate guides raster ranking; it does not fix a raster seed.
     pub fn authority(&self) -> &OutletResolution {
         &self.authority
     }

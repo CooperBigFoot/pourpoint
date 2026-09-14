@@ -65,8 +65,8 @@ pub use raster_tile::{RasterTile, RasterTileError};
 pub use polygonize::polygonize;
 pub use rasterize::{rasterize_multi_polygon, rasterize_polygon};
 pub use refine::{
-    RasterOutlet, RasterSeedKind, RefinementError, RefinementResult, VectorOutletGuardFailure,
-    VectorOutletGuardFailureKind, refine_terminal, refine_terminal_from_source,
+    RasterSeedKind, RefinementError, RefinementResult, VectorOutletGuardFailureKind,
+    refine_terminal, refine_terminal_from_source,
 };
 pub use snap::{
     GridMappingError, NearestAccumulationRasterSeedRanker, RasterSeedCandidate, RasterSeedRanker,

@@ -1,0 +1,57 @@
+   Compiling pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.16s
+     Running tests/staged_delineation.rs (target/debug/deps/staged_delineation-6c338e7e08db4459)
+
+running 9 tests
+
+thread 'ranked_terminal_recovers_undefined_vector_flow_cell' (46921386) panicked at crates/core/tests/staged_delineation.rs:796:22:
+viable terminal candidate must apply, got BestEffortSkipped { provenance: BestEffortSkipped { strategy: BestEffortD8IfPresent, why: VectorOutletGuardFailed { kind: UndefinedFlowDirection, requested_threshold: SnapThreshold(1000), effective_threshold: 1000.0, units: Cells, mapped_cell: Some(GridCoord { row: 2, col: 2 }), measured_accumulation: Some(1.0) } } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'ranked_terminal_reference_outside_window_still_ranks_full_terminal' (46921387) panicked at crates/core/tests/staged_delineation.rs:796:22:
+viable terminal candidate must apply, got BestEffortSkipped { provenance: BestEffortSkipped { strategy: BestEffortD8IfPresent, why: VectorOutletGuardFailed { kind: GridMapping, requested_threshold: SnapThreshold(1000), effective_threshold: 1000.0, units: Cells, mapped_cell: None, measured_accumulation: None } } }
+
+thread 'ranked_terminal_boundary_tie_prefers_higher_accumulation' (46921381) panicked at crates/core/tests/staged_delineation.rs:793:17:
+assertion `left == right` failed
+  left: GeoCoord { lon: 2.5, lat: -2.5 }
+ right: GeoCoord { lon: 1.5, lat: -2.5 }
+
+thread 'ranked_terminal_excludes_closer_high_accumulation_external_cell' (46921383) panicked at crates/core/tests/staged_delineation.rs:796:22:
+viable terminal candidate must apply, got BestEffortSkipped { provenance: BestEffortSkipped { strategy: BestEffortD8IfPresent, why: VectorOutletGuardFailed { kind: OutsideTerminalMask, requested_threshold: SnapThreshold(1000), effective_threshold: 1000.0, units: Cells, mapped_cell: Some(GridCoord { row: 2, col: 4 }), measured_accumulation: Some(9000.0) } } }
+
+thread 'ranked_terminal_uses_vector_reference_not_external_input' (46921388) panicked at crates/core/tests/staged_delineation.rs:793:17:
+assertion `left == right` failed
+  left: GeoCoord { lon: 3.5, lat: -2.5 }
+ right: GeoCoord { lon: 2.5, lat: -2.5 }
+
+thread 'ranked_terminal_recovers_below_threshold_vector_cell' (46921385) panicked at crates/core/tests/staged_delineation.rs:796:22:
+viable terminal candidate must apply, got BestEffortSkipped { provenance: BestEffortSkipped { strategy: BestEffortD8IfPresent, why: VectorOutletGuardFailed { kind: BelowThreshold, requested_threshold: SnapThreshold(1000), effective_threshold: 1000.0, units: Cells, mapped_cell: Some(GridCoord { row: 2, col: 2 }), measured_accumulation: Some(1.0) } } }
+
+thread 'ranked_terminal_full_tie_uses_row_major_order' (46921384) panicked at crates/core/tests/staged_delineation.rs:793:17:
+assertion `left == right` failed
+  left: GeoCoord { lon: 2.5, lat: -2.5 }
+ right: GeoCoord { lon: 1.5, lat: -1.5 }
+test ranked_terminal_boundary_tie_prefers_higher_accumulation ... FAILED
+test ranked_terminal_uses_vector_reference_not_external_input ... FAILED
+test ranked_terminal_excludes_closer_high_accumulation_external_cell ... FAILED
+test ranked_terminal_recovers_undefined_vector_flow_cell ... FAILED
+test ranked_terminal_reference_outside_window_still_ranks_full_terminal ... FAILED
+test ranked_terminal_recovers_below_threshold_vector_cell ... FAILED
+test ranked_terminal_full_tie_uses_row_major_order ... FAILED
+test ranked_terminal_containment_keeps_input_reference ... ok
+test ranked_terminal_without_candidates_has_visible_policy_outcomes ... ok
+
+failures:
+
+failures:
+    ranked_terminal_boundary_tie_prefers_higher_accumulation
+    ranked_terminal_excludes_closer_high_accumulation_external_cell
+    ranked_terminal_full_tie_uses_row_major_order
+    ranked_terminal_recovers_below_threshold_vector_cell
+    ranked_terminal_recovers_undefined_vector_flow_cell
+    ranked_terminal_reference_outside_window_still_ranks_full_terminal
+    ranked_terminal_uses_vector_reference_not_external_input
+
+test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p pourpoint-core --test staged_delineation`

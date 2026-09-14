@@ -115,7 +115,9 @@ class DelineationResult:
     @property
     def refinement_seed_kind(
         self,
-    ) -> Literal["vector_quantized", "raster_ranked", "coarse", "disabled"]: ...
+    ) -> Literal["vector_quantized", "raster_ranked", "coarse", "disabled"]:
+        """Built-in results use raster_ranked/coarse/disabled; vector_quantized is legacy."""
+        ...
 
     @property
     def resolution_method(self) -> str: ...

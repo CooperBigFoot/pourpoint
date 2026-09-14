@@ -249,7 +249,8 @@ impl PyDelineationResult {
         }
     }
 
-    /// Raster seed decision: `vector_quantized`, `raster_ranked`, `coarse`, or `disabled`.
+    /// Raster seed decision: `raster_ranked`, `coarse`, or `disabled`.
+    /// `vector_quantized` is retained for legacy provenance only.
     #[getter]
     fn refinement_seed_kind(&self) -> &'static str {
         refinement_seed_kind(self.inner.refinement())
@@ -446,6 +447,7 @@ impl PyAreaOnlyResult {
 fn refinement_seed_kind(refinement: &RefinementOutcome) -> &'static str {
     match refinement {
         RefinementOutcome::Applied { provenance, .. } => match provenance.why() {
+            #[allow(deprecated)]
             AppliedRefinementReason::VectorOutletQuantized { .. } => "vector_quantized",
             #[allow(deprecated)]
             AppliedRefinementReason::D8AuxMatchedTerminalBbox { .. }

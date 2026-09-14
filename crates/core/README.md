@@ -142,7 +142,8 @@ pub fn compose_result(
 ```
 
 `LevelResolvedOutlet::authority()` returns the typed `OutletResolution` used by
-new staged code. The former `resolved()` accessor remains as a deprecated
+new staged code. Its authority binds the terminal unit, not a raster cell. The
+former `resolved()` accessor remains as a deprecated
 `&ResolvedOutlet` compatibility view, including its public fields. Both views
 are derived together and cannot be mutated through the staged value.
 
@@ -204,13 +205,9 @@ sequenceDiagram
     T-->>R: FlowDirectionTile<Raw>
     T-->>R: AccumulationTile<Raw>
     A->>A: rasterize native x/y polygon → CatchmentMask
-    alt vector point authority
-        A->>A: quantize to unique containing cell and guard raw D8 values
-        A->>A: mask both D8 tiles to terminal
-    else unit-only containment
-        A->>A: mask both D8 tiles to terminal
-        A->>A: generate threshold candidates and rank one
-    end
+    A->>A: project vector snap reference or containment request
+    A->>A: mask both D8 tiles to terminal
+    A->>A: rank usable threshold candidates against reference
     A->>A: trace_upstream from native-grid cell → CatchmentMask
     A->>A: polygonize → native x/y MultiPolygon
     A->>A: dissolve → MultiPolygon
@@ -228,19 +225,24 @@ Full auxiliary schema-to-strategy binding, reverse-DNS auxiliary parsing,
 Python-authored strategies, and additional built-in strategies are outside the
 current runtime surface.
 
-Outlet resolution is authoritative. A snap feature produces a vector point;
-refinement only quantizes it to the unique half-open containing cell. That cell
-must be in the terminal mask, have defined D8 semantics (a direction or valid
-GRASS terminal), have defined accumulation, and meet the effective threshold. Any failed conjunct produces a
-rich coarse result in best-effort mode or a precise error in require-D8 mode.
-Refinement never routes vector authority to the raster ranker. Point-in-polygon
-resolution produces unit-only authority, for which the unchanged raster ranker
-selects nearest center, then greater accumulation, then row-major order.
+Outlet resolution binds the terminal unit and supplies a proximity reference.
+A snap feature supplies its vector point; containment supplies the request point.
+`OutletReference::{VectorPoint, UnitOnly}` records that source, not raster-cell
+authority. Refinement searches the complete terminal candidate domain for usable
+threshold-qualified cells. It ranks nearest cell center, then higher accumulation,
+then row-major order. The reference need not lie inside the mask or localized
+window. No containing-cell shortcut, radius, or same-branch constraint applies.
+Projection and unavailable-data failures remain explicit. Best effort retains
+the whole coarse terminal with a visible reason; require-D8 returns an error.
+
+`resolved_outlet` remains the vector or request reference. Applied
+`refined_outlet` is the selected cell center, with `RasterOutletRanked`
+provenance. Refinement does not change the terminal or upstream-unit set.
 
 The built-in D8 carve sequence is fixed as:
 
 ```text
-rasterize terminal -> vector guard then mask OR mask then unit rank -> trace -> polygonize
+rasterize terminal -> mask -> rank usable threshold candidates -> trace -> polygonize
 ```
 
 Inside this carve stack, `GeoTransform`, rasterization, seed selection, tracing,
@@ -261,9 +263,8 @@ the only values inverse-transformed, and component, ring, and vertex order is
 retained. The EPSG:4326 identity path remains byte-exact because its forward and
 inverse operations only move coordinate fields.
 
-The threshold has two roles. It generates the unit-only raster candidate set, but
-for vector authority it guards one already-chosen containing cell and never
-causes a neighborhood search. For `cells`, conversion preserves
+The threshold generates the raster candidate set on both resolution paths.
+The default remains 1,000 upstream cells. For `cells`, conversion preserves
 `threshold.as_f32()` behavior. For `km2`, the
 effective threshold is evaluated as
 `threshold_cells as f64 * (pixel_width * pixel_height).abs() / 1_000_000.0`;
@@ -342,9 +343,9 @@ They do not execute a live hosted carve.
 | TauDEM D8 | D8 encoding counter-clockwise from east: E=1, NE=2, N=3, NW=4, W=5, SW=6, S=7, SE=8 |
 | Upstream set | All units reachable via upstream adjacency from a terminal unit, inclusive of the terminal itself |
 | Pour point | The outlet cell of a watershed — the single cell where flow exits the catchment |
-| Vector quantization | Mapping an authoritative vector point to its unique containing raster cell without search |
-| Raster ranking | Selecting the nearest threshold-qualified masked cell for unit-only containment, with higher accumulation then row-major ties |
-| SnapThreshold | Requested upstream-cell count used for raster candidate generation and the vector-cell usability guard |
+| Outlet reference | Vector snap point or containment request used for raster proximity ranking |
+| Raster ranking | Selecting the nearest usable threshold-qualified masked cell to the outlet reference, with higher accumulation then row-major ties |
+| SnapThreshold | Requested upstream-cell count used for raster candidate generation |
 | Dissolve | Boolean union of all catchment polygons in the upstream set into one multi-polygon |
 | CleanEpsilon | Tiny buffer distance (degrees) used in buffer-unbuffer topology cleaning |
 | HoleFillMode | Policy for interior holes: remove all, or keep holes above an area threshold |
@@ -379,8 +380,8 @@ They do not execute a live hosted carve.
 | `FlowDir` | `algo/flow_dir.rs` | D8 direction enum with ESRI and TauDEM decoding |
 | `SnappedPoint` | `algo/snap.rs` | Compatibility type carrying a selected raster seed, native center, and accumulation |
 | `RefinementResult` | `algo/refine.rs` | Native seed kind, seed center, and raster-native refined polygon |
-| `quantize_grid_cell` | `algo/snap.rs` | Half-open, fallible mapping of vector authority to one grid cell |
-| `snap_pour_point` | `algo/snap.rs` | Compatibility facade for unit-only candidate generation and ranking |
+| `quantize_grid_cell` | `algo/snap.rs` | Standalone half-open, fallible coordinate-to-cell mapping; not refinement selection |
+| `snap_pour_point` | `algo/snap.rs` | Compatibility facade for candidate generation and ranking |
 | `trace_upstream` | `algo/trace.rs` | DFS upstream traversal returning a `CatchmentMask` |
 | `collect_upstream` | `algo/upstream.rs` | BFS upstream traversal over `DrainageGraph` |
 | `dissolve` | `algo/dissolve.rs` | Parallel boolean union of polygon slices |

@@ -1,0 +1,98 @@
+    Checking pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/core)
+ Documenting pourpoint-core v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/core)
+    Checking pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/gdal)
+ Documenting pourpoint-gdal v0.1.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/gdal)
+ Documenting pourpoint-python v0.3.0 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/crates/python)
+ Documenting pourpoint v0.1.189 (/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet)
+warning: unclosed HTML tag `f64`
+ --> crates/core/src/algo/polygonize.rs:1:68
+  |
+1 | //! polygonize : CatchmentMask × GeoTransform → Option<MultiPolygon<f64>> (pure, deterministic)
+  |                                                                    ^^^^^
+  |
+  = note: `#[warn(rustdoc::invalid_html_tags)]` on by default
+help: try marking as source code
+  |
+1 | //! polygonize : CatchmentMask × GeoTransform → `Option<MultiPolygon<f64>>` (pure, deterministic)
+  |                                                 +                         +
+
+warning: unclosed HTML tag `Polygon`
+ --> crates/core/src/algo/dissolve.rs:1:19
+  |
+1 | //! dissolve : Vec<Polygon> → MultiPolygon, the deterministic union of drainage-unit regions.
+  |                   ^^^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! dissolve : `Vec<Polygon>` → MultiPolygon, the deterministic union of drainage-unit regions.
+  |                +            +
+
+warning: unclosed HTML tag `WGS84`
+ --> crates/core/src/algo/watershed_area.rs:1:28
+  |
+1 | //! regional_area : Polygon<WGS84> | MultiPolygon<WGS84> → Result<AreaKm2>.
+  |                            ^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! regional_area : `Polygon<WGS84>` | MultiPolygon<WGS84> → Result<AreaKm2>.
+  |                     +              +
+
+warning: unclosed HTML tag `WGS84`
+ --> crates/core/src/algo/watershed_area.rs:1:50
+  |
+1 | //! regional_area : Polygon<WGS84> | MultiPolygon<WGS84> → Result<AreaKm2>.
+  |                                                  ^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! regional_area : Polygon<WGS84> | `MultiPolygon<WGS84>` → Result<AreaKm2>.
+  |                                      +                   +
+
+warning: unclosed HTML tag `AreaKm2`
+ --> crates/core/src/algo/watershed_area.rs:1:66
+  |
+1 | //! regional_area : Polygon<WGS84> | MultiPolygon<WGS84> → Result<AreaKm2>.
+  |                                                                  ^^^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! regional_area : Polygon<WGS84> | MultiPolygon<WGS84> → `Result<AreaKm2>`.
+  |                                                            +               +
+
+warning: unclosed HTML tag `Dissolved`
+ --> crates/core/src/algo/watershed_geometry.rs:1:36
+  |
+1 | //! postprocess : WatershedGeometry<Dissolved> → WatershedGeometry<HolesFilled>.
+  |                                    ^^^^^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! postprocess : `WatershedGeometry<Dissolved>` → WatershedGeometry<HolesFilled>.
+  |                   +                            +
+
+warning: unclosed HTML tag `HolesFilled`
+ --> crates/core/src/algo/watershed_geometry.rs:1:67
+  |
+1 | //! postprocess : WatershedGeometry<Dissolved> → WatershedGeometry<HolesFilled>.
+  |                                                                   ^^^^^^^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! postprocess : WatershedGeometry<Dissolved> → `WatershedGeometry<HolesFilled>`.
+  |                                                  +                              +
+
+warning: unclosed HTML tag `MultiPolygon`
+ --> crates/core/src/assembly.rs:1:19
+  |
+1 | //! assemble : Vec<MultiPolygon> × AssemblyOptions → Result<AssemblyResult, AssemblyError>.
+  |                   ^^^^^^^^^^^^^^
+  |
+help: try marking as source code
+  |
+1 | //! assemble : `Vec<MultiPolygon>` × AssemblyOptions → Result<AssemblyResult, AssemblyError>.
+  |                +                 +
+
+warning: `pourpoint-core` (lib doc) generated 8 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.19s
+   Generated /Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/terminal-constrained-raster-outlet/target/doc/pourpoint/index.html and 4 other files

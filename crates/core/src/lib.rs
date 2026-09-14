@@ -46,9 +46,9 @@ pub use export::{
 pub use refinement::{
     AppliedRefinementProvenance, AppliedRefinementReason, BestEffortRefinementProvenance,
     BestEffortSkipReason, ContainedTerminalPolygon, D8RasterHandle, D8RasterRefinementStrategy,
-    D8RefinementPantry, OutletAuthority, RefinementProvenance, RefinementStrategyName,
-    TerminalRefinementDecision, TerminalRefinementError, TerminalRefinementInput,
-    TerminalRefinementStrategy,
+    D8RefinementPantry, OutletAuthority, OutletReference, RefinementProvenance,
+    RefinementStrategyName, TerminalRefinementDecision, TerminalRefinementError,
+    TerminalRefinementInput, TerminalRefinementStrategy,
 };
 #[allow(deprecated)]
 pub use resolver::{

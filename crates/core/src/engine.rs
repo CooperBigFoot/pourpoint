@@ -131,7 +131,7 @@ impl DelineationResult {
         self.input_outlet
     }
 
-    /// Return the resolved outlet coordinate (may differ after snapping).
+    /// Return the vector snap point, or request point under containment; not the refined cell center.
     pub fn resolved_outlet(&self) -> GeoCoord {
         self.resolved_outlet
     }
@@ -221,7 +221,7 @@ impl DelineationAreaOnlyResult {
         self.input_outlet
     }
 
-    /// Return the resolved outlet coordinate (may differ after snapping).
+    /// Return the vector snap point, or request point under containment; not the refined cell center.
     pub fn resolved_outlet(&self) -> GeoCoord {
         self.resolved_outlet
     }
@@ -778,7 +778,7 @@ impl Engine {
         let input = TerminalRefinementInput {
             terminal_unit: terminal,
             terminal_geometry: terminal_polygon,
-            outlet_authority: resolved.authority().into(),
+            outlet_reference: resolved.authority().into(),
             snap_threshold: options.snap_threshold,
         };
         let pantry = D8RefinementPantry {
@@ -791,30 +791,11 @@ impl Engine {
             Err(error) => match options.refinement_mode {
                 RefinementMode::BestEffort => {
                     let reason = best_effort_skip_reason(&error);
-                    if let crate::refinement::BestEffortSkipReason::VectorOutletGuardFailed {
-                        kind,
-                        requested_threshold,
-                        effective_threshold,
-                        units,
-                        mapped_cell,
-                        measured_accumulation,
-                    } = &reason
-                    {
-                        let vector_coord = resolved.authority().resolved_coord();
-                        tracing::warn!(
-                            unit_id = terminal.get(),
-                            vector_lon = vector_coord.lon,
-                            vector_lat = vector_coord.lat,
-                            failure_kind = ?kind,
-                            requested_threshold_cells = requested_threshold.pixels(),
-                            effective_threshold = *effective_threshold,
-                            accumulation_units = %units,
-                            mapped_row = mapped_cell.map(|cell| cell.row),
-                            mapped_col = mapped_cell.map(|cell| cell.col),
-                            measured_accumulation = *measured_accumulation,
-                            "retaining coarse terminal after vector outlet cell guard failure"
-                        );
-                    }
+                    tracing::warn!(
+                        unit_id = terminal.get(),
+                        reason = ?reason,
+                        "retaining coarse terminal because D8 refinement could not apply"
+                    );
                     return Ok(TerminalRefinement::best_effort_skipped(reason));
                 }
                 RefinementMode::RequireD8 => return Err(EngineError::from(error)),
@@ -1256,7 +1237,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy)]
-    enum VectorGuardFixture {
+    enum VectorReferenceFixture {
         BelowThreshold,
         UndefinedAccumulation,
         OutsideTerminalMask,
@@ -1266,7 +1247,7 @@ mod tests {
         OutsideRasterWindow,
     }
 
-    impl RasterSource for VectorGuardFixture {
+    impl RasterSource for VectorReferenceFixture {
         fn load_flow_direction(
             &self,
             _uri: &str,
@@ -1496,7 +1477,7 @@ mod tests {
     }
 
     #[test]
-    fn vector_outlet_on_cell_boundary_keeps_containing_cell_authority() {
+    fn vector_outlet_on_cell_boundary_ranks_other_branch_by_accumulation() {
         let (_dir, root) = DatasetBuilder::new(1)
             .with_rasters()
             .with_custom_catchments(vec![TestCatchment {
@@ -1524,19 +1505,19 @@ mod tests {
                 GeoCoord::new(2.0, -2.5),
                 &DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500)),
             )
-            .expect("vector-authoritative delineation should succeed");
+            .expect("terminal-constrained delineation should succeed");
         let RefinementOutcome::Applied {
             refined_outlet,
             provenance,
         } = result.refinement()
         else {
-            panic!("vector-authoritative refinement should apply");
+            panic!("terminal-constrained refinement should apply");
         };
         assert_eq!(
             provenance,
             &AppliedRefinementProvenance::new(
                 RefinementStrategyName::BuiltInD8,
-                crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
+                crate::refinement::AppliedRefinementReason::RasterOutletRanked {
                     declaration_index: 0,
                 }
             )
@@ -1545,23 +1526,25 @@ mod tests {
         assert_eq!(result.resolved_outlet(), GeoCoord::new(2.0, -2.5));
         assert_eq!(
             *refined_outlet,
-            GeoCoord::new(2.5, -2.5),
-            "the containing cell must remain authoritative even when the equally distant other-branch cell has greater accumulation",
+            GeoCoord::new(1.5, -2.5),
+            "the equally distant other-branch cell wins by greater accumulation",
         );
         let bounds = result
             .geometry()
             .bounding_rect()
-            .expect("the two-cell vector branch carve should have bounds");
-        assert_eq!(bounds.min().x, 2.0);
-        assert_eq!(bounds.max().x, 3.0);
+            .expect("the two-cell ranked branch carve should have bounds");
+        assert_eq!(bounds.min().x, 1.0);
+        assert_eq!(bounds.max().x, 2.0);
         assert_eq!(bounds.min().y, -3.0);
         assert_eq!(bounds.max().y, -1.0);
     }
 
-    fn vector_guard_engine(fixture: VectorGuardFixture) -> (tempfile::TempDir, Engine, GeoCoord) {
+    fn vector_reference_engine(
+        fixture: VectorReferenceFixture,
+    ) -> (tempfile::TempDir, Engine, GeoCoord) {
         let (vector_x, terminal_max_x) = match fixture {
-            VectorGuardFixture::OutsideTerminalMask => (4.5, 4.0),
-            VectorGuardFixture::OutsideRasterWindow => (5.5, 5.0),
+            VectorReferenceFixture::OutsideTerminalMask => (4.5, 4.0),
+            VectorReferenceFixture::OutsideRasterWindow => (5.5, 5.0),
             _ => (2.5, 5.0),
         };
         let outlet = GeoCoord::new(vector_x, -2.5);
@@ -1583,7 +1566,7 @@ mod tests {
             .build();
         if matches!(
             fixture,
-            VectorGuardFixture::GrassTerminalZero | VectorGuardFixture::GrassSignedExit
+            VectorReferenceFixture::GrassTerminalZero | VectorReferenceFixture::GrassSignedExit
         ) {
             let manifest_path = root.join("manifest.json");
             let mut manifest: serde_json::Value = serde_json::from_slice(
@@ -1612,10 +1595,10 @@ mod tests {
     #[test]
     fn valid_grass_terminal_vector_cells_apply_under_both_refinement_policies() {
         for fixture in [
-            VectorGuardFixture::GrassTerminalZero,
-            VectorGuardFixture::GrassSignedExit,
+            VectorReferenceFixture::GrassTerminalZero,
+            VectorReferenceFixture::GrassSignedExit,
         ] {
-            let (_dir, engine, outlet) = vector_guard_engine(fixture);
+            let (_dir, engine, outlet) = vector_reference_engine(fixture);
             let options =
                 DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
             for mode in [RefinementMode::BestEffort, RefinementMode::RequireD8] {
@@ -1627,7 +1610,7 @@ mod tests {
                 };
                 assert_eq!(
                     provenance.why(),
-                    &crate::refinement::AppliedRefinementReason::VectorOutletQuantized {
+                    &crate::refinement::AppliedRefinementReason::RasterOutletRanked {
                         declaration_index: 0,
                     }
                 );
@@ -1636,133 +1619,54 @@ mod tests {
     }
 
     #[test]
-    fn vector_cell_guard_skips_coarsely_or_fails_precisely_without_raster_fallback() {
-        use crate::algo::VectorOutletGuardFailureKind;
-
-        let cases = [
+    fn unusable_or_external_vector_reference_ranks_usable_terminal_candidate() {
+        for (fixture, expected) in [
             (
-                VectorGuardFixture::BelowThreshold,
-                VectorOutletGuardFailureKind::BelowThreshold,
-                Some(GridCoord::new(2, 2)),
-                Some(100.0),
+                VectorReferenceFixture::BelowThreshold,
+                GeoCoord::new(1.5, -2.5),
             ),
             (
-                VectorGuardFixture::UndefinedAccumulation,
-                VectorOutletGuardFailureKind::UndefinedAccumulation,
-                Some(GridCoord::new(2, 2)),
-                None,
+                VectorReferenceFixture::UndefinedAccumulation,
+                GeoCoord::new(1.5, -2.5),
             ),
             (
-                VectorGuardFixture::OutsideTerminalMask,
-                VectorOutletGuardFailureKind::OutsideTerminalMask,
-                Some(GridCoord::new(2, 4)),
-                Some(800.0),
+                VectorReferenceFixture::UndefinedFlowDirection,
+                GeoCoord::new(1.5, -2.5),
             ),
             (
-                VectorGuardFixture::UndefinedFlowDirection,
-                VectorOutletGuardFailureKind::UndefinedFlowDirection,
-                Some(GridCoord::new(2, 2)),
-                Some(800.0),
+                VectorReferenceFixture::OutsideTerminalMask,
+                GeoCoord::new(2.5, -2.5),
             ),
-        ];
-
-        for (fixture, kind, mapped_cell, measured_accumulation) in cases {
-            let (_dir, engine, outlet) = vector_guard_engine(fixture);
-            let options =
-                DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
-            let best_effort = engine
-                .delineate(outlet, &options)
-                .expect("best effort should retain the coarse terminal");
-            let disabled = engine
-                .delineate(
-                    outlet,
-                    &options
-                        .clone()
-                        .with_refinement_mode(RefinementMode::Disabled),
-                )
-                .expect("disabled delineation should succeed");
-            assert_eq!(
-                encode_wkb_multi_polygon(best_effort.geometry()).unwrap(),
-                encode_wkb_multi_polygon(disabled.geometry()).unwrap(),
-                "guard rejection must retain the whole terminal"
-            );
-            assert_eq!(
-                best_effort.refinement(),
-                &RefinementOutcome::BestEffortSkipped {
-                    provenance: BestEffortRefinementProvenance::new(
-                        RefinementStrategyName::BestEffortD8IfPresent,
-                        BestEffortSkipReason::VectorOutletGuardFailed {
-                            kind,
-                            requested_threshold: SnapThreshold::new(500),
-                            effective_threshold: 500.0,
-                            units: FlowAccumulationUnits::Cells,
-                            mapped_cell,
-                            measured_accumulation,
-                        }
-                    ),
-                }
-            );
-
-            let required = engine
-                .delineate(
-                    outlet,
-                    &options
-                        .clone()
-                        .with_refinement_mode(RefinementMode::RequireD8),
-                )
-                .expect_err("RequireD8 must preserve the vector guard failure");
-            assert!(matches!(
-                required,
-                EngineError::Refinement {
-                    source: RefinementError::VectorOutletUnusable { ref failure },
-                    ..
-                } if failure.kind == kind
-                    && failure.mapped_cell == mapped_cell
-                    && failure.measured_accumulation == measured_accumulation
-            ));
-        }
-    }
-
-    #[test]
-    fn vector_point_outside_localized_window_records_absent_mapping_evidence() {
-        use crate::algo::VectorOutletGuardFailureKind;
-
-        let (_dir, engine, outlet) = vector_guard_engine(VectorGuardFixture::OutsideRasterWindow);
-        let options = DelineationOptions::default().with_snap_threshold(SnapThreshold::new(500));
-        let result = engine
-            .delineate(outlet, &options)
-            .expect("best effort should retain a coarse result");
-        assert_eq!(
-            result.refinement(),
-            &RefinementOutcome::BestEffortSkipped {
-                provenance: BestEffortRefinementProvenance::new(
-                    RefinementStrategyName::BestEffortD8IfPresent,
-                    BestEffortSkipReason::VectorOutletGuardFailed {
-                        kind: VectorOutletGuardFailureKind::GridMapping,
-                        requested_threshold: SnapThreshold::new(500),
-                        effective_threshold: 500.0,
-                        units: FlowAccumulationUnits::Cells,
-                        mapped_cell: None,
-                        measured_accumulation: None,
+            (
+                VectorReferenceFixture::OutsideRasterWindow,
+                GeoCoord::new(4.5, -2.5),
+            ),
+        ] {
+            let (_dir, engine, outlet) = vector_reference_engine(fixture);
+            for mode in [RefinementMode::BestEffort, RefinementMode::RequireD8] {
+                let options = DelineationOptions::default()
+                    .with_snap_threshold(SnapThreshold::new(500))
+                    .with_refinement_mode(mode);
+                let result = engine
+                    .delineate(outlet, &options)
+                    .expect("viable terminal candidate should refine");
+                let RefinementOutcome::Applied {
+                    refined_outlet,
+                    provenance,
+                } = result.refinement()
+                else {
+                    panic!("viable terminal candidate must apply for {fixture:?}");
+                };
+                assert_eq!(*refined_outlet, expected, "{fixture:?}");
+                assert_eq!(
+                    provenance.why(),
+                    &crate::refinement::AppliedRefinementReason::RasterOutletRanked {
+                        declaration_index: 0
                     }
-                ),
+                );
+                assert_eq!(result.terminal_unit_id().get(), 1);
             }
-        );
-        let required = engine
-            .delineate(
-                outlet,
-                &options.with_refinement_mode(RefinementMode::RequireD8),
-            )
-            .expect_err("RequireD8 must expose mapping failure");
-        assert!(matches!(
-            required,
-            EngineError::Refinement {
-                source: RefinementError::VectorOutletUnusable { failure },
-                ..
-            } if failure.kind == VectorOutletGuardFailureKind::GridMapping
-                && failure.mapped_cell.is_none()
-                && failure.measured_accumulation.is_none()
-        ));
+        }
     }
 
     #[test]
