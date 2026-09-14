@@ -706,3 +706,162 @@ fn assert_close(actual: f64, expected: f64) {
         "expected {actual} to be within tolerance of {expected}"
     );
 }
+
+// Controlled raster reads exercise the real Engine strategy, masking, ranking,
+// tracing, and assembly. Columns are separate south-flowing branches.
+#[derive(Clone)]
+struct TerminalCandidateRaster {
+    accumulation: [f32; 25],
+    flow: [u8; 25],
+}
+
+impl TerminalCandidateRaster {
+    fn candidates(cells: &[(usize, usize, f32)]) -> Self {
+        let mut accumulation = [1.0; 25];
+        for &(row, col, value) in cells {
+            accumulation[row * 5 + col] = value;
+        }
+        Self { accumulation, flow: [4; 25] }
+    }
+}
+
+impl RasterSource for TerminalCandidateRaster {
+    fn load_flow_direction(&self, _uri: &str, bbox: &Rect<f64>, encoding: FlowDirEncoding)
+        -> Result<FlowDirectionTile<Raw>, RasterSourceError> {
+        assert_eq!(*bbox, Rect::new((1.0, -4.0), (4.0, -1.0)), "read must remain terminal-localized");
+        let mut tile = FlowDirectionTile::new(
+            pourpoint_core::algo::GridDims::new(5, 5), candidate_transform(), encoding).unwrap();
+        for row in 0..5 {
+            for col in 0..5 {
+                tile.set_raw(pourpoint_core::algo::GridCoord::new(row, col), self.flow[row * 5 + col]);
+            }
+        }
+        Ok(tile)
+    }
+    fn load_accumulation(&self, _uri: &str, bbox: &Rect<f64>)
+        -> Result<AccumulationTile<Raw>, RasterSourceError> {
+        assert_eq!(*bbox, Rect::new((1.0, -4.0), (4.0, -1.0)));
+        Ok(AccumulationTile::from_raw(pourpoint_core::algo::RasterTile::from_vec(
+            self.accumulation.to_vec(), pourpoint_core::algo::GridDims::new(5, 5),
+            f32::NAN, candidate_transform()).unwrap()))
+    }
+}
+
+fn candidate_transform() -> pourpoint_core::algo::GeoTransform {
+    pourpoint_core::algo::GeoTransform::new(pourpoint_core::algo::NativeCoord::new(0.0, 0.0), 1.0, -1.0)
+}
+
+fn candidate_engine(reference: Option<GeoCoord>, raster: TerminalCandidateRaster) -> (tempfile::TempDir, Engine) {
+    use pourpoint_core::testutil::{TestCatchment, TestSnapGeometry, TestSnapTarget};
+    let mut builder = DatasetBuilder::new(2).with_rasters().with_custom_catchments(vec![
+        TestCatchment { id: 1, area_km2: 1.0, up_area_km2: None, polygon: (0.0, -4.0, 1.0, -1.0) },
+        TestCatchment { id: 2, area_km2: 9.0, up_area_km2: None, polygon: (1.0, -4.0, 4.0, -1.0) },
+    ]);
+    if let Some(point) = reference {
+        builder = builder.with_custom_snap_targets(vec![TestSnapTarget {
+            id: 1, catchment_id: 2, weight: 1.0, is_mainstem: true,
+            geometry: TestSnapGeometry::Point(point.lon, point.lat),
+        }]);
+    }
+    let (dir, root) = builder.build();
+    for name in ["flow_dir.tif", "flow_acc.tif"] {
+        fs::copy(parity_fixture_path(V021_SYNTHETIC_REFINED_DIR).join(name), root.join(name)).unwrap();
+    }
+    let engine = Engine::builder(DatasetSession::open_path(&root).unwrap()).with_raster_source(raster).build();
+    (dir, engine)
+}
+
+fn candidate_options(mode: RefinementMode) -> DelineationOptions {
+    DelineationOptions::default().with_refinement_mode(mode).with_resolver_config(
+        pourpoint_core::ResolverConfig::default().with_search_radius(
+            pourpoint_core::SearchRadiusMetres::new(1_000_000.0).unwrap()))
+}
+
+fn assert_ranked_candidate(reference: Option<GeoCoord>, input: GeoCoord, raster: TerminalCandidateRaster, expected: GeoCoord) {
+    let (_dir, engine) = candidate_engine(reference, raster);
+    for mode in [RefinementMode::BestEffort, RefinementMode::RequireD8] {
+        let options = candidate_options(mode);
+        let direct = engine.delineate(input, &options).expect("terminal candidate should refine");
+        let staged = explicit_staged_composition(&engine, input, &options).unwrap();
+        assert_delineation_results_equal(&direct, &staged);
+        assert_eq!(direct.input_outlet(), input);
+        assert_eq!(direct.resolved_outlet(), reference.unwrap_or(input));
+        assert_eq!(direct.terminal_unit_id().get(), 2);
+        assert_eq!(direct.upstream_unit_ids().iter().map(|id| id.get()).collect::<BTreeSet<_>>(), BTreeSet::from([1, 2]));
+        match direct.refinement() {
+            RefinementOutcome::Applied { refined_outlet, provenance } => {
+                assert_eq!(*refined_outlet, expected);
+                assert_eq!(provenance.why(), &AppliedRefinementReason::RasterOutletRanked { declaration_index: 0 });
+            }
+            other => panic!("viable terminal candidate must apply, got {other:?}"),
+        }
+        // Each column is an independent branch. Its upstream carve extends
+        // from row 1 through the selected row, plus the unchanged upstream unit.
+        let expected_geometry = MultiPolygon::new(vec![
+            rect(0.0, -4.0, 1.0, -1.0),
+            rect(expected.lon - 0.5, expected.lat - 0.5, expected.lon + 0.5, -1.0),
+        ]);
+        use geo::BooleanOps;
+        let difference = direct.geometry().xor(&expected_geometry);
+        use geo::Area;
+        assert!(difference.unsigned_area() < 1e-8, "geometry must reflect selected branch plus whole upstream unit: {difference:?}");
+    }
+}
+
+#[test]
+fn ranked_terminal_recovers_below_threshold_vector_cell() {
+    assert_ranked_candidate(Some(GeoCoord::new(2.5, -2.5)), GeoCoord::new(2.5, -2.5),
+        TerminalCandidateRaster::candidates(&[(2, 1, 1000.0)]), GeoCoord::new(1.5, -2.5));
+}
+#[test]
+fn ranked_terminal_recovers_undefined_vector_flow_cell() {
+    let mut raster = TerminalCandidateRaster::candidates(&[(2, 1, 1000.0)]);
+    raster.flow[12] = 0;
+    assert_ranked_candidate(Some(GeoCoord::new(2.5, -2.5)), GeoCoord::new(2.5, -2.5), raster, GeoCoord::new(1.5, -2.5));
+}
+#[test]
+fn ranked_terminal_boundary_tie_prefers_higher_accumulation() {
+    assert_ranked_candidate(Some(GeoCoord::new(2.0, -2.5)), GeoCoord::new(2.0, -2.5),
+        TerminalCandidateRaster::candidates(&[(2, 1, 2000.0), (2, 2, 1000.0)]), GeoCoord::new(1.5, -2.5));
+}
+#[test]
+fn ranked_terminal_full_tie_uses_row_major_order() {
+    assert_ranked_candidate(Some(GeoCoord::new(2.0, -2.0)), GeoCoord::new(2.0, -2.0),
+        TerminalCandidateRaster::candidates(&[(1, 1, 1000.0), (1, 2, 1000.0), (2, 1, 1000.0), (2, 2, 1000.0)]), GeoCoord::new(1.5, -1.5));
+}
+#[test]
+fn ranked_terminal_uses_vector_reference_not_external_input() {
+    assert_ranked_candidate(Some(GeoCoord::new(3.0, -2.5)), GeoCoord::new(0.5, -2.5),
+        TerminalCandidateRaster::candidates(&[(2, 1, 5000.0), (2, 2, 2000.0), (2, 3, 1000.0)]), GeoCoord::new(2.5, -2.5));
+}
+#[test]
+fn ranked_terminal_excludes_closer_high_accumulation_external_cell() {
+    assert_ranked_candidate(Some(GeoCoord::new(4.1, -2.5)), GeoCoord::new(4.1, -2.5),
+        TerminalCandidateRaster::candidates(&[(2, 3, 1000.0), (2, 4, 9000.0)]), GeoCoord::new(3.5, -2.5));
+}
+#[test]
+fn ranked_terminal_reference_outside_window_still_ranks_full_terminal() {
+    assert_ranked_candidate(Some(GeoCoord::new(6.0, -2.5)), GeoCoord::new(6.0, -2.5),
+        TerminalCandidateRaster::candidates(&[(2, 1, 1000.0)]), GeoCoord::new(1.5, -2.5));
+}
+#[test]
+fn ranked_terminal_containment_keeps_input_reference() {
+    assert_ranked_candidate(None, GeoCoord::new(2.0, -2.5),
+        TerminalCandidateRaster::candidates(&[(2, 1, 2000.0), (2, 2, 1000.0)]), GeoCoord::new(1.5, -2.5));
+}
+#[test]
+fn ranked_terminal_without_candidates_has_visible_policy_outcomes() {
+    let input = GeoCoord::new(2.5, -2.5);
+    let (_dir, engine) = candidate_engine(Some(input), TerminalCandidateRaster::candidates(&[(2, 1, 999.0)]));
+    let options = candidate_options(RefinementMode::BestEffort);
+    let result = engine.delineate(input, &options).unwrap();
+    assert!(matches!(result.refinement(), RefinementOutcome::BestEffortSkipped { .. }));
+    assert_delineation_results_equal(&result, &explicit_staged_composition(&engine, input, &options).unwrap());
+    let disabled = engine.delineate(input, &candidate_options(RefinementMode::Disabled)).unwrap();
+    assert_eq!(result.geometry(), disabled.geometry());
+    assert_eq!(disabled.resolved_outlet(), input);
+    assert_eq!(disabled.refinement(), &RefinementOutcome::Disabled);
+    let required = candidate_options(RefinementMode::RequireD8);
+    assert!(engine.delineate(input, &required).is_err());
+    assert!(explicit_staged_composition(&engine, input, &required).is_err());
+}
