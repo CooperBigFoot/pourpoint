@@ -7,19 +7,17 @@ Rust, Python, and CLI interfaces.
 
 ## Release status
 
-The released Python package is version 0.3.0. It is classified
+The released Python package is version 0.4.0. It is classified
 `Development Status :: 4 - Beta`, is available from
 [PyPI](https://pypi.org/project/pourpoint/), and is recorded as
-[`pourpoint-v0.3.0`](https://github.com/CooperBigFoot/pourpoint/releases/tag/pourpoint-v0.3.0)
+[`pourpoint-v0.4.0`](https://github.com/CooperBigFoot/pourpoint/releases/tag/pourpoint-v0.4.0)
 in GitHub Releases. PyPI hosts the package artifacts. The GitHub Release records
 the release and does not host wheels.
 
-Prepared 0.4.0 adds [snap-target layers](docs/snap-targets.md), watershed
-geometry/area fixes and updated refinement diagnostics. It is not yet published.
-See the [0.4.0 notes](crates/python/CHANGELOG.md) and
-[prepared API reference](crates/python/API.md). The current PyPI 0.3.0 release
-provides delineation, the staged API, GeoJSON and Python GeoParquet writers,
-but not these new APIs. Python wheels do not install the Rust CLI.
+Release 0.4.0 adds [snap-target layers](docs/snap-targets.md), watershed
+geometry/area fixes and updated refinement diagnostics. See the
+[0.4.0 notes](crates/python/CHANGELOG.md) and [API reference](crates/python/API.md).
+Python wheels do not install the Rust CLI.
 
 Install the release:
 
@@ -29,7 +27,7 @@ uv add pourpoint
 
 (or `pip install pourpoint`)
 
-PyPI provides five `cp39-abi3` wheels and an sdist for 0.3.0:
+PyPI provides five `cp39-abi3` wheels and an sdist for 0.4.0:
 
 - macOS 11+ arm64 and x86_64;
 - `manylinux_2_28` arm64 and x86_64;
@@ -49,7 +47,7 @@ geojson_feature = result.to_geojson()
 ```
 
 See the [Python quickstart](crates/python/README.md), the
-[tag-pinned 0.3.0 API reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md),
+[tag-pinned 0.4.0 API reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.4.0/crates/python/API.md),
 and the [main development API reference](crates/python/API.md).
 
 ## HFX dataset boundary

@@ -7,7 +7,7 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
-## [0.4.0] - Prepared, unreleased
+## [0.4.0] - 2026-10-03
 
 ### Added
 

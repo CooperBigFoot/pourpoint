@@ -1,8 +1,8 @@
 # pourpoint
 
 `pourpoint` is the Python package for the pourpoint watershed-delineation
-engine. Prepared 0.4.0 adds snap-target layers and result corrections; it is
-not yet published. The current PyPI release is 0.3.0 and is classified Beta.
+engine. Release 0.4.0 adds snap-target layers and result corrections.
+The current PyPI release is 0.4.0 and is classified Beta.
 
 ## Install
 
@@ -12,7 +12,7 @@ uv add pourpoint
 
 (or `pip install pourpoint`)
 
-Release 0.3.0 has five `cp39-abi3` wheels for macOS 11+ arm64/x86_64,
+Release 0.4.0 has five `cp39-abi3` wheels for macOS 11+ arm64/x86_64,
 `manylinux_2_28` arm64/x86_64, and Windows amd64, plus an sdist. The wheels
 bundle GDAL, PROJ, GEOS, and their runtime dependencies.
 
@@ -48,17 +48,13 @@ The live D8 declaration uses `hfx.aux.d8_raster.v2`, EPSG:8857, `grass`, and
 
 ## Released and development API references
 
-**Released 0.3.0 documentation:** use the
-[tag-pinned Python README](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/README.md)
-and [tag-pinned API reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md).
-Released 0.3.0 includes one-shot and batch calls, the staged API, GeoJSON
-`Feature` output, and both GeoParquet writer classes.
-
-**Prepared 0.4.0 documentation:** this checkout describes the upcoming version,
-including snap-target extraction, typed refinement diagnostics and auxiliary
-schema diagnostics. See the [changelog](CHANGELOG.md) for behavior changes.
-These additions are not in the published 0.3.0 wheel. Build this checkout using
-[CONTRIBUTING.md](../../CONTRIBUTING.md) to use them before publication.
+**Released 0.4.0 documentation:** use the
+[tag-pinned Python README](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.4.0/crates/python/README.md)
+and [tag-pinned API reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.4.0/crates/python/API.md).
+Release 0.4.0 includes snap-target extraction, typed refinement diagnostics and
+auxiliary schema diagnostics, alongside one-shot and batch calls, the staged
+API, GeoJSON output and GeoParquet writers. See the [changelog](CHANGELOG.md)
+for behavior changes. This checkout may include later development changes.
 
 ## Snap-target layers
 

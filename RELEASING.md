@@ -14,29 +14,23 @@ This repository has two independent release streams. Do not confuse them:
 Versions change **only** on intentional, curated releases — never per commit.
 Agents never create or push tags; a human cuts every release.
 
-## pourpoint 0.4.0 preparation
+## pourpoint 0.4.0 stream status
 
-**PREPARED — UNFIRED.** Source package metadata targets 0.4.0; this is not a
-claim that PyPI serves it. HFX format support and the GRIT reader floor remain
-0.3.0. See `crates/python/CHANGELOG.md` for the complete net changes from
+**FIRED — PUBLISHED TO PyPI on 2026-10-03.** Tag `pourpoint-v0.4.0` points
+to reviewed merge commit `c246dd1e37e4b6ec02d30be698b422272281bd15` (PR #166).
+The [GitHub Release](https://github.com/CooperBigFoot/pourpoint/releases/tag/pourpoint-v0.4.0)
+and [release workflow](https://github.com/CooperBigFoot/pourpoint/actions/runs/37139426945)
+record successful builds, installed-wheel checks and real PyPI publication.
+PyPI serves five unyanked `cp39-abi3` wheels (macOS arm64/x86_64, Linux
+aarch64/x86_64, Windows amd64) and an sdist for 0.4.0. TestPyPI was skipped.
+
+The owner explicitly authorized this release with “release it” after reviewing
+the merged candidate. An agent created the tag and GitHub Release under that
+per-release authorization. The standing human-only rule remains unchanged.
+
+HFX format support and the GRIT reader floor remain 0.3.0. See
+`crates/python/CHANGELOG.md` for the complete net changes from
 `pourpoint-v0.3.0`, including changes to watershed results and lazy validation.
-
-Before a human creates `pourpoint-v0.4.0` and publishes its GitHub Release:
-
-1. Merge the reviewed candidate after Rust, Python and documentation checks.
-2. Confirm the repaired-wheel matrix and sdist build for the final candidate.
-   A PR version change runs the matrix without publication. Record its tested
-   SHA (PR builds can use a merge ref), run URL and artifacts. A maintainer may
-   alternatively run `build-wheels.yaml` with `upload=0`; do not select 1 or 2.
-3. Confirm installed-wheel checks pass on all five platforms: exact source
-   package version, bundled data, PROJ, missing-dataset errors, snap extraction
-   and GeoPackage output. These use a generated PyArrow fixture without plotting
-   dependencies. Regular CI separately tests optional GeoPandas conversion.
-4. A human tags the verified merged commit and publishes the GitHub Release.
-   Approve the configured environment, then verify all six PyPI artifacts.
-
-No tag, release, workflow dispatch or publication is performed by preparation.
-Local builds cannot replace the repaired-artifact matrix.
 
 ## Cutting a pourpoint release
 

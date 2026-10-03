@@ -4,14 +4,13 @@
 coordinate and an HFX dataset, and it resolves the outlet, traverses the
 upstream graph, and returns watershed geometry and area.
 
-The Python package's released version 0.3.0 is available on PyPI and classified
+The Python package's released version 0.4.0 is available on PyPI and classified
 Beta. It ships `cp39-abi3` wheels for macOS 11+ arm64/x86_64,
 `manylinux_2_28` arm64/x86_64, and Windows amd64, plus an sdist.
 
-Prepared 0.4.0 adds [snap-target layers](snap-targets.md), watershed geometry
-and area fixes, and updated refinement diagnostics. It is not yet published.
-The API reference describes this prepared version. Python wheels do not install
-the Rust CLI.
+Release 0.4.0 adds [snap-target layers](snap-targets.md), watershed geometry
+and area fixes, and updated refinement diagnostics. Python wheels do not
+install the Rust CLI.
 
 ## HFX inputs
 
@@ -27,7 +26,7 @@ citations.
 
 ## Capabilities
 
-Released 0.3.0 supports one-shot and batch Python calls, a staged API, GeoJSON
+Released 0.4.0 supports one-shot and batch Python calls, a staged API, GeoJSON
 `Feature` output, Python GeoParquet writers, and a source-built CLI that emits
 GeoJSON `FeatureCollection` output for batch input. The CLI does not emit
 GeoParquet.
