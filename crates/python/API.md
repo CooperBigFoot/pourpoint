@@ -1,8 +1,8 @@
 # pourpoint API Reference
 
-Prepared 0.4.0 API documentation. This version is not yet published; an
-installed 0.3.0 wheel does not have every name below.
-Released users should use the [`pourpoint-v0.3.0` tag-pinned reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md).
+Release 0.4.0 API documentation. Install `pourpoint>=0.4.0` for snap-target
+extraction and the diagnostics below. For the release-pinned surface, see the
+[`pourpoint-v0.4.0` reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.4.0/crates/python/API.md).
 
 Developer-oriented reference for the current public `pourpoint` Python API.
 This file mirrors the runtime surface re-exported from
