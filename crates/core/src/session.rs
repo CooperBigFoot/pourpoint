@@ -207,7 +207,20 @@ impl DatasetSession {
         row_group_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
     ) -> Result<Self, SessionError> {
-        match DatasetSource::parse(input)? {
+        Self::open_source_with_caches(DatasetSource::parse(input)?, row_group_cache, footer_cache)
+    }
+
+    /// Open an already-resolved dataset source without re-reading source configuration.
+    ///
+    /// # Errors
+    /// Propagates the same local or remote dataset errors as [`Self::open_with_caches`].
+    #[instrument(skip_all)]
+    pub fn open_source_with_caches(
+        source: DatasetSource,
+        row_group_cache: Option<Arc<ParquetRowGroupCache>>,
+        footer_cache: Option<Arc<ParquetFooterCache>>,
+    ) -> Result<Self, SessionError> {
+        match source {
             DatasetSource::Local(root) => Self::open_path(&root),
             DatasetSource::Remote {
                 store,

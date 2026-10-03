@@ -241,3 +241,46 @@ def test_lazy_delineation_retry(hfx_dataset):
     assert engine.select_level().level == 0
     # Repeated operations reuse the initialized engine.
     assert engine.select_level().level == 0
+
+
+def test_relative_source_stays_anchored_after_chdir(hfx_dataset, tmp_path, monkeypatch):
+    from conftest import _write_graph, _write_catchments, _write_snap
+
+    original = Path(hfx_dataset)
+    declaration = _declaration("stems")
+    declaration["artifacts"]["snap"] = "snap.parquet"
+    declaration["metadata"]["references_levels"] = [0]
+    _write_manifest(original, [declaration])
+    _write_snap(original)
+
+    alternate_parent = tmp_path / "other"
+    alternate = alternate_parent / original.name
+    alternate.mkdir(parents=True)
+    _write_manifest(alternate, [declaration])
+    _write_graph(alternate)
+    _write_catchments(alternate)
+    _write_snap(alternate)
+    # Both roots are valid, but the alternate has a different snap ID and an
+    # isolated terminal unit, so its delineation would return only one unit.
+    with (alternate / "snap.parquet").open("rb") as source:
+        table = pq.read_table(source)
+    table = table.set_column(0, table.schema.field("id"), pa.array([4001], type=pa.int64()))
+    with (alternate / "snap.parquet").open("wb") as output:
+        pq.write_table(table, output)
+    with (alternate / "graph.parquet").open("rb") as source:
+        table = pq.read_table(source)
+    index = table.schema.get_field_index("upstream_ids")
+    table = table.set_column(index, table.schema.field(index),
+                             pa.array([[], [1], []], type=table.schema.field(index).type))
+    with (alternate / "graph.parquet").open("wb") as output:
+        pq.write_table(table, output)
+
+    monkeypatch.chdir(original.parent)
+    engine = pourpoint.Engine(original.name, refine=False)
+    monkeypatch.chdir(alternate_parent)
+    output = tmp_path / "anchored.gpkg"
+    engine.snap_targets(all=True).write(output)
+    with sqlite3.connect(output) as db:
+        assert db.execute('SELECT id FROM "stems_points"').fetchall() == [(3001,)]
+    assert len(engine.delineate(lat=0.20, lon=1.70).upstream_unit_ids) == 3
+    assert len(pourpoint.Engine(original.name, refine=False).delineate(lat=0.20, lon=1.70).upstream_unit_ids) == 1

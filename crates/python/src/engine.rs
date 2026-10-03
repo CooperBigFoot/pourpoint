@@ -86,7 +86,6 @@ enum PyDelineateOutput {
 #[pyclass(name = "Engine")]
 pub struct PyEngine {
     engine: Mutex<Option<Arc<Engine>>>,
-    dataset_path: String,
     source: DatasetSource,
     row_group_cache: Option<Arc<ParquetRowGroupCache>>,
     footer_cache: Option<Arc<ParquetFooterCache>>,
@@ -212,7 +211,13 @@ impl PyEngine {
         // Construction reads the manifest, never graph or catchment rows.
         let dataset_path = dataset_path.to_owned();
         let (source, parsed) = py.allow_threads(|| {
-            let source = DatasetSource::parse(&dataset_path).map_err(crate::error::dataset_err)?;
+            let source =
+                match DatasetSource::parse(&dataset_path).map_err(crate::error::dataset_err)? {
+                    DatasetSource::Local(root) => DatasetSource::Local(
+                        std::path::absolute(root).map_err(crate::error::dataset_err)?,
+                    ),
+                    remote => remote,
+                };
             let (parsed, _) = source.read_manifest().map_err(crate::error::dataset_err)?;
             Ok::<_, PyErr>((source, parsed))
         })?;
@@ -226,7 +231,6 @@ impl PyEngine {
 
         Ok(Self {
             engine: Mutex::new(None),
-            dataset_path,
             source,
             row_group_cache,
             footer_cache,
@@ -604,8 +608,8 @@ impl PyEngine {
             if let Some(engine) = slot.as_ref() {
                 return Ok(Arc::clone(engine));
             }
-            let session = DatasetSession::open_with_caches(
-                &self.dataset_path,
+            let session = DatasetSession::open_source_with_caches(
+                self.source.clone(),
                 self.row_group_cache.clone(),
                 self.footer_cache.clone(),
             )
