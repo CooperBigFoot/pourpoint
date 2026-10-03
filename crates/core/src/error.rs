@@ -90,6 +90,14 @@ pub enum CacheError {
 /// Errors that can occur while opening or reading an HFX dataset session.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
+    /// A selected snap declaration cannot be opened, read or parsed.
+    #[error("snap set {name:?} at {path:?}: {source}")]
+    SnapArtifactRead {
+        name: String,
+        path: String,
+        source: Box<SessionError>,
+    },
+
     /// Fired when the supplied path exists but is not a directory, or does not
     /// exist at all.
     #[error("dataset root not found or not a directory: {path}")]

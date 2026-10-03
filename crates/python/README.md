@@ -1,7 +1,8 @@
 # pourpoint
 
 `pourpoint` is the Python package for the pourpoint watershed-delineation
-engine. The current PyPI release is 0.3.0 and is classified Beta.
+engine. Prepared 0.4.0 adds snap-target layers and result corrections; it is
+not yet published. The current PyPI release is 0.3.0 and is classified Beta.
 
 ## Install
 
@@ -37,7 +38,9 @@ manifest reports `fabric_version` 1.0.0, HFX `format_version` 0.3.0, and
 
 Remote operation fetches required byte ranges and raster windows instead of the
 complete roughly 299 GB dataset. The small manifest and graph may be fetched
-completely on a cold open. Required ranges and windows may be cached locally.
+completely when first needed. Construction reads the manifest; delineation
+loads and validates the graph and catchments on first use. Snap extraction does
+not load them. Required ranges and windows may be cached locally.
 
 The live D8 declaration uses `hfx.aux.d8_raster.v2`, EPSG:8857, `grass`, and
 `km2`, at `aux/d8/flow_dir.tif` and `aux/d8/flow_acc.tif`. See the
@@ -51,13 +54,52 @@ and [tag-pinned API reference](https://github.com/CooperBigFoot/pourpoint/blob/p
 Released 0.3.0 includes one-shot and batch calls, the staged API, GeoJSON
 `Feature` output, and both GeoParquet writer classes.
 
-**Main development documentation:** the files on the `main` branch and the
-generated docs site describe the current checkout. They can include Unreleased
-changes. In particular, `BestEffortSkipReason`,
-`DelineationResult.refinement_skip_reason`,
-`DelineationResult.refinement_seed_kind`, and
-`Engine.unreadable_auxiliary_schemas` are main-only and are not in the 0.3.0
-wheel.
+**Prepared 0.4.0 documentation:** this checkout describes the upcoming version,
+including snap-target extraction, typed refinement diagnostics and auxiliary
+schema diagnostics. See the [changelog](CHANGELOG.md) for behavior changes.
+These additions are not in the published 0.3.0 wheel. Build this checkout using
+[CONTRIBUTING.md](../../CONTRIBUTING.md) to use them before publication.
+
+## Snap-target layers
+
+Export the complete snap geometries supplied by a dataset for use in QGIS:
+
+```python
+targets = engine.snap_targets(bbox=(8.3, 47.2, 8.8, 47.6))
+targets.write("snap-targets.gpkg")
+
+# Select one declared set, or explicitly select the whole dataset.
+reach_targets = engine.snap_targets(
+    bbox=(8.3, 47.2, 8.8, 47.6), snap_set="reach-stems"
+)
+engine.snap_targets(all=True).write("all-snap-targets.gpkg")
+```
+
+Specify exactly one of `bbox` or `all=True`. Bounds are EPSG:4326 coordinates in
+west, south, east, north order. Selection tests actual geometry intersection,
+including the boundary, and never clips geometries. Each set has separate
+`<set>_points` and `<set>_lines` GeoPackage layers, including empty layers.
+`write()` streams rows and replaces an existing file only after a complete,
+successful export. It needs no GeoPandas installation.
+
+For a combined GeoDataFrame, install `pourpoint[geopandas]`:
+
+```python
+gdf = targets.to_geodataframe()
+gdf.plot()
+```
+
+The frame includes `snap_set`, `id`, `unit_id`, `weight`, `stem_role`, `bbox`,
+`geometry_wkb` (the original bytes), and `geometry`. Its `attrs["snap_sets"]`
+retains declaration descriptions, referenced levels, and weight semantics;
+`attrs["manifest"]` retains the source manifest, including supplied attribution.
+GeoDataFrame conversion loads the selection into memory.
+
+Opening an `Engine` validates its source, manifest, and options. Graph and
+catchment reads begin on the first delineation operation, not on snap export.
+Snap reads use available spatial pruning; artifacts without bounds can require
+larger reads. Snap features are not a reconstructed or routable river network.
+Extraction does not change the source dataset's license.
 
 ## Local use
 

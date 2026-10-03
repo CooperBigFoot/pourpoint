@@ -1,15 +1,15 @@
 //! Dataset source parsing for local and object-store backed HFX roots.
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use object_store::BackoffConfig;
 use object_store::ClientOptions;
-use object_store::ObjectStore;
 use object_store::RetryConfig;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
+use object_store::{ObjectStore, ObjectStoreExt};
 use url::Url;
 
 use crate::error::SessionError;
@@ -68,6 +68,41 @@ pub enum DatasetSource {
 }
 
 impl DatasetSource {
+    /// Read and parse only the manifest, retaining raw metadata such as attribution.
+    ///
+    /// # Errors
+    /// Returns manifest read, JSON, schema and domain errors. No unit artifact is opened.
+    #[tracing::instrument(skip_all)]
+    pub fn read_manifest(
+        &self,
+    ) -> Result<(crate::reader::manifest::ParsedManifest, serde_json::Value), SessionError> {
+        let bytes = match self {
+            DatasetSource::Local(root) => std::fs::read(root.join("manifest.json"))
+                .map_err(|e| SessionError::io("manifest.json", e))?,
+            DatasetSource::Remote {
+                store, root, url, ..
+            } => crate::runtime::RT.block_on(async {
+                let result = store
+                    .get(&root.clone().join("manifest.json"))
+                    .await
+                    .map_err(|e| {
+                        SessionError::remote_artifact_read("manifest.json", url.as_str(), e)
+                    })?;
+                result
+                    .bytes()
+                    .await
+                    .map(|bytes| bytes.to_vec())
+                    .map_err(|e| {
+                        SessionError::remote_artifact_read("manifest.json", url.as_str(), e)
+                    })
+            })?,
+        };
+        let parsed = crate::reader::manifest::read_manifest_from_bytes(&bytes)?;
+        let manifest = serde_json::from_slice(&bytes)
+            .map_err(|source| SessionError::ManifestJsonParse { source })?;
+        Ok((parsed, manifest))
+    }
+
     /// Parse a dataset source from a local path or supported URL.
     ///
     /// # Errors
@@ -79,6 +114,17 @@ impl DatasetSource {
     /// | [`SessionError::DatasetSourcePath`] | The remote URL path cannot be represented as an object-store path |
     /// | [`SessionError::ObjectStoreConfig`] | Object-store configuration fails |
     pub fn parse(input: &str) -> Result<Self, SessionError> {
+        // URL parsing treats a Windows drive letter as a scheme. Recognize
+        // rooted drive/UNC paths first, but never reinterpret an explicit URL.
+        let bytes = input.as_bytes();
+        let rooted_drive = bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/')
+            && !input.contains("://");
+        if rooted_drive || input.starts_with(r"\\") {
+            return Ok(Self::Local(PathBuf::from(input)));
+        }
         match Url::parse(input) {
             Ok(url) => Self::parse_url(input, url),
             Err(source) if input.contains("://") => Err(SessionError::InvalidDatasetSource {
@@ -241,6 +287,17 @@ impl DatasetSource {
     }
 }
 
+pub(crate) fn path_escapes_root(raw_path: &str) -> bool {
+    let path = Path::new(raw_path);
+    path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -339,6 +396,41 @@ mod tests {
                     None => std::env::remove_var("POURPOINT_RANGE_GET_CONCURRENCY"),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn windows_rooted_drive_and_unc_paths_are_local_not_url_schemes() {
+        for input in [
+            r"C:\data\hfx",
+            "c:/data/hfx",
+            r"Z:\",
+            r"\\server\share\hfx",
+            r"\\?\C:\data\hfx",
+            "//server/share/hfx",
+        ] {
+            let parsed = DatasetSource::parse(input).unwrap();
+            assert!(
+                matches!(parsed, DatasetSource::Local(path) if path == std::path::PathBuf::from(input))
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_unknown_urls_are_not_reinterpreted_as_windows_paths() {
+        for input in [
+            "z://host/hfx",
+            "ftp://host/hfx",
+            "gopher://host/hfx",
+            "unknown:dataset",
+        ] {
+            assert!(
+                matches!(
+                    DatasetSource::parse(input),
+                    Err(SessionError::UnsupportedDatasetSource { .. })
+                ),
+                "{input}"
+            );
         }
     }
 

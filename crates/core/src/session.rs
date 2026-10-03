@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Range;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bytes::BytesMut;
@@ -35,7 +35,7 @@ use crate::reader::test_instrumentation::{
 };
 use crate::refinement::D8RasterHandle;
 use crate::runtime::RT;
-use crate::source::{DatasetSource, pourpoint_get_ranges_concurrency};
+use crate::source::{DatasetSource, path_escapes_root, pourpoint_get_ranges_concurrency};
 use crate::source_telemetry::{HttpStatsHandle, HttpStatsSnapshot};
 use crate::support_claims::{claimed_d8_crs, is_unreadable_d8_auxiliary_schema};
 use crate::telemetry::{Stage, StageGuard, record_bytes, record_path};
@@ -207,7 +207,20 @@ impl DatasetSession {
         row_group_cache: Option<Arc<ParquetRowGroupCache>>,
         footer_cache: Option<Arc<ParquetFooterCache>>,
     ) -> Result<Self, SessionError> {
-        match DatasetSource::parse(input)? {
+        Self::open_source_with_caches(DatasetSource::parse(input)?, row_group_cache, footer_cache)
+    }
+
+    /// Open an already-resolved dataset source without re-reading source configuration.
+    ///
+    /// # Errors
+    /// Propagates the same local or remote dataset errors as [`Self::open_with_caches`].
+    #[instrument(skip_all)]
+    pub fn open_source_with_caches(
+        source: DatasetSource,
+        row_group_cache: Option<Arc<ParquetRowGroupCache>>,
+        footer_cache: Option<Arc<ParquetFooterCache>>,
+    ) -> Result<Self, SessionError> {
+        match source {
             DatasetSource::Local(root) => Self::open_path(&root),
             DatasetSource::Remote {
                 store,
@@ -1074,17 +1087,6 @@ fn validate_remote_aux_artifact(
         });
     }
     Ok(())
-}
-
-fn path_escapes_root(raw_path: &str) -> bool {
-    let path = Path::new(raw_path);
-    path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
 }
 
 const RANGE_GET_CHUNK_TARGET_BYTES: u64 = 4 * 1024 * 1024;

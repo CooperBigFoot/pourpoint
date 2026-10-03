@@ -219,31 +219,10 @@ jobs:
           # CPython itself installs it).
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >-
             delvewheel repair --add-path C:\gdal\Library\bin -w {dest_dir} {wheel}
-          CIBW_TEST_COMMAND: |
-            python -c "
-            import pourpoint
-            from pathlib import Path
-            pkg = Path(pourpoint.__file__).parent
-            assert (pkg / '_data' / 'gdal' / 'gdalvrt.xsd').is_file(), 'missing bundled gdal_data'
-            assert (pkg / '_data' / 'proj' / 'proj.db').is_file(), 'missing bundled proj.db'
-            assert pourpoint.__version__, 'missing __version__'
-            try:
-                pourpoint.Engine('/nonexistent/path/to/dataset')
-            except pourpoint.DatasetError:
-                pass
-            else:
-                raise AssertionError('Engine should reject missing datasets')
-            from pourpoint import _pourpoint
-            _pourpoint._self_test_proj()
-            print('wheel self-test passed; version=' + pourpoint.__version__)
-            "
-          # cmd.exe cannot execute the multi-line `python -c` above (newlines
-          # inside a quoted argument break cmd parsing), so the identical
-          # assertions live in ci/wheel_smoke_test.py. The platform-specific
-          # option overrides the generic CIBW_TEST_COMMAND on Windows only;
-          # tests still run from cibuildwheel's temp dir against the
-          # installed (repaired) wheel.
-          CIBW_TEST_COMMAND_WINDOWS: >-
+          # Run from cibuildwheel's isolated test directory against the installed,
+          # repaired wheel. PyArrow only generates the portable snap fixture.
+          CIBW_TEST_REQUIRES: "pyarrow tomli"
+          CIBW_TEST_COMMAND: >-
             python "{project}/ci/wheel_smoke_test.py"
 
       - name: Upload wheels artifact

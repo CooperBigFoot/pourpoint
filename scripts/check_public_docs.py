@@ -58,6 +58,7 @@ PROHIBITED = {
 REQUIRED = {
     "README.md": (
         "released Python package is version 0.3.0",
+        "Prepared 0.4.0",
         "Development Status :: 4 - Beta",
         "GRIT 2.0.0 HFX dataset",
         "`fabric_version`: `1.0.0`",
@@ -69,7 +70,7 @@ REQUIRED = {
         "Cloudflare R2 HTTP(S) URLs",
     ),
     "CONTRIBUTING.md": ("OIDC Trusted Publishing", "RELEASING.md"),
-    "docs/index.md": ("released version 0.3.0", "Evaluation and collaboration"),
+    "docs/index.md": ("released version 0.3.0", "Prepared 0.4.0", "Evaluation and collaboration"),
     "docs/guide/datasets.md": (
         "Every raw or source hydrofabric must first be compiled",
         "EPSG:4326 with `cells`",
@@ -79,10 +80,10 @@ REQUIRED = {
     ),
     "crates/python/README.md": (
         "Released 0.3.0 documentation",
-        "Main development documentation",
+        "Prepared 0.4.0 documentation",
         "exactly one dataset hosted by this project",
     ),
-    "crates/python/API.md": ("main development branch", "pourpoint-v0.3.0"),
+    "crates/python/API.md": ("Prepared 0.4.0", "pourpoint-v0.3.0"),
 }
 
 LINK_RE = re.compile(r"(?<!!)\[[^]\n]+\]\(([^)]+)\)")

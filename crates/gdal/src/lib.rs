@@ -5,6 +5,7 @@ pub mod convert;
 pub mod error;
 pub mod geometry_repair;
 pub mod raster_reader;
+pub mod snap_export;
 pub mod wkb;
 
 pub use config::{GdalConfig, ensure_gdal_configured};

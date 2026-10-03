@@ -14,6 +14,30 @@ This repository has two independent release streams. Do not confuse them:
 Versions change **only** on intentional, curated releases — never per commit.
 Agents never create or push tags; a human cuts every release.
 
+## pourpoint 0.4.0 preparation
+
+**PREPARED — UNFIRED.** Source package metadata targets 0.4.0; this is not a
+claim that PyPI serves it. HFX format support and the GRIT reader floor remain
+0.3.0. See `crates/python/CHANGELOG.md` for the complete net changes from
+`pourpoint-v0.3.0`, including changes to watershed results and lazy validation.
+
+Before a human creates `pourpoint-v0.4.0` and publishes its GitHub Release:
+
+1. Merge the reviewed candidate after Rust, Python and documentation checks.
+2. Confirm the repaired-wheel matrix and sdist build for the final candidate.
+   A PR version change runs the matrix without publication. Record its tested
+   SHA (PR builds can use a merge ref), run URL and artifacts. A maintainer may
+   alternatively run `build-wheels.yaml` with `upload=0`; do not select 1 or 2.
+3. Confirm installed-wheel checks pass on all five platforms: exact source
+   package version, bundled data, PROJ, missing-dataset errors, snap extraction
+   and GeoPackage output. These use a generated PyArrow fixture without plotting
+   dependencies. Regular CI separately tests optional GeoPandas conversion.
+4. A human tags the verified merged commit and publishes the GitHub Release.
+   Approve the configured environment, then verify all six PyPI artifacts.
+
+No tag, release, workflow dispatch or publication is performed by preparation.
+Local builds cannot replace the repaired-artifact matrix.
+
 ## Cutting a pourpoint release
 
 1. **Bump the version.** Use the standalone pourpoint bump script (it edits
@@ -50,7 +74,7 @@ Agents never create or push tags; a human cuts every release.
    wheels for macOS arm64, macOS x86_64, Linux x86_64, Linux aarch64, and
    Windows amd64, plus an sdist. Each platform stages bundled GDAL/PROJ data;
    repaired wheels undergo installed-wheel import, version, bundled-data,
-   native-stack, and missing-dataset smoke tests before the configured GitHub
+   native-stack, missing-dataset and snap/GeoPackage smoke tests before the configured GitHub
    environment permits OIDC publication.
 
    A local `maturin build` dry run is unrepaired and platform-local. It is

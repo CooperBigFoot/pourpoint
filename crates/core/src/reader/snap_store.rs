@@ -1,4 +1,5 @@
-//! SnapStore — lazy parquet reader for snap targets.
+//! SnapStore : declared Parquet artifact × spatial selection → SnapTarget stream.
+//! Lazy reader shared by outlet resolution and snap extraction.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use arrow::array::{
 use arrow::datatypes::DataType;
 use chrono::{DateTime, Utc};
 use futures_util::{StreamExt, stream};
-use geo::{BoundingRect, Geometry};
+use geo::{BoundingRect, CoordsIter, Geometry};
 use hfx::{BoundingBox, SnapId, SnapTarget, StemRole, UnitId, Weight, WkbGeometry};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
@@ -39,26 +40,11 @@ use crate::reader::{
     require_column, validate_bbox_struct_field,
 };
 use crate::runtime::RT;
+use crate::snap_targets::{SnapBounds, SnapScope, SnapTargetRow};
 use crate::telemetry::{Stage, StageGuard, record_matches, record_path, record_row_groups};
 
-/// Advance a `f32` value to the next representable float strictly greater than `v`.
-///
-/// Used to pad degenerate bbox axes by the smallest possible amount, ensuring
-/// the result is actually greater than the input regardless of magnitude.
-fn next_up_f32(v: f32) -> f32 {
-    // Bit-cast to u32, increment the integer, cast back. This is the
-    // standard "next representable float" trick for positive finite values.
-    // For negative values and -0.0 the increment still moves toward +∞.
-    let bits = v.to_bits();
-    f32::from_bits(bits + 1)
-}
-
-/// Construct a [`BoundingBox`] for a snap target row, padding degenerate axes by epsilon.
-///
-/// The HFX spec (line 292) allows `bbox_min* <= bbox_max*`, so Point and
-/// axis-aligned LineString geometries produce equal min/max values. Since
-/// [`BoundingBox::new`] requires strict inequality, we pad equal axes by one
-/// ULP rather than rejecting valid snap targets.
+/// Pad degenerate axes inwards at the EPSG:4326 maximum, outwards elsewhere.
+/// Negative values must advance toward positive infinity, not increment their bits.
 fn snap_bbox(
     minx: f32,
     miny: f32,
@@ -66,30 +52,19 @@ fn snap_bbox(
     maxy: f32,
     row: usize,
 ) -> Result<BoundingBox, SessionError> {
-    // Fast path: non-degenerate bbox (common case).
-    if let Ok(bbox) = BoundingBox::new(minx, miny, maxx, maxy) {
-        return Ok(bbox);
-    }
-    // Spec allows degenerate bboxes for snap targets (Points, axis-aligned LineStrings).
-    // Bump the max by one ULP on each degenerate axis so that BoundingBox::new()'s
-    // strict-inequality requirement is satisfied.
-    let padded_maxx = if maxx == minx {
-        next_up_f32(minx)
-    } else {
-        maxx
+    let pad = |min: f32, max: f32, limit: f32| {
+        if min != max {
+            (min, max)
+        } else if max == limit {
+            (min.next_down(), max)
+        } else {
+            (min, max.next_up())
+        }
     };
-    let padded_maxy = if maxy == miny {
-        next_up_f32(miny)
-    } else {
-        maxy
-    };
-    BoundingBox::new(minx, miny, padded_maxx, padded_maxy).map_err(|e| {
-        SessionError::invalid_row(
-            ARTIFACT,
-            row,
-            format!("invalid snap bbox even after epsilon padding: {e}"),
-        )
-    })
+    let (minx, maxx) = pad(minx, maxx, 180.0);
+    let (miny, maxy) = pad(miny, maxy, 90.0);
+    BoundingBox::new(minx, miny, maxx, maxy)
+        .map_err(|e| SessionError::invalid_row(ARTIFACT, row, format!("invalid snap bbox: {e}")))
 }
 
 const ARTIFACT: &str = "snap.parquet";
@@ -206,6 +181,109 @@ pub struct SnapStore {
 }
 
 impl SnapStore {
+    pub(crate) fn open_lazy(path: &Path) -> Result<Self, SessionError> {
+        let (store, object_path, path_display) = local_object_artifact(path)?;
+        Self::open_object(
+            store,
+            object_path,
+            path_display,
+            HeadErrorMode::LocalIo,
+            None,
+            None,
+            None,
+            None,
+            SnapOpenMode::LazyMetadata,
+        )
+    }
+
+    /// Stream complete targets whose actual geometry intersects the scope.
+    /// Reads one row group at a time, with decoded batches capped at 8192 rows.
+    ///
+    /// # Errors
+    /// Propagates schema, read, domain and callback failures without skipping rows.
+    #[instrument(skip_all)]
+    pub fn visit<E: From<SessionError>>(
+        &self,
+        scope: SnapScope,
+        set_name: &str,
+        mut callback: impl FnMut(&SnapTargetRow) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let read_error = |source| SessionError::SnapArtifactRead {
+            name: set_name.to_owned(),
+            path: self.path.to_string(),
+            source: Box::new(source),
+        };
+        let mut candidates: Vec<_> = self
+            .row_groups
+            .iter()
+            .filter(|rg| scope.may_intersect(&rg.bbox))
+            .map(|rg| rg.index)
+            .collect();
+        candidates.extend_from_slice(&self.groups_without_stats);
+        candidates.sort_unstable();
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        RT.block_on(async {
+            let builder = ParquetRecordBatchStreamBuilder::new(self.object_reader())
+                .await
+                .map_err(|source| SessionError::ParquetParse {
+                    artifact: ARTIFACT,
+                    source,
+                })
+                .map_err(&read_error)?;
+            let starts = absolute_row_starts(builder.metadata(), &candidates);
+            let mut stream = builder
+                .with_row_groups(candidates.clone())
+                .with_batch_size(8192)
+                .build()
+                .map_err(|source| SessionError::ParquetParse {
+                    artifact: ARTIFACT,
+                    source,
+                })
+                .map_err(&read_error)?;
+            for (row_group, absolute_start) in candidates.into_iter().zip(starts) {
+                let reader = stream
+                    .next_row_group()
+                    .await
+                    .map_err(|source| SessionError::RowGroupReadError {
+                        artifact: ARTIFACT,
+                        row_group,
+                        source,
+                    })
+                    .map_err(&read_error)?
+                    .ok_or_else(|| {
+                        SessionError::parquet_schema(
+                            ARTIFACT,
+                            "selected row group missing from stream",
+                        )
+                    })
+                    .map_err(&read_error)?;
+                let mut offset = absolute_start;
+                for batch in reader {
+                    let batch = batch
+                        .map_err(|source| SessionError::RowGroupReadError {
+                            artifact: ARTIFACT,
+                            row_group,
+                            source: parquet::errors::ParquetError::ArrowError(source.to_string()),
+                        })
+                        .map_err(&read_error)?;
+                    for target in extract_snap_targets_from_batch(
+                        &batch,
+                        offset,
+                        SnapRowFilter::Geometry(scope),
+                    )
+                    .map_err(&read_error)?
+                    {
+                        callback(&target)?;
+                    }
+                    offset += batch.num_rows();
+                }
+            }
+            Ok(())
+        })
+    }
+
     /// Open `snap.parquet` at `path`, validate its schema, and index
     /// row-group bounding boxes for later pruning.
     ///
@@ -430,10 +508,21 @@ impl SnapStore {
             let row_count = rg.num_rows() as usize;
             total_rows += rg.num_rows() as u64;
 
-            match bbox_col_indices
-                .as_ref()
-                .and_then(|indices| extract_row_group_bbox(rg, indices))
-            {
+            match bbox_col_indices.as_ref().and_then(|indices| {
+                let leaves = [indices.minx, indices.miny, indices.maxx, indices.maxy];
+                // A null bbox row is not represented by min/max statistics.
+                // Unknown null counts must also use the unpruned fallback.
+                leaves
+                    .iter()
+                    .all(|&index| {
+                        rg.column(index)
+                            .statistics()
+                            .and_then(|s| s.null_count_opt())
+                            == Some(0)
+                    })
+                    .then(|| extract_row_group_bbox(rg, indices))
+                    .flatten()
+            }) {
                 Some(bbox) => {
                     row_groups.push(RowGroupBbox {
                         index: i,
@@ -908,11 +997,15 @@ async fn read_snap_bbox_row_group_async(
                 source: parquet::errors::ParquetError::ArrowError(e.to_string()),
             })?;
             let absolute_row = absolute_start + offset_in_group;
-            results.extend(extract_snap_targets_from_batch(
-                &batch,
-                absolute_row,
-                &context.query_bbox,
-            )?);
+            results.extend(
+                extract_snap_targets_from_batch(
+                    &batch,
+                    absolute_row,
+                    SnapRowFilter::BoundingBox(context.query_bbox),
+                )?
+                .into_iter()
+                .map(|row| row.target),
+            );
             offset_in_group += batch.num_rows();
         }
     }
@@ -920,11 +1013,17 @@ async fn read_snap_bbox_row_group_async(
     Ok(results)
 }
 
+#[derive(Clone, Copy)]
+enum SnapRowFilter {
+    BoundingBox(BoundingBox),
+    Geometry(SnapScope),
+}
+
 fn extract_snap_targets_from_batch(
     batch: &arrow::record_batch::RecordBatch,
     row_offset: usize,
-    query_bbox: &BoundingBox,
-) -> Result<Vec<SnapTarget>, SessionError> {
+    filter: SnapRowFilter,
+) -> Result<Vec<SnapTargetRow>, SessionError> {
     let id_col = batch
         .column_by_name("id")
         .and_then(|c| c.as_any().downcast_ref::<Int64Array>())
@@ -978,25 +1077,44 @@ fn extract_snap_targets_from_batch(
 
         let geometry = geometry_from_array(geometry_col_array, i, absolute_row)?;
         let decoded_geometry = validate_snap_geometry(&geometry, absolute_row)?;
-        let row_bbox = match bbox_cols {
-            Some((bbox_struct, xmin_col, ymin_col, xmax_col, ymax_col))
-                if !bbox_struct.is_null(i)
-                    && !xmin_col.is_null(i)
-                    && !ymin_col.is_null(i)
-                    && !xmax_col.is_null(i)
-                    && !ymax_col.is_null(i) =>
-            {
-                snap_bbox(
-                    xmin_col.value(i),
-                    ymin_col.value(i),
-                    xmax_col.value(i),
-                    ymax_col.value(i),
-                    absolute_row,
-                )?
-            }
-            _ => bbox_from_snap_geometry(&decoded_geometry, absolute_row)?,
+        if let Some((bbox_struct, xmin, ymin, xmax, ymax)) = bbox_cols
+            && !bbox_struct.is_null(i)
+            && [xmin, ymin, xmax, ymax].iter().any(|col| col.is_null(i))
+        {
+            return Err(SessionError::invalid_row(
+                ARTIFACT,
+                absolute_row,
+                "non-null bbox has null leaves",
+            ));
+        }
+        let supplied_bbox = match bbox_cols {
+            Some((bbox_struct, xmin, ymin, xmax, ymax)) if !bbox_struct.is_null(i) => Some(
+                SnapBounds::new(xmin.value(i), ymin.value(i), xmax.value(i), ymax.value(i))
+                    .map_err(|e| {
+                        SessionError::invalid_row(ARTIFACT, absolute_row, e.to_string())
+                    })?,
+            ),
+            _ => None,
         };
-        if !row_bbox.intersects(query_bbox) {
+        // The outlet API uses strict HFX BoundingBox. Extraction must retain raw
+        // degenerate/null bounds instead and use f64 geometry for intersection.
+        let row_bbox = match filter {
+            SnapRowFilter::BoundingBox(_) => Some(match supplied_bbox {
+                Some(bounds) => {
+                    let [xmin, ymin, xmax, ymax] = bounds.bounds();
+                    snap_bbox(xmin, ymin, xmax, ymax, absolute_row)?
+                }
+                None => bbox_from_snap_geometry(&decoded_geometry, absolute_row)?,
+            }),
+            SnapRowFilter::Geometry(_) => None,
+        };
+        let matches = match filter {
+            SnapRowFilter::BoundingBox(query) => {
+                row_bbox.is_some_and(|bounds| bounds.intersects(&query))
+            }
+            SnapRowFilter::Geometry(scope) => scope.intersects(&decoded_geometry),
+        };
+        if !matches {
             continue;
         }
 
@@ -1026,14 +1144,10 @@ fn extract_snap_targets_from_batch(
                     })
             })
             .transpose()?;
-        results.push(SnapTarget::new(
-            id,
-            unit_id,
-            weight,
-            stem_role,
-            Some(row_bbox),
-            geometry,
-        ));
+        results.push(SnapTargetRow {
+            target: SnapTarget::new(id, unit_id, weight, stem_role, row_bbox, geometry),
+            bbox: supplied_bbox,
+        });
     }
 
     Ok(results)
@@ -1101,7 +1215,24 @@ fn validate_snap_geometry(
         row,
         reason: e.to_string(),
     })?;
+    if decoded.coords_iter().any(|c| {
+        !c.x.is_finite()
+            || !c.y.is_finite()
+            || !(-180.0..=180.0).contains(&c.x)
+            || !(-90.0..=90.0).contains(&c.y)
+    }) {
+        return Err(SessionError::SnapGeometryInvalid {
+            row,
+            reason: "coordinates must be finite EPSG:4326 values".to_owned(),
+        });
+    }
     match decoded {
+        Geometry::LineString(ref line) if line.0.len() < 2 => {
+            Err(SessionError::SnapGeometryInvalid {
+                row,
+                reason: "LineString must contain at least two coordinates".to_owned(),
+            })
+        }
         Geometry::Point(_) | Geometry::LineString(_) => Ok(decoded),
         other => Err(SessionError::SnapGeometryInvalid {
             row,
@@ -1274,9 +1405,23 @@ mod tests {
     use tempfile::NamedTempFile;
     use tracing_subscriber::prelude::*;
 
-    use super::*;
+    use super::{
+        HeadErrorMode, LEAN_VALIDATION_ROW_GROUP_CONCURRENCY, SnapOpenMode, SnapStore,
+        local_object_artifact, set_snap_membership_row_group_delay_for_test,
+        snap_geometry_decode_rows_for_test, snap_membership_max_in_flight_for_test,
+        snap_membership_rows_for_test,
+    };
+    use crate::error::SessionError;
     use crate::reader::test_instrumentation::ReaderSessionMeasurementScope;
+    use crate::runtime::RT;
+    use crate::snap_targets::SnapExtent;
+    use crate::snap_targets::SnapScope;
+    use crate::telemetry::{Stage, StageGuard};
     use crate::testutil::{bbox_struct_array, bbox_struct_field};
+    use arrow::array::{Array, StructArray};
+    use hfx::{BoundingBox, SnapId, UnitId};
+    use object_store::path::Path as ObjectPath;
+    use std::path::Path;
 
     /// Minimal valid WKB LineString with two points.
     fn minimal_wkb_linestring(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<u8> {
@@ -2333,5 +2478,350 @@ mod tests {
 
         let result = SnapStore::open(tmp.path());
         assert!(matches!(result, Err(SessionError::ParquetSchema { .. })));
+    }
+    #[test]
+    fn extraction_uses_geometry_intersection_not_bbox_overlap() {
+        let rows = vec![SnapRow {
+            id: 1,
+            unit_id: 10,
+            weight: 0.5,
+            is_mainstem: true,
+            minx: 0.0,
+            miny: 0.0,
+            maxx: 4.0,
+            maxy: 4.0,
+            geom: minimal_wkb_linestring(0.0, 0.0, 4.0, 4.0),
+        }];
+        let tmp = write_snap_parquet(&rows);
+        let store = SnapStore::open_lazy(tmp.path()).unwrap();
+        let mut ids = Vec::new();
+        store
+            .visit::<SessionError>(
+                SnapScope::Bbox(SnapExtent::new(0.0, 3.0, 1.0, 4.0).unwrap()),
+                "test-snap",
+                |row| {
+                    ids.push(row.target.id().get());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert!(ids.is_empty());
+        store
+            .visit::<SessionError>(
+                SnapScope::Bbox(SnapExtent::new(4.0, 4.0, 5.0, 5.0).unwrap()),
+                "test-snap",
+                |row| {
+                    ids.push(row.target.id().get());
+                    assert_eq!(row.target.geometry().as_bytes(), rows[0].geom);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(ids, [1]);
+    }
+
+    #[test]
+    fn extraction_prunes_distant_row_groups_without_geometry_decode() {
+        let rows: Vec<_> = [0.0_f32, 10.0, 20.0]
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| SnapRow {
+                id: i as i64 + 1,
+                unit_id: 10,
+                weight: 1.0,
+                is_mainstem: true,
+                minx: x,
+                miny: 0.0,
+                maxx: x + 1.0,
+                maxy: 1.0,
+                geom: minimal_wkb_linestring(f64::from(x), 0.0, f64::from(x + 1.0), 1.0),
+            })
+            .collect();
+        let tmp = write_snap_parquet_with_row_group_size(&rows, 1);
+        let store = SnapStore::open_lazy(tmp.path()).unwrap();
+        let _measurement = ReaderSessionMeasurementScope::enter();
+        let mut ids = Vec::new();
+        store
+            .visit::<SessionError>(
+                SnapScope::Bbox(SnapExtent::new(-1.0, -1.0, 2.0, 2.0).unwrap()),
+                "test-snap",
+                |row| {
+                    ids.push(row.target.id().get());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(ids, [1]);
+        assert_eq!(snap_geometry_decode_rows_for_test(), 1);
+    }
+
+    #[test]
+    fn extraction_null_bbox_in_mixed_group_is_not_pruned() {
+        let fields = match bbox_struct_field(true).data_type().clone() {
+            DataType::Struct(fields) => fields,
+            _ => unreachable!(),
+        };
+        let bbox = StructArray::new(
+            fields,
+            vec![
+                Arc::new(Float32Array::from(vec![50.0, 0.0])),
+                Arc::new(Float32Array::from(vec![50.0, 0.0])),
+                Arc::new(Float32Array::from(vec![51.0, 0.0])),
+                Arc::new(Float32Array::from(vec![51.0, 0.0])),
+            ],
+            Some(arrow::buffer::NullBuffer::from(vec![true, false])),
+        );
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
+            Field::new("weight", DataType::Float32, false),
+            bbox_struct_field(true),
+            Field::new("geometry", DataType::Binary, false),
+        ]));
+        let tmp = write_custom_snap_parquet(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2])),
+                Arc::new(Int64Array::from(vec![10, 10])),
+                Arc::new(Float32Array::from(vec![1.0, 2.0])),
+                Arc::new(bbox),
+                binary_column(&[
+                    minimal_wkb_linestring(50.0, 50.0, 51.0, 51.0),
+                    minimal_wkb_linestring(0.0, 0.0, 1.0, 1.0),
+                ]),
+            ],
+        );
+        let store = SnapStore::open_lazy(tmp.path()).unwrap();
+        assert_eq!(store.groups_without_stats, [0]);
+        let mut ids = Vec::new();
+        store
+            .visit::<SessionError>(
+                SnapScope::Bbox(SnapExtent::new(-1.0, -1.0, 2.0, 2.0).unwrap()),
+                "test-snap",
+                |row| {
+                    assert!(row.bbox.is_none());
+                    ids.push(row.target.id().get());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(ids, [2]);
+    }
+
+    #[test]
+    fn extraction_absent_bbox_negative_and_world_edge_points_preserve_precision() {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("unit_id", DataType::Int64, false),
+            Field::new("weight", DataType::Float32, false),
+            Field::new("geometry", DataType::Binary, false),
+        ]));
+        let point = |x: f64, y: f64| {
+            let mut wkb = vec![1];
+            wkb.extend(1_u32.to_le_bytes());
+            wkb.extend(x.to_le_bytes());
+            wkb.extend(y.to_le_bytes());
+            wkb
+        };
+        let geoms = vec![
+            point(-70.0, -30.0),
+            point(180.0, 90.0),
+            point(-180.0, -90.0),
+            point(8.30000001, 47.20000001),
+        ];
+        let tmp = write_custom_snap_parquet(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2, 3, 4])),
+                Arc::new(Int64Array::from(vec![10; 4])),
+                Arc::new(Float32Array::from(vec![1.0; 4])),
+                binary_column(&geoms),
+            ],
+        );
+        let store = SnapStore::open_lazy(tmp.path()).unwrap();
+        let mut ids = Vec::new();
+        store
+            .visit::<SessionError>(SnapScope::All, "test-snap", |row| {
+                assert!(row.bbox.is_none());
+                assert!(row.target.bbox().is_none());
+                ids.push(row.target.id().get());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(ids, [1, 2, 3, 4]);
+        ids.clear();
+        store
+            .visit::<SessionError>(
+                SnapScope::Bbox(
+                    SnapExtent::new(8.300000005, 47.200000005, 8.300000015, 47.200000015).unwrap(),
+                ),
+                "test-snap",
+                |row| {
+                    assert!(row.bbox.is_none());
+                    assert!(row.target.bbox().is_none());
+                    ids.push(row.target.id().get());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(ids, [4]);
+    }
+
+    #[test]
+    fn extraction_callback_error_stops_before_next_batch() {
+        let rows: Vec<_> = (1..=9000)
+            .map(|id| SnapRow {
+                id,
+                unit_id: 10,
+                weight: 1.0,
+                is_mainstem: true,
+                minx: 0.0,
+                miny: 0.0,
+                maxx: 1.0,
+                maxy: 1.0,
+                geom: minimal_wkb_linestring(0.0, 0.0, 1.0, 1.0),
+            })
+            .collect();
+        let tmp = write_snap_parquet(&rows);
+        let store = SnapStore::open_lazy(tmp.path()).unwrap();
+        let _measurement = ReaderSessionMeasurementScope::enter();
+        let mut count = 0;
+        let error = store
+            .visit::<SessionError>(SnapScope::All, "test-snap", |_| {
+                count += 1;
+                Err(SessionError::invalid_row("sink", 0, "stop"))
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("stop"));
+        assert_eq!(count, 1);
+        assert!(snap_geometry_decode_rows_for_test() <= 8192);
+    }
+    #[test]
+    fn extraction_preserves_supplied_degenerate_world_bounds() {
+        let coordinates = [
+            (180.0_f32, 90.0_f32),
+            (-180.0, -90.0),
+            (-70.0, -30.0),
+            (0.0, 0.0),
+        ];
+        let rows: Vec<_> = coordinates
+            .iter()
+            .enumerate()
+            .map(|(i, &(x, y))| {
+                let mut geom = vec![1];
+                geom.extend(1_u32.to_le_bytes());
+                geom.extend(f64::from(x).to_le_bytes());
+                geom.extend(f64::from(y).to_le_bytes());
+                SnapRow {
+                    id: i as i64 + 1,
+                    unit_id: 10,
+                    weight: 1.0,
+                    is_mainstem: true,
+                    minx: x,
+                    miny: y,
+                    maxx: x,
+                    maxy: y,
+                    geom,
+                }
+            })
+            .collect();
+        let tmp = write_snap_parquet(&rows);
+        let store = SnapStore::open_lazy(tmp.path()).unwrap();
+        let mut seen = 0;
+        store
+            .visit::<SessionError>(SnapScope::All, "test-snap", |row| {
+                let (x, y) = coordinates[seen];
+                assert_eq!(row.bbox.unwrap().bounds(), [x, y, x, y]);
+                assert!(row.target.bbox().is_none());
+                assert_eq!(row.target.geometry().as_bytes(), rows[seen].geom);
+                seen += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(seen, 4);
+    }
+
+    #[test]
+    fn extraction_callback_error_does_not_fetch_or_decode_later_row_groups() {
+        let rows = vec![
+            SnapRow {
+                id: 1,
+                unit_id: 10,
+                weight: 1.0,
+                is_mainstem: true,
+                minx: 0.0,
+                miny: 0.0,
+                maxx: 1.0,
+                maxy: 1.0,
+                geom: minimal_wkb_linestring(0.0, 0.0, 1.0, 1.0),
+            },
+            SnapRow {
+                id: 2,
+                unit_id: 10,
+                weight: 1.0,
+                is_mainstem: true,
+                minx: 0.0,
+                miny: 0.0,
+                maxx: 1.0,
+                maxy: 1.0,
+                geom: vec![255],
+            },
+        ];
+        let tmp = write_snap_parquet_with_row_group_size(&rows, 1);
+        let path = ObjectPath::from("snap.parquet");
+        let memory = Arc::new(InMemory::new());
+        RT.block_on(memory.put(&path, PutPayload::from(std::fs::read(tmp.path()).unwrap())))
+            .unwrap();
+        let counting = Arc::new(CountingStore::new(memory));
+        let store = SnapStore::open_with_mode(
+            counting.clone(),
+            path,
+            "memory://snap.parquet".to_owned(),
+            HeadErrorMode::RemoteArtifact,
+            None,
+            None,
+            None,
+            SnapOpenMode::LazyMetadata,
+        )
+        .unwrap();
+        let before_early = counting.range_read_calls();
+        let _measurement = ReaderSessionMeasurementScope::enter();
+        let error = store
+            .visit::<SessionError>(SnapScope::All, "test-snap", |_| {
+                Err(SessionError::invalid_row(
+                    "sink",
+                    0,
+                    "stop before group two",
+                ))
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("stop before group two"));
+        assert!(
+            matches!(
+                error,
+                SessionError::InvalidRow {
+                    artifact: "sink",
+                    ..
+                }
+            ),
+            "callback errors must retain their original type"
+        );
+        assert_eq!(snap_geometry_decode_rows_for_test(), 1);
+        let early_reads = counting.range_read_calls() - before_early;
+        let before_full = counting.range_read_calls();
+        let read_error = store
+            .visit::<SessionError>(SnapScope::All, "test-snap", |_| Ok(()))
+            .unwrap_err();
+        assert!(read_error.to_string().contains("geometry"));
+        assert!(
+            matches!(read_error, SessionError::SnapArtifactRead { name, path, .. }
+            if name == "test-snap" && path == "snap.parquet")
+        );
+        let full_reads = counting.range_read_calls() - before_full;
+        assert!(early_reads > 0);
+        assert!(
+            full_reads > early_reads,
+            "later row group must add range reads: early={early_reads}, full={full_reads}"
+        );
     }
 }

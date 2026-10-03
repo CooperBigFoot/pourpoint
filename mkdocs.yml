@@ -54,6 +54,7 @@ nav:
       - Datasets: guide/datasets.md
       - Staged API: guide/staged-api.md
       - Basin GeoParquet Export: basin-geoparquet-export.md
+      - Snap-target layers: snap-targets.md
   - API Reference: api-reference.md
   - Advanced:
       - Telemetry: telemetry.md

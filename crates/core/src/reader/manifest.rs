@@ -464,10 +464,17 @@ fn parse_snap_metadata(
             reason: "metadata.name must be a non-empty string".to_string(),
         })?
         .to_string();
-    if name.is_empty() {
+    if name.is_empty()
+        || name.split('-').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+    {
         return Err(SessionError::SnapAuxMetadataInvalid {
-            name: "<unknown>".to_string(),
-            reason: "metadata.name must be a non-empty string".to_string(),
+            name: name.clone(),
+            reason: "metadata.name must be a non-empty kebab-case name".to_string(),
         });
     }
 

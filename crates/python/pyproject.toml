@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pourpoint"
-version = "0.3.0"
+version = "0.4.0"
 requires-python = ">=3.9"
 description = "Beta watershed delineation from normalized HFX datasets"
 readme = "README.md"
@@ -41,6 +41,7 @@ Changelog = "https://github.com/CooperBigFoot/pourpoint/blob/main/crates/python/
 Documentation = "https://cooperbigfoot.github.io/pourpoint/"
 
 [project.optional-dependencies]
+geopandas = ["geopandas>=0.14"]
 test = ["pytest>=8", "pyarrow>=15"]
 dev = ["pourpoint[test]", "ruff", "maturin>=1.7,<2"]
 

@@ -1,7 +1,7 @@
 # pourpoint API Reference
 
-This file documents the **main development branch** and can include Unreleased
-APIs. It is not a promise that an installed 0.3.0 wheel has every name below.
+Prepared 0.4.0 API documentation. This version is not yet published; an
+installed 0.3.0 wheel does not have every name below.
 Released users should use the [`pourpoint-v0.3.0` tag-pinned reference](https://github.com/CooperBigFoot/pourpoint/blob/pourpoint-v0.3.0/crates/python/API.md).
 
 Developer-oriented reference for the current public `pourpoint` Python API.
@@ -14,8 +14,9 @@ PEP 561 stub in [`python/pourpoint/__init__.pyi`](python/pourpoint/__init__.pyi)
 The `pourpoint` package exports these names:
 
 - `Engine`
+- `SnapTargets`
 - `DelineationResult`
-- `BestEffortSkipReason` *(Unreleased/main-only)*
+- `BestEffortSkipReason` *(New in 0.4.0)*
 - `DelineationUnitMetadata`
 - `AreaOnlyResult`
 - `LevelSelection`
@@ -38,6 +39,46 @@ The `pourpoint` package exports these names:
 
 `_pourpoint` exists as a compiled implementation detail, but its helper functions
 are not part of the supported public API.
+
+## Engine.snap_targets and SnapTargets
+
+```python
+engine.snap_targets(
+    *, bbox: tuple[float, float, float, float] | None = None,
+    all: bool = False, snap_set: str | None = None,
+) -> SnapTargets
+
+targets.write(path: os.PathLike[str] | str) -> None
+targets.to_geodataframe() -> geopandas.GeoDataFrame
+```
+
+Exactly one of `bbox` or `all=True` is required. The bbox uses EPSG:4326 west,
+south, east, north coordinates with finite, ordered, non-degenerate bounds.
+Selection includes features whose actual geometries touch or intersect the bbox.
+Complete source geometries are retained. `snap_set` selects one declaration by
+name; omission selects every declared snap set, not only the set used for
+outlet resolution. Missing declarations, unknown names, unsupported snap
+versions, and read/schema errors raise `DatasetError`; an empty extent is valid.
+
+`write()` requires a `.gpkg` path and streams the selection into separate
+`<set>_points` and `<set>_lines` layers, including empty layers. Declaration
+metadata and the source manifest retain supplied attribution. A failed export
+does not replace an existing destination. It does not require GeoPandas.
+
+`to_geodataframe()` imports optional GeoPandas only when called; install
+`pourpoint[geopandas]`. It materializes the selected features in EPSG:4326.
+Columns are `snap_set`, `id`, `unit_id`, `weight`, `stem_role`, `bbox`,
+`geometry_wkb` (exact original WKB), and `geometry`. Nullable source attributes
+remain null. `bbox` retains the supplied float32 coordinates as a tuple, including
+zero-width bounds; an absent or null source bbox becomes `None`.
+`frame.attrs["snap_sets"]` stores declaration metadata and
+`frame.attrs["manifest"]` stores the source manifest. No per-row level is
+invented from a declaration's referenced levels. Weight retains producer-defined
+semantics. Extraction does not change the source license.
+
+Engine construction validates options, source, and manifest. Delineation reads
+and validates graph/catchment artifacts lazily on the first operation that needs
+them. Snap export does not load those artifacts or run delineation.
 
 ## set_log_level
 
@@ -94,7 +135,11 @@ Engine(
 ) -> None
 ```
 
-Opens an HFX dataset and constructs a delineation engine.
+Reads the manifest and validates configuration to construct an engine. The graph,
+catchments and delineation snap set are loaded and validated on the first
+operation that needs delineation data, not during construction. Their errors
+therefore surface at first use. `snap_targets()` only reads its selected snap
+artifacts; it does not require graph, catchment or raster reads.
 
 `dataset_path` must point to an HFX v0.3.0 dataset. HFX v0.1 datasets
 hard-error as an unsupported format version.
@@ -120,7 +165,7 @@ hard-error as an unsupported format version.
 
 ### Engine Properties
 
-> **Unreleased/main-only:** `Engine.unreadable_auxiliary_schemas` is not in the
+> **New in 0.4.0:** `Engine.unreadable_auxiliary_schemas` is not in the
 > 0.3.0 wheel.
 
 `unreadable_auxiliary_schemas: list[str]` reports declarations ignored by the
@@ -302,8 +347,8 @@ Returned by `Engine.delineate()` and `Engine.delineate_batch()`.
 | `input_outlet` | `tuple[float, float]` | Original outlet as `(lon, lat)` |
 | `resolved_outlet` | `tuple[float, float]` | Outlet used for resolution as `(lon, lat)` |
 | `refined_outlet` | `tuple[float, float] \| None` | Raster-refined outlet as `(lon, lat)`, or `None` if refinement was not applied |
-| `refinement_skip_reason` *(Unreleased/main-only)* | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
-| `refinement_seed_kind` *(Unreleased/main-only)* | `str` | `raster_ranked`, `coarse`, or `disabled`; `vector_quantized` is retained for legacy provenance only |
+| `refinement_skip_reason` *(New in 0.4.0)* | `BestEffortSkipReason \| None` | Typed reason when best-effort refinement was skipped; otherwise `None` |
+| `refinement_seed_kind` *(New in 0.4.0)* | `str` | `raster_ranked`, `coarse`, or `disabled`; `vector_quantized` is retained for legacy provenance only |
 | `resolution_method` | `str` | Debug/provenance string describing how outlet resolution happened |
 | `upstream_unit_ids` | `list[int]` | Upstream unit IDs including the terminal unit |
 | `upstream_units` | `list[DelineationUnitMetadata]` | Light per-unit metadata without per-unit geometry |
@@ -335,7 +380,7 @@ and upstream unit count.
 
 ### BestEffortSkipReason
 
-> **Unreleased/main-only:** this type and
+> **New in 0.4.0:** this type and
 > `DelineationResult.refinement_skip_reason` are not in the 0.3.0 wheel.
 
 `refinement_skip_reason` is a separate typed accessor. It does not relabel the

@@ -41,6 +41,35 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Delineate(DelineateArgs),
+    /// Export supplied HFX snap features as QGIS-ready GeoPackage layers.
+    ExportSnap(ExportSnapArgs),
+}
+
+#[derive(Debug, Args)]
+struct ExportSnapArgs {
+    #[arg(long, short = 'd')]
+    dataset: String,
+
+    /// EPSG:4326 west south east north; includes boundary intersections.
+    #[arg(
+        long,
+        num_args = 4,
+        allow_hyphen_values = true,
+        conflicts_with = "all",
+        required_unless_present = "all"
+    )]
+    bbox: Option<Vec<f64>>,
+
+    /// Explicitly export the entire selected snap set(s).
+    #[arg(long, conflicts_with = "bbox", required_unless_present = "bbox")]
+    all: bool,
+
+    /// Select one declared snap set; by default export every declared set.
+    #[arg(long)]
+    snap_set: Option<String>,
+
+    #[arg(long, short = 'o')]
+    output: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -118,25 +147,27 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     init_tracing(cli.verbose, cli.quiet, cli.json);
 
-    match cli.command {
-        Command::Delineate(args) => match run_delineate(&args, cli.json) {
-            Ok(any_failed) => {
-                if any_failed {
-                    ExitCode::FAILURE
-                } else {
-                    ExitCode::SUCCESS
-                }
-            }
-            Err(e) => {
-                if cli.json {
-                    let envelope = json!({"error": format!("{e:#}")});
-                    let _ = writeln!(io::stdout(), "{envelope}");
-                } else {
-                    error!("{e:#}");
-                }
+    let result = match cli.command {
+        Command::Delineate(args) => run_delineate(&args, cli.json),
+        Command::ExportSnap(args) => run_export_snap(&args, cli.json).map(|()| false),
+    };
+    match result {
+        Ok(any_failed) => {
+            if any_failed {
                 ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
             }
-        },
+        }
+        Err(e) => {
+            if cli.json {
+                let envelope = json!({"error": format!("{e:#}")});
+                let _ = writeln!(io::stdout(), "{envelope}");
+            } else {
+                error!("{e:#}");
+            }
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -559,6 +590,58 @@ fn format_refinement(r: &RefinementOutcome) -> String {
         }
         RefinementOutcome::Disabled => "disabled".into(),
     }
+}
+
+// ── Snap-target export ────────────────────────────────────────────────────────
+
+fn run_export_snap(args: &ExportSnapArgs, json_mode: bool) -> Result<()> {
+    use pourpoint_core::DatasetSource;
+    use pourpoint_core::snap_targets::{SnapExtent, SnapScope, SnapTargets};
+    use pourpoint_gdal::snap_export::SnapGeoPackage;
+
+    let scope = match &args.bbox {
+        Some(bounds) => {
+            SnapScope::Bbox(SnapExtent::new(bounds[0], bounds[1], bounds[2], bounds[3])?)
+        }
+        None => SnapScope::All,
+    };
+    if !args
+        .output
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("gpkg"))
+    {
+        anyhow::bail!("--output must have a .gpkg extension");
+    }
+    let targets = SnapTargets::open(
+        DatasetSource::parse(&args.dataset)?,
+        scope,
+        args.snap_set.as_deref(),
+    )
+    .context("failed to select HFX snap targets")?;
+    let parent = args
+        .output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let temporary = tempfile::Builder::new()
+        .prefix(".pourpoint-snap-")
+        .tempdir_in(parent)
+        .context("failed to create temporary GeoPackage directory")?;
+    let temporary_path = temporary.path().join("snap-targets.gpkg");
+    let dataset = gdal::DriverManager::get_driver_by_name("GPKG")?
+        .create_vector_only(&temporary_path)
+        .context("failed to create GeoPackage")?;
+    let mut writer = SnapGeoPackage::new(dataset, targets.metadata())?;
+    targets
+        .visit(|declaration, target| writer.write(declaration, target))
+        .context("failed to export snap targets")?;
+    writer.finish().context("failed to finish GeoPackage")?;
+    std::fs::rename(&temporary_path, &args.output).context("failed to publish GeoPackage")?;
+    if json_mode {
+        let envelope = json!({"output": args.output, "snap_sets": targets.metadata().declarations.iter().map(|set| &set.name).collect::<Vec<_>>()});
+        writeln!(io::stdout(), "{envelope}")?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
