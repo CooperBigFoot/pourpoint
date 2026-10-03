@@ -17,6 +17,7 @@ pub mod resolver;
 #[allow(dead_code)]
 pub(crate) mod runtime;
 pub mod session;
+pub mod snap_targets;
 pub mod source;
 pub mod source_telemetry;
 pub mod staged;

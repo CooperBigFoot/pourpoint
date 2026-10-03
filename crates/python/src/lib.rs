@@ -15,6 +15,7 @@ mod export;
 mod geojson;
 pub(crate) mod kwargs;
 mod result;
+mod snap_targets;
 mod staged;
 
 use std::sync::OnceLock;
@@ -127,6 +128,7 @@ fn _pourpoint(m: &Bound<'_, PyModule>) -> PyResult<()> {
     log::set_max_level(log::LevelFilter::Warn);
 
     m.add_class::<engine::PyEngine>()?;
+    m.add_class::<snap_targets::PySnapTargets>()?;
     m.add_class::<export::PyBasinGeoParquetWriter>()?;
     m.add_class::<export::PyUnitBundleGeoParquetWriter>()?;
     m.add_class::<result::PyDelineationResult>()?;

@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Callable, Literal, Mapping, TypedDict, overload
+from typing import TYPE_CHECKING, Callable, Literal, Mapping, TypedDict, overload
+
+if TYPE_CHECKING:
+    from geopandas import GeoDataFrame
 
 __version__: str
 
@@ -315,6 +318,12 @@ class UnitBundleGeoParquetWriter:
     def __repr__(self) -> str: ...
 
 
+class SnapTargets:
+    def write(self, path: os.PathLike[str] | str) -> None: ...
+
+    def to_geodataframe(self) -> GeoDataFrame: ...
+
+
 class Engine:
     def __init__(
         self,
@@ -332,6 +341,14 @@ class Engine:
 
     @property
     def unreadable_auxiliary_schemas(self) -> list[str]: ...
+
+    def snap_targets(
+        self,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        all: bool = False,
+        snap_set: str | None = None,
+    ) -> SnapTargets: ...
 
     @overload
     def delineate(

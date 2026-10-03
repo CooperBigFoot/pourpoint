@@ -1,15 +1,15 @@
 //! Dataset source parsing for local and object-store backed HFX roots.
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use object_store::BackoffConfig;
 use object_store::ClientOptions;
-use object_store::ObjectStore;
 use object_store::RetryConfig;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
+use object_store::{ObjectStore, ObjectStoreExt};
 use url::Url;
 
 use crate::error::SessionError;
@@ -68,6 +68,41 @@ pub enum DatasetSource {
 }
 
 impl DatasetSource {
+    /// Read and parse only the manifest, retaining raw metadata such as attribution.
+    ///
+    /// # Errors
+    /// Returns manifest read, JSON, schema and domain errors. No unit artifact is opened.
+    #[tracing::instrument(skip_all)]
+    pub fn read_manifest(
+        &self,
+    ) -> Result<(crate::reader::manifest::ParsedManifest, serde_json::Value), SessionError> {
+        let bytes = match self {
+            DatasetSource::Local(root) => std::fs::read(root.join("manifest.json"))
+                .map_err(|e| SessionError::io("manifest.json", e))?,
+            DatasetSource::Remote {
+                store, root, url, ..
+            } => crate::runtime::RT.block_on(async {
+                let result = store
+                    .get(&root.clone().join("manifest.json"))
+                    .await
+                    .map_err(|e| {
+                        SessionError::remote_artifact_read("manifest.json", url.as_str(), e)
+                    })?;
+                result
+                    .bytes()
+                    .await
+                    .map(|bytes| bytes.to_vec())
+                    .map_err(|e| {
+                        SessionError::remote_artifact_read("manifest.json", url.as_str(), e)
+                    })
+            })?,
+        };
+        let parsed = crate::reader::manifest::read_manifest_from_bytes(&bytes)?;
+        let manifest = serde_json::from_slice(&bytes)
+            .map_err(|source| SessionError::ManifestJsonParse { source })?;
+        Ok((parsed, manifest))
+    }
+
     /// Parse a dataset source from a local path or supported URL.
     ///
     /// # Errors
@@ -239,6 +274,17 @@ impl DatasetSource {
             url,
         })
     }
+}
+
+pub(crate) fn path_escapes_root(raw_path: &str) -> bool {
+    let path = Path::new(raw_path);
+    path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
 }
 
 #[cfg(test)]

@@ -7,25 +7,104 @@ per-commit Rust crate versioning).
 
 ## [Unreleased]
 
-### Changed
-
-- D8 refinement ranks usable threshold-qualified cells throughout the selected
-  terminal unit against the vector snap point, or request point for containment.
-  Ties use higher accumulation then row-major order. `resolved_outlet` keeps its
-  vector/request meaning; `refined_outlet` is the selected cell center.
-- Built-in applied results report `refinement_seed_kind="raster_ranked"` and
-  `RasterOutletRanked` provenance. `vector_quantized` and vector guard evidence
-  remain legacy compatibility values, never new built-in results.
-- Python and CLI GeoJSON add nullable `refined_lon` and `refined_lat` properties.
-  Existing input/resolved fields and the refinement diagnostic string remain.
+## [0.4.0] - Prepared, unreleased
 
 ### Added
 
-- Added the top-level `pourpoint.BestEffortSkipReason` export and the typed
-  `DelineationResult.refinement_skip_reason` accessor.
-- Added `DelineationResult.refinement_seed_kind` and vector guard evidence
-  properties on `BestEffortSkipReason` while retaining the three existing
-  `TerminalRefinement.status` values.
+- Extract manifest-declared snap targets with `Engine.snap_targets(...)` and
+  the source-distributed `pourpoint export-snap` CLI. Select an EPSG:4326 bounding
+  box or explicit whole-dataset scope, optionally choose a named set, and write
+  separate Point/LineString layers to GeoPackage for QGIS. Selections retain
+  complete intersecting geometries, attributes, set metadata and attribution.
+  Python GeoDataFrame conversion uses optional GeoPandas; extraction and file
+  export do not need a plotting stack. These features do not reconstruct routing.
+- Inspect retained unreadable auxiliary declarations with
+  `Engine.unreadable_auxiliary_schemas`. Access typed refinement diagnostics with
+  `BestEffortSkipReason` and `DelineationResult.refinement_skip_reason`, and the
+  applied raster rule with `refinement_seed_kind`.
+
+### Fixed and changed
+
+- Preserve valid watershed regions during dissolve and topology cleanup,
+  including narrow-neck splits and small separate components. Reconstruct
+  point-tangent holes correctly and reject invalid final watershed geometry.
+- Correct regional geodesic areas that could report an Earth-sized complement.
+  Sum each polygon's regional area magnitude with hole subtraction, independently
+  of ring winding, without discarding tiny components. This does not add support
+  for major-interior polygons or certify engine-wide antimeridian behavior.
+- Rank usable threshold-qualified raster cells throughout the resolved terminal
+  unit against the vector snap point, or the request point for containment.
+  Ties use higher accumulation then row-major order. Finite references outside
+  the terminal or window remain valid. Terminal and upstream unit selection do
+  not change. GRASS sinks and signed coverage exits remain eligible D8 semantics;
+  ESRI/TauDEM code zero remains absent.
+- Keep `resolved_outlet` as the vector/request reference and `refined_outlet` as
+  the chosen raster cell center. Python and CLI GeoJSON add nullable `refined_lon`
+  and `refined_lat`; built-in applied results report `raster_ranked` and
+  `RasterOutletRanked` provenance.
+- Retain unrecognized `hfx.aux.*` declarations for diagnostics instead of
+  rejecting the whole dataset. Unsupported D8 declarations are not decoded.
+  Best-effort refinement reports the first unreadable D8-family schema when no
+  readable D8 declaration exists; required D8 refinement still fails.
+  Malformed supported declarations still fail.
+
+### Compatibility
+
+- `Engine(...)` now reads the manifest and configuration without loading the
+  graph or catchments. Their read/validation errors, and errors in the snap set
+  used for delineation, surface at the first delineation operation rather than
+  construction. Snap-target extraction reads only its selected declarations and
+  artifacts; it does not require graph, catchment or raster loading.
+- Watershed geometry, area, raster seeds and refinement provenance can differ
+  from 0.3.0. Assembly can now reject invalid output previously returned.
+- Existing input/resolved result fields and all three `TerminalRefinement.status`
+  values remain. Containment without D8 has a distinct coarse-unit skip reason.
+  Vector-guard properties remain historical compatibility evidence, not current
+  built-in behavior.
+- HFX format support remains 0.3.0. D8-v1 declarations can be retained when
+  opening datasets for other operations but are not enabled for refinement.
+- Python wheels contain the package and native extension, not the Rust CLI.
+
+### Rust source compatibility
+
+These are net changes from `pourpoint-v0.3.0`, not migrations from intermediate
+unreleased implementations. Public enums are exhaustive; downstream matches
+must account for added variants.
+
+- `TerminalRefinementInput.resolved_outlet` becomes `outlet_reference`;
+  custom strategies choose `OutletReference::VectorPoint` or `UnitOnly`.
+- `RefinementOutcome`, `TerminalRefinement` and `TerminalRefinementDecision`
+  carry matching `AppliedRefinementProvenance` / `BestEffortRefinementProvenance`
+  wrappers. Use their accessors instead of aggregate enum patterns. Deprecated
+  aggregate `RefinementProvenance` remains for migration.
+- `BestEffortSkipReason` adds `CoarseUnitOnlyNoD8AuxDeclared`,
+  `UnreadableD8AuxDeclared` and historical `VectorOutletGuardFailed`.
+  `AppliedRefinementReason` adds active `RasterOutletRanked` and historical
+  `VectorOutletQuantized`; `D8AuxMatchedTerminalBbox` is deprecated.
+  `BestEffortSkipReason` and aggregate `RefinementProvenance` no longer implement
+  `Eq` because historical evidence includes floating-point values.
+- `SessionError::UnsupportedD8RasterV1` is removed. `AuxDeclarations` adds public
+  `unreadable`; downstream struct literals must supply it.
+  `WatershedAreaError` adds `HoleAreaExceedsShell`; `SnapError` adds
+  `NonFiniteReference`. `OutletOutOfBounds` remains historical compatibility.
+- Deprecated `resolve_outlet`, `resolve_outlet_at_level`, `ResolvedOutlet` and
+  `LevelResolvedOutlet::resolved()` preserve released field access. Prefer
+  `resolve_outlet_authority`, `resolve_outlet_authority_at_level`,
+  `OutletResolution` and `LevelResolvedOutlet::authority()`.
+- `Engine::refine_terminal` is the stable staged method;
+  `refine_terminal_placeholder` remains a deprecated forwarding shim.
+- Additive APIs expose reader support claims, geometry validity diagnostics,
+  decoded flow cells, raster seed/candidate/ranking types and snap-target access
+  and GeoPackage export. Geometry algorithms use `geo` 0.33 (previously 0.29),
+  raising the dependency MSRV to Rust 1.88; `geo-types` carriers remain on 0.7.
+
+### Repository support
+
+- Support-claim tests, reader-floor proofs, released-reader evidence tooling,
+  portable contributor checks and installed-wheel checks were strengthened.
+  Study/export scripts and delivery records are repository tools, not new
+  installed watershed APIs. Remote R2 support and general range caching predate
+  this release.
 
 ## [0.3.0] - 2026-07-31
 

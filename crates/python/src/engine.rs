@@ -1,6 +1,6 @@
-//! Python-exposed [`Engine`] wrapper.
+//! Engine : HFX source × EngineConfig → lazy delineation and snap selection.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pourpoint_core::Engine;
 use pourpoint_core::algo::GeoCoord;
@@ -9,6 +9,8 @@ use pourpoint_core::parquet_cache::{
     DEFAULT_PARQUET_CACHE_MAX_BYTES, ParquetFooterCache, ParquetRowGroupCache,
 };
 use pourpoint_core::session::DatasetSession;
+use pourpoint_core::snap_targets::{SnapExtent, SnapScope, SnapTargets};
+use pourpoint_core::source::DatasetSource;
 use pourpoint_gdal::{GdalGeometryRepair, GdalRasterSource};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -16,6 +18,7 @@ use pyo3::types::{PyDict, PyList};
 use crate::config::{EngineConfig, RepairGeometry};
 use crate::error::engine_err_to_py;
 use crate::result::{PyAreaOnlyResult, PyDelineationResult};
+use crate::snap_targets::PySnapTargets;
 use crate::staged::{
     PyDissolvedWatershed, PyLevelSelection, PyPreMergeDrainageUnits, PyResolvedOutlet,
     PySelectedLevel, PyTerminalRefinement, PyUpstreamUnits,
@@ -82,7 +85,11 @@ enum PyDelineateOutput {
 /// arguments tune the outlet resolution and geometry-cleaning steps.
 #[pyclass(name = "Engine")]
 pub struct PyEngine {
-    engine: Arc<Engine>,
+    engine: Mutex<Option<Arc<Engine>>>,
+    dataset_path: String,
+    source: DatasetSource,
+    row_group_cache: Option<Arc<ParquetRowGroupCache>>,
+    footer_cache: Option<Arc<ParquetFooterCache>>,
     pub(crate) config: EngineConfig,
     pub(crate) fabric_identity: FabricIdentity,
     unreadable_auxiliary_schemas: Vec<String>,
@@ -90,7 +97,7 @@ pub struct PyEngine {
 
 #[pymethods]
 impl PyEngine {
-    /// Open an HFX dataset and build the engine.
+    /// Validate the HFX source, manifest, and options; load delineation artifacts on first use.
     ///
     /// Parameters
     /// ----------
@@ -202,35 +209,61 @@ impl PyEngine {
             tracing::info!(max_bytes = max_bytes, "parquet_cache enabled");
         }
 
-        // Release the GIL for the synchronous I/O path (manifest + graph + catchment
-        // id scan). This keeps the interpreter responsive and allows KeyboardInterrupt
-        // during slow remote cold-starts.
+        // Construction reads the manifest, never graph or catchment rows.
         let dataset_path = dataset_path.to_owned();
-        let session = py
-            .allow_threads(move || {
-                DatasetSession::open_with_caches(&dataset_path, row_group_cache, footer_cache)
-            })
-            .map_err(crate::error::dataset_err)?;
-        let fabric_identity = FabricIdentity::from_manifest(session.manifest());
-        let unreadable_auxiliary_schemas = session
-            .auxiliary_declarations()
+        let (source, parsed) = py.allow_threads(|| {
+            let source = DatasetSource::parse(&dataset_path).map_err(crate::error::dataset_err)?;
+            let (parsed, _) = source.read_manifest().map_err(crate::error::dataset_err)?;
+            Ok::<_, PyErr>((source, parsed))
+        })?;
+        let fabric_identity = FabricIdentity::from_manifest(&parsed.manifest);
+        let unreadable_auxiliary_schemas = parsed
+            .aux
             .unreadable
             .iter()
             .map(|decl| decl.schema.clone())
             .collect();
 
-        let mut builder = Engine::builder(session).with_raster_source(GdalRasterSource::new());
-        if config.requests_gdal_geometry_repair() {
-            builder = builder.with_geometry_repair(GdalGeometryRepair::new());
-        }
-        let engine = builder.build();
-
         Ok(Self {
-            engine: Arc::new(engine),
+            engine: Mutex::new(None),
+            dataset_path,
+            source,
+            row_group_cache,
+            footer_cache,
             config,
             fabric_identity,
             unreadable_auxiliary_schemas,
         })
+    }
+
+    /// Select complete snap features without loading graph or catchment data.
+    ///
+    /// # Errors
+    /// Raises ValueError for invalid scope and DatasetError for unavailable declarations.
+    #[pyo3(signature = (*, bbox=None, all=false, snap_set=None))]
+    #[tracing::instrument(skip_all, fields(snap_set))]
+    fn snap_targets(
+        &self,
+        py: Python<'_>,
+        bbox: Option<(f64, f64, f64, f64)>,
+        all: bool,
+        snap_set: Option<&str>,
+    ) -> PyResult<PySnapTargets> {
+        let scope = match (bbox, all) {
+            (Some((west, south, east, north)), false) => SnapScope::Bbox(
+                SnapExtent::new(west, south, east, north)
+                    .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?,
+            ),
+            (None, true) => SnapScope::All,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "specify exactly one of bbox or all=True",
+                ));
+            }
+        };
+        py.allow_threads(|| SnapTargets::open(self.source.clone(), scope, snap_set))
+            .map(|inner| PySnapTargets { inner })
+            .map_err(crate::error::dataset_err)
     }
 
     /// Return unreadable HFX auxiliary schema occurrences in manifest order.
@@ -249,7 +282,7 @@ impl PyEngine {
         py: Python<'_>,
         selection: PyLevelSelection,
     ) -> PyResult<PySelectedLevel> {
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let core_selection = selection.into();
         py.allow_threads(move || engine.select_level(core_selection))
             .map(PySelectedLevel::from_inner)
@@ -270,7 +303,7 @@ impl PyEngine {
         let lon = required_f64_kwarg(kwargs, "lon", "Engine.resolve_outlet()")?;
         validate_coord(lat, lon)?;
 
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let selected_level = level.inner;
         let resolver_config = self
             .config
@@ -290,7 +323,7 @@ impl PyEngine {
 
     /// Traverse same-level upstream units from a resolved outlet.
     fn traverse(&self, py: Python<'_>, outlet: &PyResolvedOutlet) -> PyResult<PyUpstreamUnits> {
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let outlet = outlet.inner.clone();
         py.allow_threads(move || engine.traverse_upstream_at_level(&outlet))
             .map(PyUpstreamUnits::from_inner)
@@ -303,7 +336,7 @@ impl PyEngine {
         py: Python<'_>,
         upstream: &PyUpstreamUnits,
     ) -> PyResult<PyPreMergeDrainageUnits> {
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let upstream = upstream.inner.clone();
         py.allow_threads(move || engine.produce_pre_merge_units(&upstream))
             .map(PyPreMergeDrainageUnits::from_inner)
@@ -317,7 +350,7 @@ impl PyEngine {
         outlet: &PyResolvedOutlet,
         units: &PyPreMergeDrainageUnits,
     ) -> PyResult<PyTerminalRefinement> {
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let outlet = outlet.inner.clone();
         let units = units.inner.clone();
         let options = self.config.to_delineation_options()?;
@@ -333,7 +366,7 @@ impl PyEngine {
         units: &PyPreMergeDrainageUnits,
         refinement: &PyTerminalRefinement,
     ) -> PyResult<PyDissolvedWatershed> {
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let units = units.inner.clone();
         let refinement = refinement.inner.clone();
         let options = self.config.to_delineation_options()?;
@@ -345,18 +378,21 @@ impl PyEngine {
     /// Compose typed staged intermediates into the same merged result returned by `delineate()`.
     fn compose_result(
         &self,
+        py: Python<'_>,
         outlet: &PyResolvedOutlet,
         upstream: &PyUpstreamUnits,
         units: &PyPreMergeDrainageUnits,
         refinement: &PyTerminalRefinement,
         dissolved: &PyDissolvedWatershed,
-    ) -> PyDelineationResult {
-        PyDelineationResult::from_result(self.engine.compose_result(
-            outlet.inner.clone(),
-            upstream.inner.clone(),
-            &units.inner,
-            refinement.inner.clone(),
-            dissolved.inner.clone(),
+    ) -> PyResult<PyDelineationResult> {
+        Ok(PyDelineationResult::from_result(
+            self.delineation_engine(py)?.compose_result(
+                outlet.inner.clone(),
+                upstream.inner.clone(),
+                &units.inner,
+                refinement.inner.clone(),
+                dissolved.inner.clone(),
+            ),
         ))
     }
 
@@ -405,7 +441,7 @@ impl PyEngine {
 
         validate_coord(lat, lon)?;
 
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let options = self.config.to_delineation_options()?;
 
         let output = py.allow_threads(move || {
@@ -496,7 +532,7 @@ impl PyEngine {
             .collect::<PyResult<Vec<_>>>()?;
 
         let total = parsed.len();
-        let engine = self.engine.clone();
+        let engine = self.delineation_engine(py)?;
         let options = self.config.to_delineation_options()?;
 
         tracing::info!(
@@ -556,6 +592,32 @@ impl PyEngine {
         );
 
         Ok(py_results)
+    }
+}
+
+impl PyEngine {
+    fn delineation_engine(&self, py: Python<'_>) -> PyResult<Arc<Engine>> {
+        py.allow_threads(|| {
+            let mut slot = self.engine.lock().map_err(|error| {
+                crate::error::dataset_err(format!("engine initialization lock failed: {error}"))
+            })?;
+            if let Some(engine) = slot.as_ref() {
+                return Ok(Arc::clone(engine));
+            }
+            let session = DatasetSession::open_with_caches(
+                &self.dataset_path,
+                self.row_group_cache.clone(),
+                self.footer_cache.clone(),
+            )
+            .map_err(crate::error::dataset_err)?;
+            let mut builder = Engine::builder(session).with_raster_source(GdalRasterSource::new());
+            if self.config.requests_gdal_geometry_repair() {
+                builder = builder.with_geometry_repair(GdalGeometryRepair::new());
+            }
+            let engine = Arc::new(builder.build());
+            *slot = Some(Arc::clone(&engine));
+            Ok(engine)
+        })
     }
 }
 

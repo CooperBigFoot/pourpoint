@@ -4,6 +4,26 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 
 ## Unreleased
 
+### Added and fixed since Python 0.3.0
+
+- Export declared snap-target sets through `pourpoint export-snap` and Python
+  `Engine.snap_targets`, with explicit spatial scope, complete intersecting
+  geometries, separate named-set/geometry layers and GeoPackage metadata.
+- Preserve valid watershed regions during dissolve and topology cleanup,
+  including narrow-neck splits, tiny separate components and point-tangent
+  holes. Reject invalid final watershed geometries before returning results.
+- Correct regional geodesic area calculation that could select an Earth-sized
+  complement. Sum winding-independent polygon magnitudes with hole subtraction;
+  reject holes whose total area exceeds their shell. No fragment cutoff or new
+  major-interior/antimeridian interpretation is introduced.
+- Retain unknown auxiliary declarations for diagnostics, exposed in Python as
+  `Engine.unreadable_auxiliary_schemas`; malformed supported declarations still
+  fail. Unsupported D8 declarations are not enabled for raster refinement.
+
+The Python 0.4.0 notes in `crates/python/CHANGELOG.md` describe the complete net
+release range. The migration log below also retains intermediate-main changes,
+which are not all changes from the Python 0.3.0 baseline.
+
 ### Rust API migration
 
 - `LevelResolvedOutlet::resolved()` remains available as a deprecated legacy
@@ -55,7 +75,7 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
 - Added an ignored, explicitly blessed local-current-HFX MERIT recapture target
   that rejects stale D8 v1 input and records exact HFX and adapter versions
   without publishing licensed raster or geometry data.
-- Accepted public R2 custom-domain dataset roots at
+- Previously shipped: accepted public R2 custom-domain dataset roots at
   `https://basin-delineations-public.upstream.tech/...`.
 - Reader floor: pourpoint 0.3.0 for the GRIT address offered by this repository,
   derived from the 0.3.0 format and GRASS decoding entries in
@@ -83,6 +103,11 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
   unreadable D8-family schema. The new public, exhaustive
   `BestEffortSkipReason::UnreadableD8AuxDeclared` variant is a breaking Rust
   source change for downstream exhaustive matches.
+### Already included in Python 0.3.0
+
+The following reader changes are retained as workspace history, not new Python
+0.4.0 features.
+
 - Read out-of-line TIFF ASCII metadata through the remote COG reader with a
   fixed 256-byte ceiling, enabling GDAL nodata values such as `-128` and
   `-2147483648`.
@@ -90,8 +115,8 @@ All notable changes to `pourpoint` (the CLI binary) and `pourpoint-core` (the en
   nodata sentinel instead of direction code `0`, so missing tile coverage
   remains detectable.
 - Raised the fixed, file-independent decoded COG chunk ceiling from 1 MiB to
-  8 MiB, covering a 1024 x 1024 float64 tile while retaining positive
-  headroom above 512 x 512 F32 tiles.
+  8 MiB, numerically equal to 1024 x 1024 x 8 bytes while retaining positive
+  headroom above 512 x 512 F32 tiles. This does not add F64 decode support.
 - The built-in D8 refinement strategy
   (`D8RasterRefinementStrategy::refine_terminal`) now rejects degenerate input
   terminal geometry with `RefinementError::DegenerateTerminalPolygon` before

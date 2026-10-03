@@ -14,10 +14,12 @@ The released Python package is version 0.3.0. It is classified
 in GitHub Releases. PyPI hosts the package artifacts. The GitHub Release records
 the release and does not host wheels.
 
-Version 0.3.0 provides one-shot and batch delineation, a staged Python API,
-GeoJSON `Feature` serialization, and Python GeoParquet writers. Changes under
-the changelog's Unreleased section and APIs identified as main-only in the
-[Python API reference](crates/python/API.md) are not part of 0.3.0.
+Prepared 0.4.0 adds [snap-target layers](docs/snap-targets.md), watershed
+geometry/area fixes and updated refinement diagnostics. It is not yet published.
+See the [0.4.0 notes](crates/python/CHANGELOG.md) and
+[prepared API reference](crates/python/API.md). The current PyPI 0.3.0 release
+provides delineation, the staged API, GeoJSON and Python GeoParquet writers,
+but not these new APIs. Python wheels do not install the Rust CLI.
 
 Install the release:
 
