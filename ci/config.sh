@@ -8,7 +8,8 @@
 #     libwebp, lcms2, giflib, blosc, pcre2, expat — not needed by pourpoint.
 #   - GDAL_USE_GEOS=ON (rasterio disables it on macOS; pourpoint needs GEOS for
 #     geometry repair).
-#   - Minimal GDAL driver set: GTiff, VRT, MEM (raster) + GeoJSON, Shape (OGR).
+#   - Minimal GDAL driver set: GTiff, VRT, MEM (raster) + GeoJSON, Shape,
+#     SQLite, GeoPackage (OGR). GeoPackage requires the SQLite driver too.
 #
 # Environment variables consumed (set by cibuildwheel via CIBW_ENVIRONMENT_MACOS
 # or CIBW_ENVIRONMENT_LINUX):
@@ -599,6 +600,8 @@ function build_gdal {
             -DGDAL_ENABLE_DRIVER_MEM=ON \
             -DOGR_ENABLE_DRIVER_GEOJSON=ON \
             -DOGR_ENABLE_DRIVER_SHAPE=ON \
+            -DOGR_ENABLE_DRIVER_SQLITE=ON \
+            -DOGR_ENABLE_DRIVER_GPKG=ON \
             -DGDAL_USE_GEOS=ON \
             -DGDAL_USE_TIFF=ON \
             -DGDAL_USE_GEOTIFF_INTERNAL=ON \
@@ -660,3 +663,9 @@ ls "$BUILD_PREFIX/lib"
 echo ""
 echo "GDAL version:"
 "$GDAL_CONFIG" --version
+
+# Fail before wheel compilation if the minimal driver selection omits export support.
+# The repaired-wheel smoke test separately verifies actual GeoPackage writing.
+echo ""
+echo "GeoPackage driver:"
+"$BUILD_PREFIX/bin/ogrinfo" --format GPKG

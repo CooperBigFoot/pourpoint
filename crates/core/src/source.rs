@@ -114,6 +114,17 @@ impl DatasetSource {
     /// | [`SessionError::DatasetSourcePath`] | The remote URL path cannot be represented as an object-store path |
     /// | [`SessionError::ObjectStoreConfig`] | Object-store configuration fails |
     pub fn parse(input: &str) -> Result<Self, SessionError> {
+        // URL parsing treats a Windows drive letter as a scheme. Recognize
+        // rooted drive/UNC paths first, but never reinterpret an explicit URL.
+        let bytes = input.as_bytes();
+        let rooted_drive = bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/')
+            && !input.contains("://");
+        if rooted_drive || input.starts_with(r"\\") {
+            return Ok(Self::Local(PathBuf::from(input)));
+        }
         match Url::parse(input) {
             Ok(url) => Self::parse_url(input, url),
             Err(source) if input.contains("://") => Err(SessionError::InvalidDatasetSource {
@@ -385,6 +396,41 @@ mod tests {
                     None => std::env::remove_var("POURPOINT_RANGE_GET_CONCURRENCY"),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn windows_rooted_drive_and_unc_paths_are_local_not_url_schemes() {
+        for input in [
+            r"C:\data\hfx",
+            "c:/data/hfx",
+            r"Z:\",
+            r"\\server\share\hfx",
+            r"\\?\C:\data\hfx",
+            "//server/share/hfx",
+        ] {
+            let parsed = DatasetSource::parse(input).unwrap();
+            assert!(
+                matches!(parsed, DatasetSource::Local(path) if path == std::path::PathBuf::from(input))
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_unknown_urls_are_not_reinterpreted_as_windows_paths() {
+        for input in [
+            "z://host/hfx",
+            "ftp://host/hfx",
+            "gopher://host/hfx",
+            "unknown:dataset",
+        ] {
+            assert!(
+                matches!(
+                    DatasetSource::parse(input),
+                    Err(SessionError::UnsupportedDatasetSource { .. })
+                ),
+                "{input}"
+            );
         }
     }
 

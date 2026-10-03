@@ -25,6 +25,8 @@ per-commit Rust crate versioning).
 
 ### Fixed and changed
 
+- Recognize Windows rooted drive and UNC dataset paths as local paths, without
+  treating drive letters as unsupported URL schemes.
 - Preserve valid watershed regions during dissolve and topology cleanup,
   including narrow-neck splits and small separate components. Reconstruct
   point-tangent holes correctly and reject invalid final watershed geometry.
